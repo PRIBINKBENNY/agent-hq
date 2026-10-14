@@ -1,0 +1,19 @@
+.venv/
+brain/data/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+office/logs/
+workspace/**/__pycache__/
+# personal data stays local (CVs, applications, drafts, pipelines, paper trading)
+workspace/cv/
+workspace/applications/
+workspace/outbox/
+workspace/pipeline/
+workspace/trading/
+workspace/calendar/
+workspace/interviews/
+workspace/proposals/
+workspace/posts/
+workspace/projects/*/.git/

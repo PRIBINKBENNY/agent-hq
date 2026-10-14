@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent HQ</title>
+<style>
+  :root {
+    --bg: #080b14; --panel: #10151f; --panel-2: #171d2a; --line: #232b3a;
+    --ink: #e6eaf2; --ink-2: #9aa5b8; --ink-3: #66718a;
+    --think: #5b8def; --tool: #e0a93b; --deleg: #a67cf0; --done: #3ec28f; --err: #ef5b6e; --idle: #4b5566;
+    --accent: #5b8def;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px/1.45 -apple-system, "Inter", "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+  .app { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+  .top { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; z-index: 5; }
+  .brand { font-weight: 800; font-size: 16px; letter-spacing: .4px; display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+  .brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--done); animation: ping 2s infinite; }
+  .brand .dot.off { background: var(--err); animation: none; }
+  @keyframes ping { 0% { box-shadow: 0 0 0 0 rgba(62,194,143,.5);} 70% { box-shadow: 0 0 0 9px rgba(62,194,143,0);} 100% { box-shadow: 0 0 0 0 rgba(62,194,143,0);} }
+  .cmd { display: flex; gap: 6px; flex: 1; min-width: 320px; align-items: center; }
+  .cmd input { flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--ink); padding: 8px 11px; border-radius: 8px; font-size: 13px; }
+  .cmd select, .cmd button { background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); padding: 8px 10px; border-radius: 8px; font-size: 12px; }
+  .cmd button.go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; cursor: pointer; }
+  .cmd #mic { cursor: pointer; } .cmd #mic.on { border-color: var(--err); color: var(--err); animation: ping 1.2s infinite; }
+  .task { padding: 7px 12px; border-bottom: 1px solid var(--line); font-size: 11.5px; display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: start; }
+  .task .st { font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); white-space: nowrap; }
+  .task .st.running { color: var(--think); border-color: var(--think); } .task .st.queued { color: var(--tool); border-color: var(--tool); }
+  .task .st.done { color: var(--done); border-color: var(--done); } .task .st.failed, .task .st.cancelled { color: var(--err); border-color: var(--err); }
+  .task .who { color: var(--ink-3); font-size: 10.5px; } .task button { background: none; border: 1px solid var(--line); color: var(--ink-3); border-radius: 5px; font-size: 10px; cursor: pointer; padding: 1px 6px; margin-left: 4px; }
+  .run { padding: 7px 12px; border-bottom: 1px solid var(--line); font-size: 11.5px; cursor: pointer; }
+  .run .hd { display: flex; gap: 6px; color: var(--ink-3); font-size: 10.5px; } .run .hd b { color: var(--ink); }
+  .run .ans { display: none; white-space: pre-wrap; margin-top: 5px; color: var(--ink-2); max-height: 260px; overflow: auto; font-size: 11px; }
+  .run.open .ans { display: block; }
+  .tiles { display: flex; gap: 8px; }
+  .tile { background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; padding: 4px 10px; min-width: 78px; }
+  .tile .k { font-size: 10px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .5px; }
+  .tile .v { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .tile .v small { font-size: 10px; color: var(--ink-2); font-weight: 400; margin-left: 4px; }
+
+  .main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; min-height: 0; }
+  @media (max-width: 980px) { html, body { overflow: auto; } .app { height: auto; } .main { grid-template-columns: 1fr; grid-template-rows: 48vh auto; }
+    .side { border-left: 0; border-top: 1px solid var(--line); } .feed { max-height: 32vh; } .tiles { width: 100%; overflow-x: auto; } }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
+  .modal.open { display: flex; } .modal .box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; width: min(900px, 100%); max-height: 90vh; display: flex; flex-direction: column; }
+  .modal .box h3 { margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 12px; display: flex; align-items: center; }
+  .modal .box h3 button { margin-left: auto; background: none; border: 1px solid var(--line); color: var(--ink); border-radius: 6px; cursor: pointer; }
+  .modal pre { margin: 0; padding: 14px; overflow: auto; white-space: pre-wrap; font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--ink-2); }
+  .appr .view { background: none; border: 1px solid var(--line); color: var(--ink-2); padding: 3px 9px; border-radius: 6px; cursor: pointer; font-size: 11px; }
+  .usage { font-size: 10px; color: var(--ink-3); }
+  .kv { display: grid; grid-template-columns: 1fr auto auto; gap: 2px 10px; padding: 8px 12px; font-size: 11.5px; }
+  .kv .k { color: var(--ink-2); } .kv .v { font-variant-numeric: tabular-nums; text-align: right; } .kv .t { color: var(--ink-3); text-align: right; }
+  .kv .hit { color: var(--done); } .kv .miss { color: var(--tool); }
+  .stage { position: relative; min-height: 0; overflow: hidden; background: radial-gradient(1200px 700px at 50% 40%, #0f1630 0%, #080b14 70%); }
+  canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  canvas.drag { cursor: grabbing; }
+  .overlay { position: absolute; inset: 0; pointer-events: none; }
+  .card { position: absolute; transform: translate(-50%, -100%); background: rgba(16,21,31,.92); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; display: flex; align-items: center; gap: 8px; white-space: nowrap; backdrop-filter: blur(4px); box-shadow: 0 6px 24px -8px #000; }
+  .card .ico { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 13px; }
+  .card .nm { font-weight: 700; font-size: 12px; }
+  .card .sub { font-size: 10.5px; color: var(--ink-2); display: flex; align-items: center; gap: 5px; }
+  .card .sub i { width: 6px; height: 6px; border-radius: 50%; background: var(--idle); display: inline-block; }
+  .card .sub i.on { background: var(--done); box-shadow: 0 0 6px var(--done); }
+  .card .avs { display: flex; margin-left: 4px; }
+  .card .av { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--panel); margin-left: -6px; font-size: 8px; font-weight: 800; display: grid; place-items: center; color: #fff; }
+  .card.brain { background: rgba(10,14,24,.95); border-color: #2d3a5c; }
+  .card.brain .nm { letter-spacing: 2px; color: #cfe0ff; }
+  .hint { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--ink-3); background: rgba(8,11,20,.7); padding: 4px 8px; border-radius: 6px; }
+  .legend { position: absolute; right: 12px; bottom: 10px; display: flex; gap: 8px; font-size: 11px; color: var(--ink-2); background: rgba(8,11,20,.7); padding: 4px 8px; border-radius: 6px; }
+  .legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+
+  .side { display: flex; flex-direction: column; gap: 10px; padding: 10px; border-left: 1px solid var(--line); min-height: 0; overflow: auto; background: var(--panel); }
+  .panel { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; min-height: 0; }
+  .panel h3 { margin: 0; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--ink-2); border-bottom: 1px solid var(--line); display: flex; align-items: center; }
+  .panel h3 .sp { margin-left: auto; font-weight: 400; color: var(--ink-3); text-transform: none; letter-spacing: 0; }
+  .feed { overflow: auto; max-height: 38vh; padding: 4px 0; }
+  .ev { display: grid; grid-template-columns: 50px 8px 1fr; gap: 7px; padding: 4px 12px; font-size: 11.5px; align-items: start; }
+  .ev .t { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .ev .b { width: 8px; height: 8px; border-radius: 50%; margin-top: 4px; background: var(--c); }
+  .ev .m b { color: var(--ink); } .ev .m { color: var(--ink-2); word-break: break-word; } .ev .m .d { color: var(--ink-3); }
+  .list { overflow: auto; max-height: 26vh; }
+  .mem { padding: 7px 12px; border-bottom: 1px solid var(--line); font-size: 11.5px; } .mem:last-child { border-bottom: 0; }
+  .mem .k { font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--ink-3); margin-right: 6px; }
+  .mem .who { color: var(--ink-3); font-size: 10.5px; }
+  .appr { padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 11.5px; }
+  .appr .btns { margin-top: 5px; display: flex; gap: 6px; }
+  .appr button { background: var(--panel); border: 1px solid var(--line); color: var(--ink); padding: 3px 9px; border-radius: 6px; cursor: pointer; font-size: 11px; }
+  .appr button.ok { border-color: var(--done); color: var(--done); } .appr button.no { border-color: var(--err); color: var(--err); }
+  .empty { padding: 12px; color: var(--ink-3); font-size: 11.5px; }
+  .memadd { display: flex; gap: 6px; padding: 7px 9px; border-top: 1px solid var(--line); }
+  .memadd input { flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--ink); padding: 5px 8px; border-radius: 6px; font-size: 11.5px; }
+  .memadd button { background: var(--panel); border: 1px solid var(--line); color: var(--ink); padding: 5px 9px; border-radius: 6px; cursor: pointer; font-size: 11.5px; }
+</style>
+</head>
+<body>
+<div class="modal" id="modal"><div class="box"><h3><span id="modal-title"></span><button onclick="$('#modal').classList.remove('open')">close</button></h3><pre id="modal-body"></pre></div></div>
+<div class="app">
+  <div class="top">
+    <div class="brand"><span class="dot" id="conn"></span> AGENT HQ</div>
+    <div class="cmd">
+      <input type="text" id="task" placeholder='Give the office a command… e.g. "tailor my CV for the Trainline junior ML role"'>
+      <select id="agent"></select>
+      <select id="engine"><option value="auto">auto</option><option value="groq">groq</option><option value="ollama">ollama</option></select>
+      <button id="mic" title="Speak a command (Chrome)">🎤</button>
+      <button class="go" id="go">Run</button>
+    </div>
+    <div class="tiles">
+      <div class="tile"><div class="k">Agents</div><div class="v" id="t-agents">–</div></div>
+      <div class="tile"><div class="k">Running</div><div class="v" id="t-active">0</div></div>
+      <div class="tile"><div class="k">Runs today</div><div class="v" id="t-runs">–</div></div>
+      <div class="tile"><div class="k">Brain</div><div class="v" id="t-mem">–</div></div>
+      <div class="tile"><div class="k">Approvals</div><div class="v" id="t-appr">–</div></div>
+      <div class="tile"><div class="k">Engine</div><div class="v" id="t-engine" style="font-size:11px;padding-top:4px">–</div></div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="stage" id="stage">
+      <canvas id="c"></canvas>
+      <div class="overlay" id="overlay"></div>
+      <div class="hint" id="hint">Drag to pan · scroll to zoom · agents walk to the brain when they recall or remember</div>
+      <div class="legend">
+        <span><i style="background:var(--think)"></i>thinking</span><span><i style="background:var(--tool)"></i>tool</span>
+        <span><i style="background:var(--deleg)"></i>delegating</span><span><i style="background:var(--done)"></i>done</span><span><i style="background:var(--err)"></i>fallback</span>
+      </div>
+    </div>
+    <div class="side">
+      <div class="panel"><h3>Live feed <span class="sp" id="feed-count"></span></h3><div class="feed" id="feed"></div></div>
+      <div class="panel"><h3>Approvals waiting for you <span class="sp" id="appr-count"></span></h3><div class="list" id="approvals"></div></div>
+      <div class="panel"><h3>Task board <span class="sp" id="task-sp"></span></h3><div class="list" id="tasks"></div></div>
+      <div class="panel"><h3>Scorecard · this week <span class="sp" id="score-sp"></span></h3><div class="list" id="scorecard"></div></div>
+      <div class="panel"><h3>Ops · 7 days <span class="sp" id="ops-sp"></span></h3><div class="list" id="ops"></div></div>
+      <div class="panel"><h3>Run history <span class="sp">click to expand</span></h3><div class="list" id="runs"></div></div>
+      <div class="panel"><h3>The brain · latest <span class="sp" id="brain-sp"></span></h3><div class="list" id="memories"></div>
+        <div class="memadd"><input id="memtext" placeholder="Tell the team something"><button id="memgo">Remember</button></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+window.onerror = (m, src, line, col) => { const h = document.getElementById('hint'); if (h) h.textContent = 'JS error: ' + m + ' @' + line + ':' + col; };
+window.addEventListener('unhandledrejection', e => { const h = document.getElementById('hint'); if (h) h.textContent = 'Promise error: ' + (e.reason && (e.reason.stack || e.reason.message || e.reason)); });
+/* ============================== data & helpers ============================== */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const hhmm = ts => new Date(ts*1000).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+const initials = n => n.split("-").map(w => w[0]).join("").slice(0,3).toUpperCase();
+const COLOR = { think:"#5b8def", tool:"#e0a93b", delegate:"#a67cf0", done:"#3ec28f", error:"#ef5b6e", fallback:"#ef5b6e", start:"#5b8def", tool_result:"#e0a93b", idle:"#4b5566" };
+// room palettes, assigned in a fixed order to offices as they appear
+const PALETTES = [
+  { name:"blue",   wall:"#2f55c7", wallL:"#2446a8", floor:"#4d78e8", floorAlt:"#4670dd", ico:"🔎" },
+  { name:"orange", wall:"#d4762a", wallL:"#b8611f", floor:"#f0a24a", floorAlt:"#e8983f", ico:"🗂️" },
+  { name:"purple", wall:"#6a3fc4", wallL:"#5733a4", floor:"#8e66e8", floorAlt:"#855de0", ico:"🎨" },
+  { name:"yellow", wall:"#d9a51f", wallL:"#b88a15", floor:"#f5c94a", floorAlt:"#efc13e", ico:"📜" },
+  { name:"red",    wall:"#b6303f", wallL:"#982636", floor:"#e05263", floorAlt:"#d94a5b", ico:"📈" },
+  { name:"teal",   wall:"#1f8f7f", wallL:"#187566", floor:"#36bba8", floorAlt:"#30b09d", ico:"🛠️" },
+  { name:"pink",   wall:"#b8398f", wallL:"#9a2e77", floor:"#e35fb8", floorAlt:"#da56ae", ico:"📣" },
+  { name:"green",  wall:"#3f8f3a", wallL:"#33752f", floor:"#63bb5d", floorAlt:"#5bb155", ico:"🧾" },
+];
+const OFFICE_ICON = { "front-desk":"🛎️", "job-hunt":"🎯", "studio":"🛠️", "brand-sales":"📣", "trading":"📈", "ops":"🗂️", "pm":"📋", "research":"🔎", "creative":"🎨" };
+const OFFICE_ORDER = ["front-desk","job-hunt","pm","studio","brand-sales","trading","ops"];
+
+let roster = [], rooms = [], agents = {}, feedCount = 0;
+
+/* ============================== isometric world ============================== */
+const TW = 64, TH = 32, WALL_H = 86;
+const iso = (x, y, z = 0) => ({ x: (x - y) * TW / 2, y: (x + y) * TH / 2 - z });
+const cam = { x: 0, y: 0, z: 1 };
+const canvas = $("#c"), ctx = canvas.getContext("2d");
+const overlay = $("#overlay");
+let W = 0, H = 0, DPR = 1;
+
+function resize() {
+  const r = $("#stage").getBoundingClientRect();
+  W = r.width; H = r.height; DPR = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = W * DPR; canvas.height = H * DPR;
+}
+window.addEventListener("resize", () => { resize(); fitCamera(); });
+
+function buildRooms() {
+  const byOffice = {};
+  roster.forEach(a => (byOffice[a.office] ||= []).push(a));
+  const names = Object.keys(byOffice).sort((a, b) => (OFFICE_ORDER.indexOf(a) + 99) % 100 - (OFFICE_ORDER.indexOf(b) + 99) % 100);
+  const n = names.length;
+  const R = n <= 2 ? 300 : n <= 4 ? 360 : n <= 6 ? 430 : 500;
+  rooms = names.map((name, i) => {
+    const members = byOffice[name];
+    const cols = Math.min(3, Math.max(1, Math.ceil(Math.sqrt(members.length))));
+    const rows = Math.ceil(members.length / cols);
+    const w = cols * 2 + 1, d = rows * 2 + 1;              // tiles
+    const ang = -Math.PI / 2 + (i / n) * Math.PI * 2;      // ring around the brain, starting at top
+    const cx = Math.cos(ang) * R * 1.25, cy = Math.sin(ang) * R * 0.78;
+    const c = iso(w / 2, d / 2);                           // room centre offset in screen space
+    const pal = PALETTES[i % PALETTES.length];
+    const room = { name, members, cols, rows, w, d, ox: cx - c.x, oy: cy - c.y, pal, icon: OFFICE_ICON[name] || pal.ico };
+    members.forEach((m, k) => {
+      const col = k % cols, row = Math.floor(k / cols);
+      const dx = 1 + col * 2, dy = 1 + row * 2;            // desk tile
+      const desk = { x: dx + 0.5, y: dy + 0.5 };
+      const seat = { x: dx + 0.5, y: dy + 1.35 };          // chair in front (toward viewer)
+      agents[m.name] = Object.assign(agents[m.name] || {}, { name: m.name, room, desk, seat,
+        pos: agents[m.name]?.pos || worldToScreen(room, seat), home: worldToScreen(room, seat),
+        state: agents[m.name]?.state || "idle", bubble: agents[m.name]?.bubble || null, bubbleUntil: 0,
+        target: null, walking: false, since: agents[m.name]?.since || 0, model: agents[m.name]?.model || "", face: 1 });
+    });
+    room.door = worldToScreen(room, { x: w / 2, y: d + 0.6 }); // front edge, toward the brain
+    return room;
+  });
+}
+const worldToScreen = (room, p) => { const s = iso(p.x, p.y); return { x: room.ox + s.x, y: room.oy + s.y }; };
+const brainPos = () => ({ x: 0, y: 0 });
+
+function fitCamera() {
+  if (!rooms.length) { cam.x = 0; cam.y = 0; cam.z = 1; return; }
+  let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+  rooms.forEach(r => {
+    const pts = [iso(0,0), iso(r.w,0), iso(0,r.d), iso(r.w,r.d)].map(p => ({ x: r.ox + p.x, y: r.oy + p.y }));
+    pts.forEach(p => { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y - WALL_H - 70); maxY = Math.max(maxY, p.y + 20); });
+  });
+  const pad = 40;
+  cam.z = Math.min((W - pad * 2) / (maxX - minX), (H - pad * 2) / (maxY - minY), 1.6);
+  cam.x = (minX + maxX) / 2; cam.y = (minY + maxY) / 2;
+}
+const toScreen = p => ({ x: (p.x - cam.x) * cam.z + W / 2, y: (p.y - cam.y) * cam.z + H / 2 });
+
+/* pan / zoom */
+let drag = null;
+canvas.addEventListener("mousedown", e => { drag = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y }; canvas.classList.add("drag"); });
+window.addEventListener("mousemove", e => { if (!drag) return; cam.x = drag.cx - (e.clientX - drag.x) / cam.z; cam.y = drag.cy - (e.clientY - drag.y) / cam.z; });
+window.addEventListener("mouseup", () => { drag = null; canvas.classList.remove("drag"); });
+canvas.addEventListener("wheel", e => { e.preventDefault(); const f = Math.exp(-e.deltaY * 0.0012); cam.z = Math.max(.35, Math.min(2.5, cam.z * f)); }, { passive: false });
+
+/* ============================== drawing ============================== */
+const stars = Array.from({ length: 160 }, () => ({ x: Math.random(), y: Math.random(), r: Math.random() * 1.3 + .3, p: Math.random() * 6 }));
+let pulses = []; // particles travelling room -> brain or brain -> room
+
+function drawDiamond(p, w, h, fill, stroke) {
+  ctx.beginPath(); ctx.moveTo(p.x, p.y - h / 2); ctx.lineTo(p.x + w / 2, p.y); ctx.lineTo(p.x, p.y + h / 2); ctx.lineTo(p.x - w / 2, p.y); ctx.closePath();
+  ctx.fillStyle = fill; ctx.fill(); if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.stroke(); }
+}
+function drawBox(room, x, y, w, d, h, top, left, right) {
+  // iso box with footprint w x d tiles at (x,y), height h px
+  const p = [iso(x, y, h), iso(x + w, y, h), iso(x + w, y + d, h), iso(x, y + d, h)].map(q => ({ x: room.ox + q.x, y: room.oy + q.y }));
+  const b = [iso(x + w, y + d, 0), iso(x, y + d, 0), iso(x + w, y, 0)].map(q => ({ x: room.ox + q.x, y: room.oy + q.y }));
+  ctx.fillStyle = left; ctx.beginPath(); ctx.moveTo(p[3].x, p[3].y); ctx.lineTo(p[2].x, p[2].y); ctx.lineTo(b[0].x, b[0].y); ctx.lineTo(b[1].x, b[1].y); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = right; ctx.beginPath(); ctx.moveTo(p[2].x, p[2].y); ctx.lineTo(p[1].x, p[1].y); ctx.lineTo(b[2].x, b[2].y); ctx.lineTo(b[0].x, b[0].y); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = top; ctx.beginPath(); p.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill();
+  return p;
+}
+
+function drawRoom(room, t) {
+  const { w, d, pal } = room;
+  // floor shadow / platform
+  const base = [iso(0, 0, -14), iso(w, 0, -14), iso(w, d, -14), iso(0, d, -14)].map(q => ({ x: room.ox + q.x, y: room.oy + q.y }));
+  ctx.fillStyle = "#0b1020"; ctx.beginPath(); base.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill();
+  // platform sides
+  drawBox(room, 0, 0, w, d, 0, "rgba(0,0,0,0)", "#121a33", "#0e1529");
+  // floor tiles
+  for (let x = 0; x < w; x++) for (let y = 0; y < d; y++) {
+    const c = iso(x + .5, y + .5); drawDiamond({ x: room.ox + c.x, y: room.oy + c.y }, TW, TH, (x + y) % 2 ? pal.floor : pal.floorAlt);
+  }
+  // back walls (left: x=0 edge, right: y=0 edge)
+  const L = [iso(0, 0, 0), iso(0, d, 0), iso(0, d, WALL_H), iso(0, 0, WALL_H)].map(q => ({ x: room.ox + q.x, y: room.oy + q.y }));
+  ctx.fillStyle = pal.wallL; ctx.beginPath(); L.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill();
+  const Rw = [iso(0, 0, 0), iso(w, 0, 0), iso(w, 0, WALL_H), iso(0, 0, WALL_H)].map(q => ({ x: room.ox + q.x, y: room.oy + q.y }));
+  ctx.fillStyle = pal.wall; ctx.beginPath(); Rw.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill();
+  // wall art: a dark screen with a tiny chart on the right wall, a window on the left wall
+  const sc = [iso(w * .35, 0, WALL_H * .72), iso(w * .75, 0, WALL_H * .72), iso(w * .75, 0, WALL_H * .3), iso(w * .35, 0, WALL_H * .3)].map(q => ({ x: room.ox + q.x, y: room.oy + q.y }));
+  ctx.fillStyle = "#0d1322"; ctx.beginPath(); sc.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = "#5bd1ff"; ctx.lineWidth = 1.5; ctx.beginPath();
+  for (let i = 0; i <= 8; i++) { const u = i / 8, q = iso(w * (.38 + .34 * u), 0, WALL_H * (.38 + .22 * Math.abs(Math.sin(t * .8 + i + room.ox))));
+    i ? ctx.lineTo(room.ox + q.x, room.oy + q.y) : ctx.moveTo(room.ox + q.x, room.oy + q.y); }
+  ctx.stroke();
+  // ceiling lamp
+  const lamp = iso(w / 2, d / 2, WALL_H + 22); ctx.fillStyle = "#fff6d5"; ctx.beginPath(); ctx.arc(room.ox + lamp.x, room.oy + lamp.y, 4, 0, 7); ctx.fill();
+  ctx.strokeStyle = "#394a6b"; ctx.beginPath(); ctx.moveTo(room.ox + lamp.x, room.oy + lamp.y - 4); ctx.lineTo(room.ox + lamp.x, room.oy + lamp.y - 30); ctx.stroke();
+  // plant in the front corner
+  const pl = iso(w - .5, d - .5, 0); drawPlant(room.ox + pl.x, room.oy + pl.y);
+}
+function drawPlant(x, y) {
+  ctx.fillStyle = "#6b4a2b"; ctx.beginPath(); ctx.ellipse(x, y, 7, 4, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = "#2e9e5b"; [[-6,-10],[0,-14],[6,-10],[-3,-18],[3,-18]].forEach(([dx,dy]) => { ctx.beginPath(); ctx.ellipse(x + dx, y + dy, 5, 7, dx * .1, 0, 7); ctx.fill(); });
+}
+function drawDesk(room, a, t) {
+  const { desk } = a;
+  const active = a.state !== "idle";
+  const top = drawBox(room, desk.x - .8, desk.y - .45, 1.6, .9, 22, "#d8c7a9", "#8f7b5d", "#a68f6c");
+  // monitor on desk (back-left of desk top)
+  const m = iso(desk.x - .05, desk.y - .2, 22); const mx = room.ox + m.x, my = room.oy + m.y;
+  ctx.fillStyle = "#1a1f2b"; ctx.fillRect(mx - 11, my - 24, 22, 15);
+  ctx.fillStyle = active ? "#5bd1ff" : "#1f2a40"; ctx.fillRect(mx - 9, my - 22, 18, 11);
+  if (active) { ctx.fillStyle = "rgba(91,209,255,.25)"; ctx.beginPath(); ctx.ellipse(mx, my - 4, 22, 9, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = "#0a2a3a"; for (let i = 0; i < 3; i++) ctx.fillRect(mx - 7, my - 20 + i * 3, 6 + ((t * 3 + i) % 3) * 3, 1.5); }
+  ctx.fillStyle = "#1a1f2b"; ctx.fillRect(mx - 2, my - 9, 4, 4);
+  // chair behind the seat point
+  const c = iso(a.seat.x, a.seat.y + .25, 0); ctx.fillStyle = "#2a3140"; ctx.beginPath(); ctx.ellipse(room.ox + c.x, room.oy + c.y, 9, 5, 0, 0, 7); ctx.fill();
+}
+function drawAgent(a, t) {
+  const p = a.pos, col = a.room.pal.floor;
+  const bob = a.walking ? Math.sin(t * 14) * 2 : 0;
+  const sit = !a.walking && a.state !== "idle" && dist(p, a.home) < 2 ? 3 : 0;
+  // shadow
+  ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.beginPath(); ctx.ellipse(p.x, p.y, 8, 4, 0, 0, 7); ctx.fill();
+  const y = p.y - 2 + sit - bob;
+  // legs
+  ctx.fillStyle = "#23283a"; const lg = a.walking ? Math.sin(t * 14) * 3 : 0;
+  ctx.fillRect(p.x - 5, y - 10 + lg * .5, 4, 8); ctx.fillRect(p.x + 1, y - 10 - lg * .5, 4, 8);
+  // body
+  ctx.fillStyle = col; roundRect(p.x - 7, y - 24, 14, 15, 4); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,.18)"; roundRect(p.x - 7, y - 24, 14, 5, 4); ctx.fill();
+  // head
+  ctx.fillStyle = "#f2c9a0"; ctx.beginPath(); ctx.arc(p.x, y - 30, 7, 0, 7); ctx.fill();
+  ctx.fillStyle = a.hair || (a.hair = ["#2b1d14","#5a3a1e","#1b1b1b","#8c5a2b","#d9b46a"][Math.floor(Math.random()*5)]);
+  ctx.beginPath(); ctx.arc(p.x, y - 32, 7, Math.PI, 0); ctx.fill();
+  // eyes
+  ctx.fillStyle = "#222"; ctx.fillRect(p.x - 3 + a.face, y - 30, 1.5, 1.5); ctx.fillRect(p.x + 1 + a.face, y - 30, 1.5, 1.5);
+  // status ring
+  if (a.state !== "idle") { ctx.strokeStyle = COLOR[a.state] || COLOR.idle; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, y - 30, 10 + Math.sin(t * 4) * 1.2, 0, 7); ctx.stroke(); }
+  // name tag
+  ctx.font = "600 9px system-ui, sans-serif"; ctx.textAlign = "center";
+  const nm = a.name; const tw = ctx.measureText(nm).width + 8;
+  ctx.fillStyle = "rgba(8,11,20,.75)"; roundRect(p.x - tw / 2, y - 48, tw, 12, 4); ctx.fill();
+  ctx.fillStyle = "#dbe3f2"; ctx.fillText(nm, p.x, y - 39);
+  // speech bubble
+  if (a.bubble && a.bubbleUntil > Date.now()) {
+    ctx.font = "600 10px system-ui, sans-serif"; const bw = Math.min(190, ctx.measureText(a.bubble).width + 14);
+    ctx.fillStyle = "#f7f9ff"; roundRect(p.x - bw / 2, y - 70, bw, 18, 7); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(p.x - 4, y - 52); ctx.lineTo(p.x + 4, y - 52); ctx.lineTo(p.x, y - 48); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#101522"; ctx.fillText(ellipsis(a.bubble, 176), p.x, y - 57);
+  }
+}
+function ellipsis(s, maxW) { let out = s; while (ctx.measureText(out).width > maxW && out.length > 3) out = out.slice(0, -2) + "…"; return out; }
+function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+function drawBrain(t) {
+  const b = brainPos();
+  // light beam
+  const g = ctx.createLinearGradient(0, b.y - 260, 0, b.y);
+  g.addColorStop(0, "rgba(140,190,255,0)"); g.addColorStop(1, "rgba(140,190,255,.35)");
+  ctx.fillStyle = g; ctx.fillRect(b.x - 6, b.y - 260, 12, 260);
+  // rings
+  for (let i = 0; i < 4; i++) {
+    const rx = 70 + i * 34, ry = rx * .45;
+    ctx.strokeStyle = `rgba(120,170,255,${.45 - i * .08})`; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.ellipse(b.x, b.y, rx, ry, 0, 0, 7); ctx.stroke();
+    const ang = t * (.6 + i * .25) * (i % 2 ? -1 : 1);
+    ctx.fillStyle = "#cfe3ff"; ctx.beginPath(); ctx.arc(b.x + Math.cos(ang) * rx, b.y + Math.sin(ang) * ry, 2.2, 0, 7); ctx.fill();
+  }
+  // orb
+  const pulse = 1 + Math.sin(t * 2) * .05;
+  const rg = ctx.createRadialGradient(b.x, b.y - 10, 4, b.x, b.y - 10, 46 * pulse);
+  rg.addColorStop(0, "#ffffff"); rg.addColorStop(.25, "#bcd6ff"); rg.addColorStop(.6, "rgba(91,141,239,.55)"); rg.addColorStop(1, "rgba(91,141,239,0)");
+  ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(b.x, b.y - 10, 46 * pulse, 0, 7); ctx.fill();
+  ctx.strokeStyle = "rgba(200,225,255,.5)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(b.x, b.y - 10, 22, 0, 7); ctx.stroke();
+}
+function drawPaths(t) {
+  const b = brainPos();
+  rooms.forEach(r => {
+    ctx.strokeStyle = "rgba(120,160,255,.22)"; ctx.lineWidth = 3; ctx.setLineDash([6, 10]); ctx.lineDashOffset = -t * 30;
+    ctx.beginPath(); ctx.moveTo(r.door.x, r.door.y); ctx.lineTo(b.x, b.y + 8); ctx.stroke(); ctx.setLineDash([]);
+  });
+  pulses = pulses.filter(p => p.u <= 1);
+  pulses.forEach(p => { p.u += p.speed; const x = p.from.x + (p.to.x - p.from.x) * p.u, y = p.from.y + (p.to.y - p.from.y) * p.u;
+    ctx.fillStyle = p.color; ctx.shadowColor = p.color; ctx.shadowBlur = 12; ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 7); ctx.fill(); ctx.shadowBlur = 0; });
+}
+
+function frame(now) {
+  const t = now / 1000;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // stars
+  stars.forEach(s => { ctx.fillStyle = `rgba(200,215,255,${.25 + .45 * Math.abs(Math.sin(t * .7 + s.p))})`; ctx.beginPath(); ctx.arc(s.x * W, s.y * H, s.r, 0, 7); ctx.fill(); });
+  ctx.translate(W / 2, H / 2); ctx.scale(cam.z, cam.z); ctx.translate(-cam.x, -cam.y);
+
+  // movement
+  Object.values(agents).forEach(a => stepAgent(a));
+
+  drawPaths(t);
+  drawBrain(t);
+  // rooms back-to-front by screen y
+  const ordered = [...rooms].sort((a, b) => (a.oy + iso(a.w / 2, a.d / 2).y) - (b.oy + iso(b.w / 2, b.d / 2).y));
+  ordered.forEach(r => { drawRoom(r, t); r.members.forEach(m => drawDesk(r, agents[m.name], t)); });
+  Object.values(agents).sort((a, b) => a.pos.y - b.pos.y).forEach(a => drawAgent(a, t));
+
+  placeCards();
+  requestAnimationFrame(frame);
+}
+
+function stepAgent(a) {
+  if (!a.target) { a.walking = false; return; }
+  const d = dist(a.pos, a.target);
+  if (d < 1.5) { a.pos = { ...a.target }; a.target = null; a.walking = false; if (a.onArrive) { const f = a.onArrive; a.onArrive = null; f(); } return; }
+  const sp = 2.6; a.walking = true;
+  a.face = a.target.x < a.pos.x ? -1 : 1;
+  a.pos = { x: a.pos.x + (a.target.x - a.pos.x) / d * sp, y: a.pos.y + (a.target.y - a.pos.y) / d * sp };
+}
+
+/* floating cards over rooms + brain (HTML for crisp text) */
+function placeCards() {
+  if (!overlay.dataset.built) {
+    overlay.innerHTML = rooms.map(r => `<div class="card" id="card-${esc(r.name)}"><div class="ico" style="background:${r.pal.wall}">${r.icon}</div>
+      <div><div class="nm">${esc(r.name.replace("-", " "))}</div><div class="sub"><i></i><span class="txt"></span></div></div>
+      <div class="avs">${r.members.map(m => `<div class="av" style="background:${r.pal.wallL}" title="${esc(m.name)}">${initials(m.name)}</div>`).join("")}</div></div>`).join("")
+      + `<div class="card brain" id="card-brain"><div class="ico" style="background:#1e2b4d">🧠</div><div><div class="nm">THE BRAIN</div><div class="sub" id="brain-sub">shared memory</div></div></div>`;
+    overlay.dataset.built = "1";
+  }
+  rooms.forEach(r => {
+    const top = iso(0, 0, WALL_H + 36); const s = toScreen({ x: r.ox + top.x + iso(r.w / 2, 0).x, y: r.oy + top.y });
+    const el = document.getElementById("card-" + r.name); if (!el) return;
+    el.style.left = s.x + "px"; el.style.top = s.y + "px"; el.style.transform = `translate(-50%,-100%) scale(${Math.max(.75, Math.min(1.1, cam.z))})`;
+    const running = r.members.filter(m => agents[m.name].state !== "idle").length;
+    el.querySelector(".txt").textContent = `${r.members.length} agent${r.members.length > 1 ? "s" : ""} · ${running} running`;
+    el.querySelector("i").className = running ? "on" : "";
+  });
+  $("#t-active").textContent = Object.values(agents).filter(a => a.state !== "idle").length;
+  const b = toScreen({ x: 0, y: -150 }); const bc = document.getElementById("card-brain");
+  if (bc) { bc.style.left = b.x + "px"; bc.style.top = b.y + "px"; }
+}
+
+/* ============================== events -> animation ============================== */
+function brainPulse(a, toBrain, color) { pulses.push({ from: toBrain ? a.room.door : brainPos(), to: toBrain ? brainPos() : a.room.door, u: 0, speed: .02, color }); }
+function say(a, text, ms = 6000) { a.bubble = text; a.bubbleUntil = Date.now() + ms; }
+function goHome(a) { a.target = { ...a.home }; }
+
+function applyEvent(e, live) {
+  const a = agents[e.agent]; const now = Date.now();
+  let feed = "";
+  if (a) {
+    if (e.type === "start" || a.state === "idle" || a.state === "done" || a.state === "error") a.since = e.ts;
+    switch (e.type) {
+      case "start": a.state = "think"; a.model = ""; say(a, "📋 " + e.task, 7000); if (live) goHome(a); feed = `<b>${esc(e.agent)}</b> started · <span class="d">${esc(e.task)}</span>`; break;
+      case "think": a.state = "think"; a.model = e.model; if (!a.bubble || a.bubbleUntil < now) say(a, "💭 thinking…", 4000); feed = `<b>${esc(e.agent)}</b> thinking on <span class="d">${esc(e.model)}</span>`; break;
+      case "tool": {
+        a.state = "tool"; const tl = e.tool;
+        const label = tl.startsWith("brain_") ? (tl === "brain_remember" ? "🧠 remembering…" : "🧠 recalling…")
+          : tl === "job_search" ? "🔎 searching LinkedIn…" : tl === "web_search" ? "🔍 searching the web…" : tl === "web_fetch" ? "🌐 reading a page…"
+          : tl === "write_file" ? "📝 writing…" : tl === "read_file" ? "📄 reading…" : tl === "request_approval" ? "✋ needs your OK" : "🔧 " + tl;
+        say(a, label, 8000);
+        if (live && tl.startsWith("brain_")) { a.target = { x: brainPos().x + (Math.random() * 60 - 30), y: brainPos().y + 40 + Math.random() * 20 }; brainPulse(a, true, "#9cc3ff"); }
+        feed = `<b>${esc(e.agent)}</b> → <b>${esc(tl)}</b> <span class="d">${esc(e.args)}</span>`; break; }
+      case "tool_result":
+        if (e.tool.startsWith("brain_") && live) { brainPulse(a, false, "#cfe3ff"); goHome(a); }
+        if (e.tool === "delegate" && live) goHome(a);
+        a.state = "think"; feed = `<span class="d">${esc(e.tool)} ${e.ok ? "returned" : "FAILED"}: ${esc(e.preview)}</span>`; break;
+      case "delegate": {
+        a.state = "delegate"; say(a, "📨 task for " + e.to, 9000);
+        const to = agents[e.to]; if (to && live) { a.target = { x: to.room.door.x + (Math.random() * 30 - 15), y: to.room.door.y + 10 }; }
+        feed = `<b>${esc(e.agent)}</b> delegated to <b>${esc(e.to)}</b> · <span class="d">${esc(e.task)}</span>`; break; }
+      case "fallback": a.model = e.model; say(a, "⚠️ switching to " + e.model.split("/").pop(), 5000); feed = `<b>${esc(e.agent)}</b> fell back to <span class="d">${esc(e.model)} · ${esc(e.reason)}</span>`; break;
+      case "done": a.state = "done"; a.doneAt = e.ts; say(a, "✅ done", 7000); if (live) goHome(a); setTimeout(() => { if (a.state === "done") { a.state = "idle"; a.since = 0; } }, 9000);
+        feed = `<b>${esc(e.agent)}</b> done · ${e.turns} turns, ${e.tool_calls} tool calls · <span class="d">${esc(e.answer)}</span>`; break;
+      case "error": a.state = "error"; say(a, "❌ error", 8000); setTimeout(() => { if (a.state === "error") a.state = "idle"; }, 12000); feed = `<b>${esc(e.agent)}</b> error · <span class="d">${esc(e.detail)}</span>`; break;
+      default: feed = `<b>${esc(e.agent)}</b> ${esc(e.type)}`;
+    }
+  } else feed = `<b>${esc(e.agent)}</b> ${esc(e.type)}`;
+  const el = document.createElement("div"); el.className = "ev"; el.style.setProperty("--c", COLOR[e.type] || COLOR.idle);
+  el.innerHTML = `<span class="t">${hhmm(e.ts)}</span><span class="b"></span><span class="m" style="padding-left:${e.depth * 10}px">${feed}</span>`;
+  const fd = $("#feed"); fd.prepend(el); while (fd.children.length > 400) fd.lastChild.remove();
+  feedCount++; $("#feed-count").textContent = feedCount + " events";
+}
+
+/* ============================== server I/O ============================== */
+const trace = m => { const h = document.getElementById("hint"); if (h && h.textContent.startsWith("Drag")) h.dataset.t = (h.dataset.t || "") + m + " "; };
+async function refreshState() {
+  trace("fetch"); const s = await (await fetch("/api/state")).json(); trace("json");
+  const names = s.roster.map(a => a.name).join();
+  if (names !== roster.map(a => a.name).join()) {
+    roster = s.roster; buildRooms(); overlay.dataset.built = ""; fitCamera();
+    $("#agent").innerHTML = roster.map(a => `<option value="${esc(a.name)}" ${a.name === "chief-of-staff" ? "selected" : ""}>${esc(a.name)}</option>`).join("");
+  }
+  trace("rooms"); $("#t-agents").textContent = roster.length; $("#t-runs").textContent = s.runs_today;
+  $("#t-mem").innerHTML = s.brain.total_memories + `<small>notes</small>`;
+  $("#t-appr").textContent = s.approvals.length; $("#appr-count").textContent = s.approvals.length ? s.approvals.length + " pending" : "";
+  const u = s.engine.usage || {}; const budget = s.engine.providers.map(p => { const x = u[p] || {}; const rem = x["x-ratelimit-remaining-tokens-minute"] || x["x-ratelimit-remaining-tokens"]; return rem ? `${p} ${Math.round(rem/1000)}k/min` : p; });
+  $("#t-engine").innerHTML = s.engine.providers.length ? esc(s.engine.providers.join(" → ") + " → ollama") + `<div class="usage">${esc(budget.join(" · "))}</div>` : "ollama · " + esc(s.engine.ollama);
+  $("#brain-sp").textContent = `${s.brain.db_size_mb} MB`;
+  const bs = $("#brain-sub"); if (bs) bs.textContent = `${s.brain.total_memories} notes · shared memory`;
+  $("#approvals").innerHTML = s.approvals.length ? s.approvals.map(a => { const paths = (a.content.match(/(?:workspace\/)?([\w./-]+\/[\w.-]+\.(?:md|txt|py|html|json|pdf))/g) || []).map(p => p.replace(/^workspace\//, ""));
+      return `<div class="appr"><div>${esc(a.content.replace(/^PENDING APPROVAL from /, "From "))}</div>
+      <div class="btns"><button class="ok" onclick="decide(${a.id},'approved')">Approve</button><button class="no" onclick="decide(${a.id},'rejected')">Reject</button>${[...new Set(paths)].map(p => `<button class="view" onclick="viewFile('${esc(p)}')">view ${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
+    : `<div class="empty">Nothing waiting. Agents park applications, emails and posts here.</div>`;
+  renderTasks(s.tasks || []);
+  $("#memories").innerHTML = s.memories.length ? s.memories.map(m => `<div class="mem"><span class="k">${esc(m.kind)}</span>${esc(m.content)}<div class="who">${esc(m.agent)} · ${esc(m.created)}${m.tags.length ? " · " + esc(m.tags.join(", ")) : ""}</div></div>`).join("")
+    : `<div class="empty">The brain is empty.</div>`;
+}
+function renderTasks(tasks) {
+  const open = tasks.filter(t => ["queued", "running", "blocked"].includes(t.status));
+  $("#task-sp").textContent = open.length ? `${open.length} open` : "";
+  $("#tasks").innerHTML = tasks.length ? tasks.slice(0, 25).map(t => `<div class="task">
+      <div><div>${esc(t.title)}</div><div class="who">#${t.id} · ${esc(t.owner)} · ${esc(t.created)}${t.source ? " · " + esc(t.source) : ""}${t.result ? "<br>↳ " + esc(String(t.result).slice(0, 160)) : ""}</div></div>
+      <div><span class="st ${esc(t.status)}">${esc(t.status)}</span>${t.status === "queued" || t.status === "running" ? `<button onclick="taskAct(${t.id},'cancel')">✕</button>` : ""}${t.status === "failed" || t.status === "cancelled" ? `<button onclick="taskAct(${t.id},'retry')">↻</button>` : ""}</div></div>`).join("")
+    : `<div class="empty">No tasks yet. Runs queue here when the office is busy; the scheduler adds daily jobs.</div>`;
+}
+async function taskAct(id, action) { await fetch("/api/tasks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action }) }); refreshState(); }
+async function refreshStats() {
+  const s = await (await fetch("/api/stats")).json();
+  const c = s.scorecard || {}, t = c.targets_per_week || {};
+  const rows = ["applications_tailored","applications_marked_applied","contacts_logged","proposals_drafted","posts_approved","mock_interviews","commits_on_github","jobs_found","leads_found","fabrications_caught"];
+  $("#scorecard").innerHTML = `<div class="kv">${rows.map(k => { const v = c[k] ?? "–", tg = t[k]; const cls = tg ? (Number(v) >= Number(tg) ? "hit" : "miss") : ""; return `<span class="k">${esc(k.replace(/_/g," "))}</span><span class="v ${cls}">${esc(v)}</span><span class="t">${tg ? "target " + esc(tg) : ""}</span>`; }).join("")}</div>`;
+  $("#score-sp").textContent = c.tasks_done != null ? `${c.tasks_done} tasks done · ${c.tasks_failed} failed` : "";
+  const ag = Object.entries(s.agents || {}).sort((a,b) => b[1].runs - a[1].runs);
+  const prov = Object.entries(s.providers || {}).map(([k,v]) => `${k} ${v}`).join(" · ");
+  const ev = s.last_eval ? Object.entries(s.last_eval).map(([k,v]) => `${k}: pass ${Math.round(v.pass_rate*100)}% fab ${Math.round(v.fabrication_rate*100)}%`).join(" · ") : "no eval yet";
+  $("#ops").innerHTML = `<div class="kv">${ag.map(([n,a]) => { const tb = (s.tasks_by_owner||{})[n] || {}; return `<span class="k">${esc(n)}</span><span class="v">${a.runs} runs · ${Math.round(a.tokens/1000)}k tok · ${Math.round(a.seconds/Math.max(1,a.runs))}s avg</span><span class="t ${a.empty? "miss":""}">${tb.done||0}✓ ${tb.failed||0}✗${a.empty? " · "+a.empty+" empty":""}</span>`; }).join("")}</div>
+    <div class="empty">providers: ${esc(prov) || "–"}<br>last eval: ${esc(ev)}</div>`;
+  $("#ops-sp").textContent = ag.length ? `${ag.reduce((x,[,a]) => x + a.runs, 0)} runs` : "";
+}
+async function refreshRuns() {
+  const r = await (await fetch("/api/runs")).json();
+  $("#runs").innerHTML = r.runs.length ? r.runs.slice(0, 30).map((x, i) => `<div class="run" onclick="this.classList.toggle('open')">
+      <div class="hd"><b>${esc(x.agent)}</b><span>${esc(x.ts)}</span><span>${esc((x.model || "").split("/").pop())}</span><span>${(x.tool_calls || []).length} tools</span></div>
+      <div>${esc(String(x.task).slice(0, 110))}</div><div class="ans">${esc(x.answer)}</div></div>`).join("")
+    : `<div class="empty">No runs yet.</div>`;
+}
+async function viewFile(path) {
+  if (path.endsWith(".pdf")) { window.open("/api/file?path=" + encodeURIComponent(path), "_blank"); return; }
+  const r = await (await fetch("/api/file?path=" + encodeURIComponent(path))).json();
+  $("#modal-title").textContent = path; $("#modal-body").textContent = r.content || r.error || ""; $("#modal").classList.add("open");
+}
+async function decide(id, decision) { await fetch("/api/approve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, decision }) }); refreshState(); }
+$("#go").onclick = async () => {
+  const task = $("#task").value.trim(); if (!task) return; $("#go").disabled = true;
+  const r = await (await fetch("/api/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ task, agent: $("#agent").value, engine: $("#engine").value }) })).json();
+  $("#hint").textContent = r.started ? "Run started. Watch the floor." : r.queued ? `Office is busy; queued as task #${r.task_id}. It starts automatically.` : (r.error || "failed");
+  $("#task").value = ""; setTimeout(() => $("#go").disabled = false, 800); refreshState();
+};
+/* voice command: free, in-browser (Chrome / Edge) */
+(() => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition; const mic = $("#mic");
+  if (!SR) { mic.title = "Voice needs Chrome or Edge"; mic.style.opacity = .4; return; }
+  let rec = null;
+  mic.onclick = () => {
+    if (rec) { rec.stop(); return; }
+    rec = new SR(); rec.lang = "en-GB"; rec.interimResults = true; rec.continuous = false;
+    mic.classList.add("on"); $("#hint").textContent = "Listening… say your command.";
+    rec.onresult = e => { const t = Array.from(e.results).map(r => r[0].transcript).join(" "); $("#task").value = t; if (e.results[e.results.length - 1].isFinal) { $("#hint").textContent = "Heard it. Press Run or say it again."; } };
+    rec.onend = () => { mic.classList.remove("on"); rec = null; };
+    rec.onerror = () => { mic.classList.remove("on"); rec = null; $("#hint").textContent = "Voice error (microphone permission?)"; };
+    rec.start();
+  };
+})();
+$("#task").addEventListener("keydown", e => { if (e.key === "Enter") $("#go").click(); });
+$("#memgo").onclick = async () => { const content = $("#memtext").value.trim(); if (!content) return;
+  await fetch("/api/memory", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content }) }); $("#memtext").value = ""; refreshState(); };
+
+function connect() {
+  const es = new EventSource("/api/events");
+  es.addEventListener("snapshot", ev => {
+    $("#feed").innerHTML = ""; feedCount = 0;
+    JSON.parse(ev.data).forEach(e => applyEvent(e, false));
+    const now = Date.now() / 1000;
+    Object.values(agents).forEach(a => {
+      const stale = !a.since || now - a.since > 900;            // nothing from this agent for 15 min -> idle
+      const finished = a.state === "done" && (!a.doneAt || now - a.doneAt > 9);
+      if (a.state !== "idle" && (stale || finished)) { a.state = "idle"; a.bubble = null; }
+      a.pos = { ...a.home }; a.target = null; });
+    $("#conn").classList.remove("off");
+  });
+  es.addEventListener("ev", ev => { const e = JSON.parse(ev.data); applyEvent(e, true); if (e.type === "done" || e.type === "tool_result") refreshState(); if (e.type === "done" && e.depth === 0) refreshRuns(); });
+  es.onerror = () => $("#conn").classList.add("off");
+}
+
+resize();
+refreshState().then(() => { fitCamera(); connect(); requestAnimationFrame(frame); });
+setInterval(refreshState, 8000); refreshRuns(); setInterval(refreshRuns, 20000); refreshStats(); setInterval(refreshStats, 60000);
+</script>
+</body>
+</html>

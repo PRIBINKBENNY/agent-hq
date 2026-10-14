@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "brain": {
+      "command": ".venv/bin/python",
+      "args": ["brain/server.py"]
+    }
+  }
+}
