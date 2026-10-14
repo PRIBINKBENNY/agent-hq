@@ -120,3 +120,11 @@
   command: ".venv/bin/python office/eval/run_eval.py --quick"
   priority: 2
   title: "Weekly agent eval (fabrication and success rate per provider)"
+
+- name: weekly-publish
+  every: weekly
+  day: friday
+  at: "17:00"
+  command: "./office/publish.sh"
+  priority: 2
+  title: "Publish the public portfolio repo from the dev repo"

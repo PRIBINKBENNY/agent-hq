@@ -183,7 +183,7 @@ class BrainStore:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False, timeout=15)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
         self.embedder = embedder or Embedder()
@@ -223,7 +223,10 @@ class BrainStore:
         )
 
     def _purge_expired(self):
-        self.conn.execute("DELETE FROM memories WHERE expires_at IS NOT NULL AND expires_at < ?", (time.time(),))
+        with self._lock:
+            cur = self.conn.execute("DELETE FROM memories WHERE expires_at IS NOT NULL AND expires_at < ?", (time.time(),))
+            self.conn.commit()   # never leave the write lock open (callers may return early)
+            return cur.rowcount
 
     # ------------------------------------------------------------------ write
     def remember(

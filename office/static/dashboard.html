@@ -25,6 +25,8 @@
   .cmd button.go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; cursor: pointer; }
   .cmd #mic { cursor: pointer; } .cmd #mic.on { border-color: var(--err); color: var(--err); animation: ping 1.2s infinite; }
   .task { padding: 7px 12px; border-bottom: 1px solid var(--line); font-size: 11.5px; display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: start; }
+  .appr .st { font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); }
+  .appr .st.done { color: var(--done); border-color: var(--done); } .appr .st.failed { color: var(--err); border-color: var(--err); } .appr .st.queued { color: var(--tool); border-color: var(--tool); }
   .task .st { font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); white-space: nowrap; }
   .task .st.running { color: var(--think); border-color: var(--think); } .task .st.queued { color: var(--tool); border-color: var(--tool); }
   .task .st.done { color: var(--done); border-color: var(--done); } .task .st.failed, .task .st.cancelled { color: var(--err); border-color: var(--err); }
@@ -118,7 +120,7 @@
     <div class="stage" id="stage">
       <canvas id="c"></canvas>
       <div class="overlay" id="overlay"></div>
-      <div class="hint" id="hint">Drag to pan · scroll to zoom · agents walk to the brain when they recall or remember</div>
+      <div class="hint" id="hint">Drag to pan · scroll to zoom · click an agent for its brief, runs and lessons</div>
       <div class="legend">
         <span><i style="background:var(--think)"></i>thinking</span><span><i style="background:var(--tool)"></i>tool</span>
         <span><i style="background:var(--deleg)"></i>delegating</span><span><i style="background:var(--done)"></i>done</span><span><i style="background:var(--err)"></i>fallback</span>
@@ -227,7 +229,22 @@ const toScreen = p => ({ x: (p.x - cam.x) * cam.z + W / 2, y: (p.y - cam.y) * ca
 let drag = null;
 canvas.addEventListener("mousedown", e => { drag = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y }; canvas.classList.add("drag"); });
 window.addEventListener("mousemove", e => { if (!drag) return; cam.x = drag.cx - (e.clientX - drag.x) / cam.z; cam.y = drag.cy - (e.clientY - drag.y) / cam.z; });
-window.addEventListener("mouseup", () => { drag = null; canvas.classList.remove("drag"); });
+window.addEventListener("mouseup", e => { const wasDrag = drag && (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 4); drag = null; canvas.classList.remove("drag"); if (!wasDrag && e.target === canvas) clickFloor(e); });
+function clickFloor(e) {
+  const r = canvas.getBoundingClientRect(); const sx = e.clientX - r.left, sy = e.clientY - r.top;
+  const wx = (sx - W / 2) / cam.z + cam.x, wy = (sy - H / 2) / cam.z + cam.y;
+  let best = null, bd = 28;
+  Object.values(agents).forEach(a => { const d = Math.hypot(a.pos.x - wx, a.pos.y - (wy + 22)); if (d < bd) { bd = d; best = a; } });
+  if (best) openAgent(best.name);
+}
+async function openAgent(name) {
+  const a = await (await fetch("/api/agent?name=" + encodeURIComponent(name))).json();
+  const runs = (a.runs || []).map(r => `• ${r.ts} · ${(r.model || "").split("/").pop()} · ${(r.tool_calls || []).length} tools\n  ${String(r.task).slice(0, 110)}\n  → ${String(r.answer).slice(0, 220).replace(/\n/g, " ")}`).join("\n");
+  const lessons = (a.lessons || []).map(l => "• " + l.replace(/^Lesson \([^)]*\):\s*/, "")).join("\n") || "none yet";
+  $("#modal-title").textContent = `${a.name} · ${a.office} · ${a.tier}${a.model ? " · " + a.model.split(",")[0] : ""}`;
+  $("#modal-body").textContent = `${a.description}\n\nTOOLS: ${a.tools.join(", ")}${a.delegates.length ? "\nDELEGATES TO: " + a.delegates.join(", ") : ""}\nTASKS: ${a.tasks.done} done, ${a.tasks.failed} failed\n\nLESSONS LEARNED:\n${lessons}\n\nRECENT RUNS:\n${runs || "none yet"}\n\nBRIEF:\n${a.system}`;
+  $("#modal").classList.add("open");
+}
 canvas.addEventListener("wheel", e => { e.preventDefault(); const f = Math.exp(-e.deltaY * 0.0012); cam.z = Math.max(.35, Math.min(2.5, cam.z * f)); }, { passive: false });
 
 /* ============================== drawing ============================== */
@@ -477,8 +494,10 @@ async function refreshState() {
   $("#brain-sp").textContent = `${s.brain.db_size_mb} MB`;
   const bs = $("#brain-sub"); if (bs) bs.textContent = `${s.brain.total_memories} notes · shared memory`;
   $("#approvals").innerHTML = s.approvals.length ? s.approvals.map(a => { const paths = (a.content.match(/(?:workspace\/)?([\w./-]+\/[\w.-]+\.(?:md|txt|py|html|json|pdf))/g) || []).map(p => p.replace(/^workspace\//, ""));
-      return `<div class="appr"><div>${esc(a.content.replace(/^PENDING APPROVAL from /, "From "))}</div>
-      <div class="btns"><button class="ok" onclick="decide(${a.id},'approved')">Approve</button><button class="no" onclick="decide(${a.id},'rejected')">Reject</button>${[...new Set(paths)].map(p => `<button class="view" onclick="viewFile('${esc(p)}')">view ${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
+      const qa = a.tags.includes("qa-pass") ? `<span class="st done" style="margin-right:6px">QA pass</span>` : a.tags.includes("qa-fail") ? `<span class="st failed" style="margin-right:6px">QA fail</span>` : a.tags.includes("qa-queued") ? `<span class="st queued" style="margin-right:6px">QA pending</span>` : "";
+      const isApp = a.tags.includes("application") || /cv|cover letter|application/i.test(a.content);
+      return `<div class="appr"><div>${qa}${esc(a.content.replace(/^(QA: \w+ - )?PENDING APPROVAL from /, "From "))}</div>
+      <div class="btns"><button class="ok" onclick="decide(${a.id},'approved')">Approve</button>${isApp ? `<button class="ok" onclick="applied(${a.id})">I applied</button>` : ""}<button class="no" onclick="decide(${a.id},'rejected')">Reject</button>${[...new Set(paths)].map(p => `<button class="view" onclick="viewFile('${esc(p)}')">view ${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
     : `<div class="empty">Nothing waiting. Agents park applications, emails and posts here.</div>`;
   renderTasks(s.tasks || []);
   $("#memories").innerHTML = s.memories.length ? s.memories.map(m => `<div class="mem"><span class="k">${esc(m.kind)}</span>${esc(m.content)}<div class="who">${esc(m.agent)} · ${esc(m.created)}${m.tags.length ? " · " + esc(m.tags.join(", ")) : ""}</div></div>`).join("")
@@ -518,6 +537,7 @@ async function viewFile(path) {
   const r = await (await fetch("/api/file?path=" + encodeURIComponent(path))).json();
   $("#modal-title").textContent = path; $("#modal-body").textContent = r.content || r.error || ""; $("#modal").classList.add("open");
 }
+async function applied(id) { await fetch("/api/applied", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) }); refreshState(); refreshStats(); }
 async function decide(id, decision) { await fetch("/api/approve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, decision }) }); refreshState(); }
 $("#go").onclick = async () => {
   const task = $("#task").value.trim(); if (!task) return; $("#go").disabled = true;

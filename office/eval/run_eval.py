@@ -24,6 +24,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "office")); sys.path.insert(0, str(ROOT / "brain"))
 
+# Run against a COPY of the brain so eval tasks never leave approvals, tasks or memories behind.
+import os, shutil, tempfile  # noqa: E402
+_tmp = Path(tempfile.mkdtemp(prefix="agenthq-eval-"))
+_src = Path(os.environ.get("BRAIN_DB", ROOT / "brain" / "data" / "brain.db"))
+if _src.exists():
+    shutil.copy(_src, _tmp / "brain.db")
+os.environ["BRAIN_DB"] = str(_tmp / "brain.db")
+os.environ["OFFICE_REFLECT"] = "0"
+
 import runtime  # noqa: E402
 from runtime import Agent, load_brief, active_providers, OLLAMA_MODEL  # noqa: E402
 from tools import registry, WORKSPACE  # noqa: E402
@@ -107,7 +116,7 @@ def main():
     print("saved", path.relative_to(ROOT))
     try:
         from store import BrainStore
-        BrainStore().remember("Agent eval " + out["date"] + ": " + "; ".join(f"{k} pass {v['pass_rate']:.0%} fab {v['fabrication_rate']:.0%}" for k, v in summary.items()),
+        BrainStore(_src).remember("Agent eval " + out["date"] + ": " + "; ".join(f"{k} pass {v['pass_rate']:.0%} fab {v['fabrication_rate']:.0%}" for k, v in summary.items()),
                               agent="eval", kind="event", importance=3, tags=["eval"])
     except Exception:
         pass

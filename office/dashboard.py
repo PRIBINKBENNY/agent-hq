@@ -85,7 +85,7 @@ async def api_events(request: Request):
         pos = EVENTS_FILE.stat().st_size if EVENTS_FILE.exists() else 0
         while True:
             if await request.is_disconnected():
-                break
+                return
             if EVENTS_FILE.exists():
                 size = EVENTS_FILE.stat().st_size
                 if size < pos:
@@ -99,7 +99,7 @@ async def api_events(request: Request):
                         if ln.strip():
                             yield {"event": "ev", "data": ln}
             await asyncio.sleep(0.4)
-    return EventSourceResponse(gen())
+    return EventSourceResponse(gen(), ping=15)
 
 
 def _busy() -> bool:
@@ -140,6 +140,23 @@ async def api_approve(request: Request):
             f"have tracker log it as 'proposed'; for a post, have tracker note the publish date. Report what you did.",
             owner="chief-of-staff", created_by="pribin", priority=4, source="approval")
     return JSONResponse({"ok": True, "follow_up_task": follow["id"] if follow else None})
+
+
+async def api_applied(request: Request):
+    """Pribin pressed 'I applied' on an approval: record status:applied so the tracker and scorecard see it."""
+    body = await request.json()
+    mid = int(body.get("id"))
+    m = brain.get(mid)
+    company = next((t.split(":", 1)[1] for t in m.tags if t.startswith("company:")), None) or \
+              next((t for t in m.tags if t not in ("application", "pending", "approved", "rejected", "qa-pass", "qa-fail", "qa-queued", "email", "cv")), "unknown")
+    ev = brain.remember(f"Pribin applied: {m.content[:160]}", agent="pribin", kind="event", importance=4,
+                        tags=["status:applied", f"company:{company}", "application"])
+    brain.update(mid, agent="pribin", content=m.content.replace("PENDING APPROVAL", "APPLIED", 1),
+                 tags=[t for t in m.tags if t != "pending"] + ["approved", "applied"])
+    t = brain.task_create(f"Applied to {company}: log + follow-up", f"Pribin applied to {company} today ({m.content[:200]}). "
+                          "tracker: set stage applied in pipeline/jobs.md with a follow-up date 7 days out. mail-assistant: draft the follow-up email dated then.",
+                          owner="chief-of-staff", created_by="pribin", priority=3, source="applied")
+    return JSONResponse({"ok": True, "event": ev.id, "task": t["id"]})
 
 
 async def api_tasks(request: Request):
@@ -228,6 +245,21 @@ def _compute_stats() -> dict:
     return {"agents": agents, "providers": providers, "tasks_by_owner": by_owner, "scorecard": card, "last_eval": last_eval}
 
 
+async def api_agent(request: Request):
+    """One agent: brief, tools, last runs, lessons, task stats."""
+    name = request.query_params.get("name", "")
+    briefs = {b.name: b for b in list_agents()}
+    if name not in briefs:
+        return JSONResponse({"error": "unknown agent"}, status_code=404)
+    b = briefs[name]
+    runs = [r for r in (await asyncio.to_thread(_read_runs))["runs"] if r["agent"] == name][:5]
+    lessons = [m.to_dict()["content"] for m in brain.recall("", limit=5, tags=["reflection", name], kind="lesson")]
+    tasks = [t for t in brain.task_list(limit=300) if t["owner"] == name]
+    return JSONResponse({"name": name, "office": b.office, "tier": b.tier, "model": b.model, "description": b.description,
+                         "tools": b.tools, "delegates": b.delegates, "system": b.system[:1800], "runs": runs, "lessons": lessons,
+                         "tasks": {"done": sum(t["status"] == "done" for t in tasks), "failed": sum(t["status"] == "failed" for t in tasks)}})
+
+
 async def api_file(request: Request):
     """Read a workspace file for previews (approvals, task results)."""
     path = request.query_params.get("path", "")
@@ -266,8 +298,10 @@ app = Starlette(routes=[
     Route("/api/approve", api_approve, methods=["POST"]),
     Route("/api/memory", api_memory, methods=["POST"]),
     Route("/api/tasks", api_tasks, methods=["GET", "POST"]),
+    Route("/api/applied", api_applied, methods=["POST"]),
     Route("/api/runs", api_runs),
     Route("/api/file", api_file),
+    Route("/api/agent", api_agent),
     Route("/api/stats", api_stats),
 ], lifespan=_lifespan)
 

@@ -32,6 +32,7 @@ def main():
     p.add_argument("--list", action="store_true")
     p.add_argument("--approvals", action="store_true")
     p.add_argument("--providers", action="store_true", help="show the free-tier provider pool and ping each one")
+    p.add_argument("--doctor", action="store_true", help="health check: providers, launch agent, scheduler, brain, approvals, disk")
     p.add_argument("--quiet", action="store_true")
     p.add_argument("--task-id", type=int, help="board task this run belongs to (set by the scheduler)")
     a = p.parse_args()
@@ -41,6 +42,41 @@ def main():
             print(f"{b.name:<20} {b.office:<16} {b.tier:<7} tools={len(b.tools)} delegates={b.delegates or '-'}")
             if b.description:
                 print(f"{'':<20} {b.description}")
+        return
+    if a.doctor:
+        import json as _json, subprocess, shutil, time as _t
+        from runtime import active_providers, read_usage
+        ok = lambda c, msg: print(("  OK   " if c else "  FAIL ") + msg)
+        print("Agent HQ doctor")
+        ok(bool(active_providers()), f"providers with keys: {', '.join(active_providers()) or 'none (Ollama only)'}")
+        u = read_usage()
+        for prov, d in u.items():
+            day = d.get("x-ratelimit-remaining-tokens-day") or d.get("x-ratelimit-remaining-requests") or "?"
+            print(f"       {prov}: tokens/min left {d.get('x-ratelimit-remaining-tokens-minute') or d.get('x-ratelimit-remaining-tokens') or '?'}, day left {day}")
+        try:
+            r = subprocess.run(["launchctl", "print", f"gui/{__import__('os').getuid()}/com.pribin.agenthq"], capture_output=True, text=True, timeout=10)
+            ok("state = running" in r.stdout, "launch agent running (dashboard + scheduler)")
+        except Exception:
+            ok(False, "launch agent not found: run ./office/launchd/install.sh")
+        try:
+            import httpx
+            ok(httpx.get("http://127.0.0.1:8787/api/state", timeout=5).status_code == 200, "dashboard answering on :8787")
+        except Exception:
+            ok(False, "dashboard not answering on :8787")
+        ok(shutil.which("ollama") is not None, "ollama installed (local fallback)")
+        st = brain.stats(); ok(st["total_memories"] > 0, f"brain: {st['total_memories']} memories, semantic={st['semantic_search']}, {st['db_size_mb']} MB")
+        pend = [m for m in brain.recent(limit=50, kind="approval") if "pending" in m.tags]
+        print(f"  INFO {len(pend)} approval(s) waiting for Pribin")
+        tl = brain.task_list(limit=200); run = [t for t in tl if t["status"] == "running"]; q = [t for t in tl if t["status"] == "queued"]
+        stale = [t for t in run if _t.time() - (t.get("started_at") or _t.time()) > 3600]
+        ok(not stale, f"tasks: {len(run)} running, {len(q)} queued" + (f", {len(stale)} stuck > 1h" if stale else ""))
+        try:
+            sp = _json.load(open(Path(__file__).resolve().parent / "logs" / "schedule_state.json"))
+            print("  INFO last scheduled runs: " + ", ".join(f"{k} {_t.strftime('%a %H:%M', _t.localtime(v))}" for k, v in list(sp.items())[:4]) + " ...")
+        except Exception:
+            print("  INFO no scheduled job has run yet")
+        gh = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True); ok("Logged in" in (gh.stdout + gh.stderr), "GitHub CLI logged in")
+        env = Path(__file__).resolve().parent.parent / ".env"; ok(env.exists() and (env.stat().st_mode & 0o777) == 0o600, ".env present with mode 600")
         return
     if a.providers:
         from runtime import PROVIDERS, PROVIDER_ORDER, active_providers, provider_models, provider_key, _call_model, EngineError, RateLimited, OLLAMA_MODEL

@@ -53,10 +53,28 @@ def test_weekly_due_and_after_dependency(tmp_path, monkeypatch):
     brain = BrainStore(tmp_path / "b.db", embedder=NoEmbed())
     sched = tmp_path / "s.yaml"; state = tmp_path / "state.json"
     sched.write_text(yaml.safe_dump([
-        {"name": "scan", "every": "daily", "at": "00:00", "agent": "job-scout", "task": "scan"},
-        {"name": "digest", "every": "daily", "at": "00:00", "after": "scan", "agent": "chief-of-staff", "task": "digest"}]))
+        {"name": "scan", "every": "daily", "at": "00:00", "window_hours": 24, "agent": "job-scout", "task": "scan"},
+        {"name": "digest", "every": "daily", "at": "00:00", "window_hours": 24, "after": "scan", "agent": "chief-of-staff", "task": "digest"}]))
     monkeypatch.setattr(scheduler, "SCHEDULE_FILE", sched); monkeypatch.setattr(scheduler, "STATE_FILE", state)
     assert scheduler.enqueue_due_jobs(brain) == ["scan"]          # digest held back
     t = brain.task_claim_next(); brain.task_update(t["id"], status="done", result="ok")
     assert scheduler.enqueue_due_jobs(brain) == ["digest"]        # now released
     assert scheduler.enqueue_due_jobs(brain) == []                # once per day
+
+
+def test_firing_window_skips_late_wake():
+    job = {"every": "weekdays", "at": "10:00"}
+    assert scheduler._due(job, None, datetime(2026, 10, 14, 11, 0)) is True       # within 6h window
+    assert scheduler._due(job, None, datetime(2026, 10, 14, 23, 2)) is False      # Mac woke at 23:02: wait for tomorrow
+    assert scheduler._due({**job, "window_hours": 14}, None, datetime(2026, 10, 14, 23, 2)) is True
+
+
+def test_housekeeping_removes_old_logs(tmp_path, monkeypatch):
+    import os, time as _t
+    monkeypatch.setattr(scheduler, "LOG_DIR", tmp_path); monkeypatch.setattr(scheduler, "ROOT", tmp_path); scheduler._last_housekeeping = 0
+    old = tmp_path / "task-1.log"; old.write_text("x"); os.utime(old, (_t.time() - 20 * 86400,) * 2)
+    new = tmp_path / "task-2.log"; new.write_text("y")
+    (tmp_path / "workspace" / ".handoff").mkdir(parents=True); h = tmp_path / "workspace" / ".handoff" / "a.md"; h.write_text("h"); os.utime(h, (_t.time() - 10 * 86400,) * 2)
+    r = scheduler.housekeeping()
+    assert r["task_logs"] == 1 and r["handoff"] == 1 and new.exists() and not old.exists() and not h.exists()
+    assert scheduler.housekeeping() == {}     # rate-limited to every 6 hours

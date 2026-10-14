@@ -94,9 +94,13 @@ def _due(job: dict, last_run: float | None, now: datetime) -> bool:
             return False
         if last_run is not None and now.timestamp() - last_run < 6 * 86400:
             return False
-    # daily / weekdays: due once per day at or after HH:MM
-    if now.hour < hh or (now.hour == hh and now.minute < mm):
+    # daily / weekdays / weekly: due once per day, at or after HH:MM, but only within the firing window
+    minutes_now = now.hour * 60 + now.minute
+    minutes_at = hh * 60 + mm
+    if minutes_now < minutes_at:
         return False
+    if minutes_now - minutes_at > float(job.get("window_hours", 6)) * 60:
+        return False   # too late today (e.g. the Mac was asleep); wait for tomorrow
     if last_run is None:
         return True
     return datetime.fromtimestamp(last_run).date() < now.date()
@@ -165,11 +169,56 @@ def tick(brain: BrainStore, engine: str = "auto") -> dict:
         _current = None; _current_task = None
     info["enqueued"] = enqueue_due_jobs(brain)
     check_approvals(brain)
+    housekeeping()
     if _current is None:
         nxt = brain.task_claim_next()
         if nxt:
             _current = _spawn(nxt, engine); _current_task = nxt; info["started"] = nxt["id"]
     return info
+
+
+_last_housekeeping = 0.0
+
+
+def housekeeping(days_logs: int = 14, days_handoff: int = 7) -> dict:
+    """Delete task logs and handoff notes older than N days; trim the events file to the last 20k lines."""
+    global _last_housekeeping
+    if time.time() - _last_housekeeping < 6 * 3600:
+        return {}
+    _last_housekeeping = time.time()
+    removed = {"task_logs": 0, "handoff": 0, "events_trimmed": False}
+    now = time.time()
+    for f in LOG_DIR.glob("task-*.log"):
+        if now - f.stat().st_mtime > days_logs * 86400:
+            f.unlink(missing_ok=True); removed["task_logs"] += 1
+    for f in LOG_DIR.glob("run-*.log"):
+        if now - f.stat().st_mtime > days_logs * 86400:
+            f.unlink(missing_ok=True); removed["task_logs"] += 1
+    hand = ROOT / "workspace" / ".handoff"
+    if hand.exists():
+        for f in hand.glob("*.md"):
+            if now - f.stat().st_mtime > days_handoff * 86400:
+                f.unlink(missing_ok=True); removed["handoff"] += 1
+    # daily brain backup, keep 7
+    try:
+        import shutil
+        src = ROOT / "brain" / "data" / "brain.db"
+        bdir = ROOT / "brain" / "data" / "backups"; bdir.mkdir(parents=True, exist_ok=True)
+        today = time.strftime("%Y-%m-%d")
+        dest = bdir / f"brain-{today}.db"
+        if src.exists() and not dest.exists():
+            import sqlite3
+            con = sqlite3.connect(str(src)); bck = sqlite3.connect(str(dest)); con.backup(bck); bck.close(); con.close()
+            removed["backup"] = dest.name
+        for old_b in sorted(bdir.glob("brain-*.db"))[:-7]:
+            old_b.unlink(missing_ok=True)
+    except Exception as e:
+        removed["backup_error"] = str(e)[:120]
+    ev = LOG_DIR / "events.jsonl"
+    if ev.exists() and ev.stat().st_size > 20_000_000:
+        lines = ev.read_text().splitlines()[-20000:]
+        ev.write_text("\n".join(lines) + "\n"); removed["events_trimmed"] = True
+    return removed
 
 
 def busy() -> bool:

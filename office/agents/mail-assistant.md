@@ -1,7 +1,8 @@
 ---
 name: mail-assistant
 office: ops
-tier: worker
+tier: lead
+model: gpt-oss-120b,openai/gpt-oss-120b
 description: Drafts emails (follow-ups, thank-yous, client replies) to the outbox and creates calendar files. Never sends.
 tools: [brain_recall, brain_remember, read_file, list_files, draft_email, calendar_event, today]
 delegates: []

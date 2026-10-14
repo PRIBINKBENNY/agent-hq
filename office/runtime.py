@@ -76,6 +76,19 @@ PROVIDERS: dict[str, dict] = {
 PROVIDER_ORDER = _env_list("PROVIDER_ORDER", "cerebras,groq,mistral,gemini")
 
 
+_STORE = None
+
+
+def _store():
+    """One BrainStore per process (fresh connections on every call were piling up locks)."""
+    global _STORE
+    if _STORE is None:
+        sys.path.insert(0, str(ROOT / "brain"))
+        from store import BrainStore
+        _STORE = BrainStore()
+    return _STORE
+
+
 def provider_key(name: str) -> str:
     p = PROVIDERS.get(name)
     return (os.environ.get(p["key_env"]) or "").strip() if p else ""
@@ -122,6 +135,8 @@ LEAD_MODELS = PROVIDERS["groq"]["lead"]
 WORKER_MODELS = PROVIDERS["groq"]["worker"]
 
 MAX_TURNS = int(os.environ.get("OFFICE_MAX_TURNS", "20"))
+READ_TOOLS = {"read_file", "list_files", "brain_recall", "brain_recent", "brain_query", "job_details", "web_fetch", "fact_check",
+              "cv_truth_check", "market_data", "task_list", "github_status", "job_search", "web_search"}
 TOOL_RESULT_CAP = int(os.environ.get("OFFICE_TOOL_RESULT_CAP", "3500"))
 _COOLDOWN: dict[tuple[str, str], float] = {}   # (engine, model) -> unix ts when usable again
 
@@ -209,14 +224,27 @@ def _record_usage(provider: str, model: str, headers: httpx.Headers):
         USAGE_FILE.write_text(json.dumps(data, indent=1))
     except Exception:
         pass
+    def num(k):
+        try:
+            return float(rl[k]) if k in rl else None
+        except ValueError:
+            return None
+    now = time.time()
     # nearly out of per-minute tokens: cool this model down until the window resets
-    rem = rl.get("x-ratelimit-remaining-tokens-minute") or rl.get("x-ratelimit-remaining-tokens")
-    reset = parse_duration(rl.get("x-ratelimit-reset-tokens-minute") or rl.get("x-ratelimit-reset-tokens"))
-    try:
-        if rem is not None and float(rem) < 1500 and reset:
-            _COOLDOWN[(provider, model)] = time.time() + min(reset, 65)
-    except ValueError:
-        pass
+    rem = num("x-ratelimit-remaining-tokens-minute") if "x-ratelimit-remaining-tokens-minute" in rl else num("x-ratelimit-remaining-tokens")
+    reset = parse_duration(rl.get("x-ratelimit-reset-tokens-minute") or rl.get("x-ratelimit-reset-tokens")) or 60
+    if rem is not None and rem < 1500:
+        _COOLDOWN[(provider, model)] = now + min(reset, 65)
+    # out of per-minute requests (Cerebras: 5/min): wait for the minute
+    req_min = num("x-ratelimit-remaining-requests-minute")
+    if req_min is not None and req_min <= 0:
+        _COOLDOWN[(provider, model)] = max(_COOLDOWN.get((provider, model), 0), now + 61)
+    # nearly out for the day: step aside for an hour so other providers carry the load, re-check later
+    day_tok = num("x-ratelimit-remaining-tokens-day"); day_req = num("x-ratelimit-remaining-requests-day") or num("x-ratelimit-remaining-requests")
+    if (day_tok is not None and day_tok < 40000) or (day_req is not None and day_req < 40):
+        for key in list(_COOLDOWN) + [(provider, model)]:
+            if key[0] == provider:
+                _COOLDOWN[key] = max(_COOLDOWN.get(key, 0), now + 3600)
 
 
 def read_usage() -> dict:
@@ -249,7 +277,8 @@ def _chat(url: str, headers: dict, payload: dict, timeout: float = 120, provider
     return r.json()
 
 
-def _call_model(messages: list[dict], tools: list[dict], model: str, engine: str, tier: str = "worker") -> dict:
+def _call_model(messages: list[dict], tools: list[dict], model: str, engine: str, tier: str = "worker",
+                tool_choice: str = "auto") -> dict:
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
@@ -258,9 +287,9 @@ def _call_model(messages: list[dict], tools: list[dict], model: str, engine: str
     }
     if tools:
         payload["tools"] = tools
-        payload["tool_choice"] = "auto"
+        payload["tool_choice"] = tool_choice
     if engine == "ollama":
-        return _ollama_native(messages, tools, model)
+        return _ollama_native(messages, [] if tool_choice == "none" else tools, model)
     p = PROVIDERS.get(engine)
     if not p:
         raise EngineError(f"unknown engine {engine}")
@@ -457,11 +486,21 @@ class Agent:
                 }, "required": ["agent", "task"]}}})
         return specs
 
+    def _lessons(self) -> str:
+        """The agent's own most recent reflection lessons, so experience changes behaviour."""
+        try:
+            ms = _store().recall("", limit=3, tags=["reflection", self.brief.name], kind="lesson")
+            if not ms:
+                return ""
+            return "\nLessons from your own recent runs (apply them):\n" + "\n".join(f"- {m.content.split(':', 1)[-1].strip()[:220]}" for m in ms) + "\n"
+        except Exception:
+            return ""
+
     def _system_prompt(self) -> str:
         return (
             f"You are '{self.brief.name}', part of the {self.brief.office} office of Pribin's AI agent company.\n"
             f"Today is {time.strftime('%A %d %B %Y')}. Never put past years in search queries.\n"
-            f"{self.brief.system}\n\n"
+            f"{self.brief.system}\n{self._lessons()}\n"
             "House rules:\n"
             "- Use brain_recall before starting so you build on what the team already knows.\n"
             "- Use brain_remember for anything another agent or Pribin will need later. One idea per memory.\n"
@@ -479,6 +518,7 @@ class Agent:
         chain = model_chain(self.brief, self.engine)
         engine, model = self._pick(chain)
         calls: list[dict] = []
+        seen: dict[tuple, int] = {}
         rl_hits = 0
         nudged_claims = False
         t0 = time.time(); tok_in = tok_out = 0
@@ -579,7 +619,14 @@ class Agent:
                 self._emit("tool_result", tool=fn, preview=result[:160], ok=not result.startswith("ERROR"))
                 if len(result) > TOOL_RESULT_CAP:
                     result = result[:TOOL_RESULT_CAP] + f"\n...[truncated, {len(result)} chars total]"
-                calls.append({"tool": fn, "args": args, "result_preview": result[:200]})
+                sig = (fn, json.dumps(args, sort_keys=True))
+                seen[sig] = seen.get(sig, 0) + 1
+                if fn in READ_TOOLS and seen[sig] >= 3:
+                    result = (f"You already called {fn} with exactly these arguments {seen[sig] - 1} times this run. "
+                              "Nothing has changed. Use what you learned and move on to the next step; do not repeat reads.")
+                    self._say(f"repeat read blocked: {fn}")
+                calls.append({"tool": fn, "args": args, "result_preview": result[:200],
+                              "result_full": result[:1800] if fn in READ_TOOLS else result[:300]})
                 messages.append({"role": "tool", "tool_call_id": tc.get("id", fn), "name": fn, "content": result})
 
         self._say("hit max turns, asking for a final answer")
@@ -589,7 +636,12 @@ class Agent:
         for attempt in range(len(chain) + 1):
             try:
                 self._emit("think", model=f"{engine}:{model}", turn=MAX_TURNS + 1)
-                resp = _call_model(trim_context(messages), [], model, engine, self.brief.tier)
+                try:
+                    resp = _call_model(trim_context(messages), tools, model, engine, self.brief.tier, tool_choice="none")
+                except EngineError as e:
+                    if not str(e).startswith("400"):
+                        raise
+                    resp = _call_model(trim_context(messages), [], model, engine, self.brief.tier)
                 u = resp.get("usage") or {}
                 tok_in += int(u.get("prompt_tokens") or 0); tok_out += int(u.get("completion_tokens") or 0)
                 content = (resp["choices"][0]["message"].get("content") or "").strip()
@@ -617,8 +669,11 @@ class Agent:
             return None
         m = re.search(r"REMAINING:\s*(.+)", content, re.S | re.I)
         remaining = (m.group(1).strip() if m else "").strip()
-        if not remaining or remaining.lower().startswith("none"):
+        if remaining.lower().startswith("none"):
             return None
+        if not remaining:
+            # the model did not produce the report (often it tried to keep calling tools): continue anyway
+            remaining = "The previous hop hit its turn limit without a clear report. Finish every step of the ORIGINAL TASK that is not yet done; start from the handoff notes."
         hop = int((re.search(r"CONTINUATION_HOP:\s*(\d+)", task) or [None, "0"])[1]) + 1
         if hop > 3:
             self._say("continuation chain limit (3) reached; not queuing another")
@@ -626,13 +681,27 @@ class Agent:
         root = re.sub(r"^(Continue:\s*)+", "", task.split("\n", 1)[0])[:90]
         orig = re.search(r"ORIGINAL TASK:\n(.*?)\n\nALREADY DONE", task, re.S)
         original = orig.group(1).strip() if orig else task
+        # handoff notes: the useful results this run already fetched, so the next hop reads ONE file instead of re-reading everything
+        notes_dir = ROOT / "workspace" / ".handoff"; notes_dir.mkdir(parents=True, exist_ok=True)
+        notes_path = notes_dir / f"{self.run_id}.md"
+        prev = re.search(r"HANDOFF NOTES: read_file (\.handoff/[\w-]+\.md)", task)
+        prev_text = ""
+        if prev and (ROOT / "workspace" / prev.group(1)).exists():
+            prev_text = (ROOT / "workspace" / prev.group(1)).read_text()[-6000:]
+        lines = [f"# Handoff notes for '{root}' (hop {hop})", "", "## What this hop concluded", content[:1500], "", "## Results already fetched (do not fetch again)"]
+        for c in calls[-10:]:
+            if c["tool"] in READ_TOOLS and c.get("result_full"):
+                lines += [f"### {c['tool']} {json.dumps(c['args'])[:160]}", c["result_full"], ""]
+        if prev_text:
+            lines += ["", "## Notes from the previous hop", prev_text]
+        notes_path.write_text("\n".join(lines))
         try:
-            sys.path.insert(0, str(ROOT / "brain"))
-            from store import BrainStore
-            t = BrainStore().task_create(
+            t = _store().task_create(
                 f"Continue: {root}",
-                f"This continues an earlier run that hit its turn limit. CONTINUATION_HOP: {hop}\n\nORIGINAL TASK:\n{original[:2000]}\n\n"
-                f"ALREADY DONE (do not redo):\n{content[:1500]}\n\nDO NOW:\n{remaining[:1500]}",
+                f"This continues an earlier run that hit its turn limit. CONTINUATION_HOP: {hop}\n\n"
+                f"HANDOFF NOTES: read_file .handoff/{self.run_id}.md FIRST (one call). It contains everything already read and concluded. "
+                f"Do not re-read those files or repeat those recalls.\n\nORIGINAL TASK (every step must end up done, including any approval/export/notify steps):\n{original[:2000]}\n\n"
+                f"ALREADY DONE (do not redo):\n{content[:1200]}\n\nDO NOW:\n{remaining[:1500]}",
                 owner=self.brief.name, created_by=self.brief.name, priority=4, source="continuation")
             self._say(f"queued continuation task #{t['id']}")
             return t["id"]
@@ -651,8 +720,7 @@ class Agent:
             resp = _call_model(prompt, [], model, engine, "worker")
             lesson = (resp["choices"][0]["message"].get("content") or "").strip()
             if lesson and not lesson.upper().startswith("NONE") and len(lesson) < 400:
-                from store import BrainStore
-                BrainStore().remember(f"Lesson ({self.brief.name}): {lesson}", agent=self.brief.name, kind="lesson", importance=2,
+                _store().remember(f"Lesson ({self.brief.name}): {lesson}", agent=self.brief.name, kind="lesson", importance=2,
                                       tags=["reflection", self.brief.name], ttl_seconds=60 * 86400)
                 self._emit("tool", tool="reflect", args=lesson[:160])
         except Exception:

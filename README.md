@@ -108,6 +108,22 @@ into an A4 PDF ready to upload. The engine tile shows each provider's remaining 
   pass rate and fabrication rate. Runs weekly; results feed the Ops panel.
 - **Ops panel**: runs, tokens, time and failures per agent, provider share, last eval.
 
+## Operating it
+
+```bash
+.venv/bin/python office/run.py --doctor      # health check: providers, budget left, launch agent, brain, approvals, GitHub
+.venv/bin/python office/run.py --providers   # ping each free-tier provider
+./office/publish.sh                          # refresh the public portfolio repo from this one (also runs Fridays)
+```
+
+- **Budget pacing**: the runtime reads each provider's rate-limit headers (per minute and per day) and
+  steps a provider aside before it hits the wall, so work flows to the next free tier instead of failing.
+- **Learning loop**: every real run ends with a one-line lesson; an agent's last three lessons are injected
+  into its next prompt. Click any agent on the floor to see its brief, recent runs and lessons.
+- **Backups**: the brain is backed up daily to `brain/data/backups/` (7 kept). Task logs and handoff notes
+  are rotated automatically.
+- **Eval baseline** (10 tasks, 2026-10-15): Groq 100% pass, Cerebras 90%, local Ollama 3B 60%.
+
 ## Tests
 
 ```bash

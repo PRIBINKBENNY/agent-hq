@@ -59,7 +59,7 @@ def test_agent_loop_with_fake_engine(monkeypatch, tmp_path):
     """Full loop: model asks for a tool, gets the result, answers. No network."""
     calls = {"n": 0}
 
-    def fake_call(messages, tools, model, engine, tier="worker"):
+    def fake_call(messages, tools, model, engine, tier="worker", tool_choice="auto"):
         calls["n"] += 1
         if calls["n"] == 1:
             return {"choices": [{"message": {"content": "", "tool_calls": [
@@ -102,7 +102,7 @@ def test_unbacked_claims_are_sent_back(monkeypatch, tmp_path):
 
     # full loop: first answer claims a write, runtime sends it back, agent then writes and answers
     n = {"i": 0}
-    def fake(messages, tools, model, engine, tier="worker"):
+    def fake(messages, tools, model, engine, tier="worker", tool_choice="auto"):
         n["i"] += 1
         if n["i"] == 1:
             return {"choices": [{"message": {"content": "Done, I wrote notes/out.md", "tool_calls": None}}]}
@@ -203,11 +203,12 @@ def test_turn_limit_queues_continuation(monkeypatch, tmp_path):
         def __init__(self): self.model_name = "none"; self.available = False; self._model = None
     db = tmp_path / "b.db"
     monkeypatch.setattr(rt, "MAX_TURNS", 2); monkeypatch.setattr(rt, "LOG_DIR", tmp_path); monkeypatch.setenv("OFFICE_REFLECT", "0")
+    monkeypatch.setattr(rt, "ROOT", tmp_path); (tmp_path / "workspace").mkdir(exist_ok=True)
     import store as st
     monkeypatch.setattr(st, "DEFAULT_DB", db)
-    monkeypatch.setattr(st.BrainStore.__init__, "__defaults__", (db, None))
-    def fake(messages, tools, model, engine, tier="worker"):
-        if tools:   # keep calling a tool until the limit
+    monkeypatch.setattr(st.BrainStore.__init__, "__defaults__", (db, None)); monkeypatch.setattr(rt, "_STORE", None)
+    def fake(messages, tools, model, engine, tier="worker", tool_choice="auto"):
+        if tools and tool_choice != "none":   # keep calling a tool until the limit
             return {"choices": [{"message": {"content": "", "tool_calls": [{"id": "c", "type": "function", "function": {"name": "ping", "arguments": "{}"}}]}}]}
         return {"choices": [{"message": {"content": "DONE: wrote the README. REMAINING: 1. add CHANGELOG.md 2. push", "tool_calls": None}}]}
     monkeypatch.setattr(rt, "_call_model", fake)
@@ -225,9 +226,10 @@ def test_continuation_chain_is_capped(monkeypatch, tmp_path):
     import store as st
     db = tmp_path / "b.db"
     monkeypatch.setattr(rt, "MAX_TURNS", 1); monkeypatch.setattr(rt, "LOG_DIR", tmp_path); monkeypatch.setenv("OFFICE_REFLECT", "0")
-    monkeypatch.setattr(st.BrainStore.__init__, "__defaults__", (db, None))
-    def fake(messages, tools, model, engine, tier="worker"):
-        if tools:
+    monkeypatch.setattr(rt, "ROOT", tmp_path); (tmp_path / "workspace").mkdir(exist_ok=True)
+    monkeypatch.setattr(st.BrainStore.__init__, "__defaults__", (db, None)); monkeypatch.setattr(rt, "_STORE", None)
+    def fake(messages, tools, model, engine, tier="worker", tool_choice="auto"):
+        if tools and tool_choice != "none":
             return {"choices": [{"message": {"content": "", "tool_calls": [{"id": "c", "type": "function", "function": {"name": "ping", "arguments": "{}"}}]}}]}
         return {"choices": [{"message": {"content": "DONE: a bit. REMAINING: more", "tool_calls": None}}]}
     monkeypatch.setattr(rt, "_call_model", fake)
@@ -239,3 +241,52 @@ def test_continuation_chain_is_capped(monkeypatch, tmp_path):
     assert a.run("Continue: do thing\n\nCONTINUATION_HOP: 3\n\nORIGINAL TASK:\ndo thing\n\nALREADY DONE (do not redo):\nx").continued_as is None   # hop 4 refused
     t = st.BrainStore(db).task_list(limit=5)[0]
     assert t["title"] == "Continue: do thing" and "CONTINUATION_HOP: 3" in t["detail"]
+
+
+def test_repeat_reads_blocked_and_handoff_notes(monkeypatch, tmp_path):
+    import runtime as rt, store as st
+    db = tmp_path / "b.db"
+    monkeypatch.setattr(rt, "MAX_TURNS", 4); monkeypatch.setattr(rt, "LOG_DIR", tmp_path); monkeypatch.setenv("OFFICE_REFLECT", "0")
+    monkeypatch.setattr(st.BrainStore.__init__, "__defaults__", (db, None)); monkeypatch.setattr(rt, "_STORE", None)
+    monkeypatch.setattr(rt, "ROOT", tmp_path); (tmp_path / "workspace").mkdir()
+    n = {"i": 0}
+    def fake(messages, tools, model, engine, tier="worker", tool_choice="auto"):
+        n["i"] += 1
+        if tools and tool_choice != "none":
+            return {"choices": [{"message": {"content": "", "tool_calls": [{"id": "c", "type": "function", "function": {"name": "read_file", "arguments": json.dumps({"path": "a.md"})}}]}}]}
+        return {"choices": [{"message": {"content": "DONE: read a.md. REMAINING: write summary.md", "tool_calls": None}}]}
+    monkeypatch.setattr(rt, "_call_model", fake)
+    reg = ToolRegistry(); reads = {"n": 0}
+    @reg.register("read_file", "r", {"type": "object", "properties": {"path": {"type": "string"}}})
+    def read_file(path): reads["n"] += 1; return "THE CONTENT OF A"
+    res = Agent(Brief("w", "o", "worker", ["read_file"], [], "s"), reg, engine="ollama", verbose=False).run("summarise a.md")
+    assert reads["n"] == 4                                   # tool still runs, but...
+    assert any("already called read_file" in c["result_preview"] for c in res.tool_calls[2:])   # 3rd+ identical read is stubbed
+    notes = tmp_path / "workspace" / ".handoff" / f"{res.tool_calls and Agent.__name__ and ''}"
+    files = list((tmp_path / "workspace" / ".handoff").glob("*.md"))
+    assert files and "THE CONTENT OF A" in files[0].read_text()
+    t = st.BrainStore(db).task_get(res.continued_as)
+    assert ".handoff/" in t["detail"] and "read_file" in t["detail"]
+
+
+def test_budget_awareness_minute_and_day(monkeypatch, tmp_path):
+    import runtime as rt, httpx
+    monkeypatch.setattr(rt, "USAGE_FILE", tmp_path / "u.json"); rt._COOLDOWN.clear()
+    rt._record_usage("cerebras", "m", httpx.Headers({"x-ratelimit-remaining-requests-minute": "0", "x-ratelimit-remaining-tokens-minute": "20000"}))
+    assert rt._COOLDOWN[("cerebras", "m")] > time.time() + 50          # out of requests this minute
+    rt._COOLDOWN.clear()
+    rt._record_usage("cerebras", "m2", httpx.Headers({"x-ratelimit-remaining-tokens-day": "1000", "x-ratelimit-remaining-tokens-minute": "20000", "x-ratelimit-remaining-requests-minute": "4"}))
+    assert rt._COOLDOWN[("cerebras", "m2")] > time.time() + 3000       # day budget nearly gone: step aside for an hour
+    rt._COOLDOWN.clear()
+
+
+def test_lessons_injected_into_prompt(monkeypatch, tmp_path):
+    import runtime as rt, store as st
+    db = tmp_path / "b.db"; monkeypatch.setattr(st.BrainStore.__init__, "__defaults__", (db, None)); monkeypatch.setattr(rt, "_STORE", None)
+    class NoEmbed(st.Embedder):
+        def __init__(self): self.model_name = "none"; self.available = False; self._model = None
+    b = st.BrainStore(db, embedder=NoEmbed())
+    b.remember("Lesson (job-scout): use days=30 when days=7 returns nothing", agent="job-scout", kind="lesson", tags=["reflection", "job-scout"])
+    monkeypatch.setattr(st, "Embedder", NoEmbed)
+    a = Agent(Brief("job-scout", "job-hunt", "worker", [], [], "You scout."), ToolRegistry(), engine="ollama", verbose=False)
+    assert "use days=30" in a._system_prompt()

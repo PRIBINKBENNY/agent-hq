@@ -61,3 +61,13 @@ def test_task_board(store):
     assert [x["id"] for x in store.task_list(status="queued")] == [low["id"]]
     assert store.task_claim_next()["id"] == low["id"]
     assert store.task_claim_next() is None
+
+
+def test_recall_with_no_results_releases_write_lock(tmp_path):
+    """Regression: an empty recall used to leave a DELETE uncommitted, blocking other connections."""
+    db = tmp_path / "lock.db"
+    a = BrainStore(db, embedder=NoEmbed())
+    assert a.recall("nothing here") == []
+    b = BrainStore(db, embedder=NoEmbed())
+    m = b.remember("written by a second connection")     # would raise 'database is locked' before the fix
+    assert m.id == 1
