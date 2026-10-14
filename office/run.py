@@ -76,6 +76,14 @@ def main():
         except Exception:
             print("  INFO no scheduled job has run yet")
         gh = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True); ok("Logged in" in (gh.stdout + gh.stderr), "GitHub CLI logged in")
+        try:
+            import re as _re
+            tl = (Path(__file__).resolve().parent / "logs" / "tunnel.log").read_text()
+            tu = _re.findall(r"https://[a-z0-9-]+\.trycloudflare\.com", tl)
+            alive = subprocess.run(["pgrep", "-f", "cloudflared tunnel"], capture_output=True).returncode == 0
+            print(f"  INFO phone app URL: {tu[-1] + '/m' if tu and alive else 'no tunnel running (./office/launchd/install.sh tunnel)'}")
+        except Exception:
+            print("  INFO phone app: no tunnel log yet")
         env = Path(__file__).resolve().parent.parent / ".env"; ok(env.exists() and (env.stat().st_mode & 0o777) == 0o600, ".env present with mode 600")
         return
     if a.providers:

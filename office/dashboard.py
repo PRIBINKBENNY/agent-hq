@@ -27,14 +27,62 @@ import uvicorn  # noqa: E402
 from sse_starlette.sse import EventSourceResponse  # noqa: E402
 from starlette.applications import Starlette  # noqa: E402
 from starlette.requests import Request  # noqa: E402
-from starlette.responses import HTMLResponse, JSONResponse  # noqa: E402
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response  # noqa: E402
 from starlette.routing import Route  # noqa: E402
+from starlette.middleware import Middleware  # noqa: E402
+from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
+from dotenv import load_dotenv  # noqa: E402
+load_dotenv(ROOT / ".env")
+
+TOKEN = (os.environ.get("DASHBOARD_TOKEN") or "").strip()
+LOCAL_IPS = {"127.0.0.1", "::1", "localhost"}
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Trusted from this Mac; from anywhere else (tunnel, LAN, phone) a token cookie or Bearer header is required."""
+    async def dispatch(self, request, call_next):
+        path = request.url.path
+        if path in ("/login", "/manifest.json", "/sw.js", "/icon.png", "/api/vapid") or path.startswith("/static/"):
+            return await call_next(request)
+        client = request.client.host if request.client else ""
+        via_tunnel = any(h in request.headers for h in ("cf-connecting-ip", "x-forwarded-for", "tailscale-user-login"))
+        if client in LOCAL_IPS and not via_tunnel:
+            return await call_next(request)
+        if not TOKEN:
+            return Response("Set DASHBOARD_TOKEN in .env to allow remote access.", status_code=403)
+        auth = request.headers.get("authorization", "")
+        if request.cookies.get("hq") == TOKEN or auth == f"Bearer {TOKEN}":
+            return await call_next(request)
+        if path.startswith("/api/"):
+            return JSONResponse({"error": "unauthorised"}, status_code=401)
+        return RedirectResponse(f"/login?next={path}")
+
+
+LOGIN_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent HQ</title>
+<style>body{margin:0;background:#080b14;color:#e6eaf2;font:16px -apple-system,system-ui,sans-serif;display:grid;place-items:center;height:100vh}
+form{background:#10151f;border:1px solid #232b3a;border-radius:14px;padding:26px;width:min(340px,90vw)}h1{font-size:18px;margin:0 0 14px}
+input{width:100%;box-sizing:border-box;background:#080b14;border:1px solid #232b3a;color:#e6eaf2;padding:12px;border-radius:9px;font-size:16px;margin-bottom:10px}
+button{width:100%;background:#5b8def;border:0;color:#fff;padding:12px;border-radius:9px;font-size:16px;font-weight:700}</style></head>
+<body><form method="post" action="/login"><h1>Agent HQ</h1><input type="password" name="token" placeholder="Access token" autofocus><input type="hidden" name="next" value="NEXT"><button>Enter</button></form></body></html>"""
+
+
+async def login(request: Request):
+    nxt = request.query_params.get("next", "/m")
+    if request.method == "POST":
+        form = await request.form()
+        if TOKEN and form.get("token", "").strip() == TOKEN:
+            resp = RedirectResponse(form.get("next") or "/m", status_code=303)
+            resp.set_cookie("hq", TOKEN, max_age=90 * 86400, httponly=True, samesite="lax", secure=request.url.scheme == "https")
+            return resp
+        return HTMLResponse(LOGIN_HTML.replace("NEXT", nxt).replace("<h1>Agent HQ</h1>", "<h1>Agent HQ</h1><p style='color:#ef5b6e;margin:0 0 10px'>Wrong token</p>"), status_code=401)
+    return HTMLResponse(LOGIN_HTML.replace("NEXT", nxt))
 
 from events import EVENTS_FILE, read_tail  # noqa: E402
 from runtime import list_agents, OLLAMA_MODEL, active_providers, provider_models, read_usage  # noqa: E402
 from tools import WORKSPACE  # noqa: E402
 from store import BrainStore  # noqa: E402
 import scheduler  # noqa: E402
+import push  # noqa: E402
 
 PORT = int(os.environ.get("DASHBOARD_PORT", "8787"))
 HTML_PATH = ROOT / "office" / "static" / "dashboard.html"
@@ -71,6 +119,41 @@ def state() -> dict:
 
 async def index(_: Request):
     return HTMLResponse(HTML_PATH.read_text())
+
+
+STATIC = ROOT / "office" / "static"
+
+
+async def mobile(_: Request):
+    return HTMLResponse((STATIC / "mobile.html").read_text())
+
+
+async def manifest(_: Request):
+    return Response((STATIC / "manifest.json").read_text(), media_type="application/manifest+json")
+
+
+async def sw(_: Request):
+    return Response((STATIC / "sw.js").read_text(), media_type="application/javascript", headers={"Service-Worker-Allowed": "/"})
+
+
+async def icon(_: Request):
+    from starlette.responses import FileResponse
+    return FileResponse(str(STATIC / "icon.png"), media_type="image/png")
+
+
+async def api_vapid(_: Request):
+    return JSONResponse({"key": push.public_key()})
+
+
+async def api_push_subscribe(request: Request):
+    sub = await request.json()
+    if not sub.get("endpoint"):
+        return JSONResponse({"error": "bad subscription"}, status_code=400)
+    return JSONResponse({"subscribers": push.subscribe(sub)})
+
+
+async def api_push_test(_: Request):
+    return JSONResponse(await asyncio.to_thread(push.send, "Agent HQ", "Notifications are working.", "/m", "test"))
 
 
 async def api_state(_: Request):
@@ -189,13 +272,24 @@ def _read_runs() -> dict:
 import contextlib  # noqa: E402
 
 
+_caffeinate: subprocess.Popen | None = None
+
+
 @contextlib.asynccontextmanager
 async def _lifespan(app):
+    global _caffeinate
     task = asyncio.create_task(_scheduler_loop())
+    if sys.platform == "darwin" and os.environ.get("HQ_KEEP_AWAKE", "1") == "1":
+        try:  # keep the Mac awake (on mains power) for as long as the office runs; no sudo needed
+            _caffeinate = subprocess.Popen(["/usr/bin/caffeinate", "-s", "-i", "-w", str(os.getpid())])
+        except Exception:
+            _caffeinate = None
     try:
         yield
     finally:
         task.cancel()
+        if _caffeinate:
+            _caffeinate.terminate()
 
 
 _stats_cache: dict = {"ts": 0, "data": None}
@@ -290,7 +384,15 @@ async def api_memory(request: Request):
     return JSONResponse({"id": m.id})
 
 
-app = Starlette(routes=[
+app = Starlette(middleware=[Middleware(AuthMiddleware)], routes=[
+    Route("/login", login, methods=["GET", "POST"]),
+    Route("/m", mobile),
+    Route("/manifest.json", manifest),
+    Route("/sw.js", sw),
+    Route("/icon.png", icon),
+    Route("/api/vapid", api_vapid),
+    Route("/api/push/subscribe", api_push_subscribe, methods=["POST"]),
+    Route("/api/push/test", api_push_test, methods=["POST"]),
     Route("/", index),
     Route("/api/state", api_state),
     Route("/api/events", api_events),

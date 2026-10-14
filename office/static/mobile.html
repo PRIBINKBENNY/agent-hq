@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Agent HQ">
+<meta name="theme-color" content="#080b14">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon.png">
+<title>Agent HQ</title>
+<style>
+  :root { --bg:#080b14; --panel:#10151f; --panel-2:#171d2a; --line:#232b3a; --ink:#e6eaf2; --ink-2:#9aa5b8; --ink-3:#66718a;
+          --think:#5b8def; --tool:#e0a93b; --done:#3ec28f; --err:#ef5b6e; --accent:#5b8def; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 -apple-system, system-ui, sans-serif; }
+  body { padding: env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 70px); }
+  header { position: sticky; top:0; z-index:5; background: rgba(8,11,20,.92); backdrop-filter: blur(10px); border-bottom:1px solid var(--line); padding: 12px 16px; display:flex; align-items:center; gap:10px; }
+  header b { font-size:17px; letter-spacing:.4px; } header .dot { width:9px; height:9px; border-radius:50%; background:var(--done); } header .dot.off { background:var(--err); }
+  header .sp { margin-left:auto; font-size:12px; color:var(--ink-3); }
+  .tiles { display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; padding: 12px 16px 0; }
+  .tile { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:8px 10px; }
+  .tile .k { font-size:10px; color:var(--ink-3); text-transform:uppercase; letter-spacing:.5px; } .tile .v { font-size:18px; font-weight:700; }
+  section { margin: 14px 16px 0; background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+  section h3 { margin:0; padding: 10px 14px; font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--ink-2); border-bottom:1px solid var(--line); display:flex; }
+  section h3 .sp { margin-left:auto; font-weight:400; color:var(--ink-3); text-transform:none; letter-spacing:0; }
+  .item { padding: 11px 14px; border-bottom:1px solid var(--line); font-size:14px; } .item:last-child { border-bottom:0; }
+  .item .meta { color:var(--ink-3); font-size:12px; margin-top:3px; }
+  .btns { display:flex; gap:8px; margin-top:9px; flex-wrap:wrap; }
+  .btns button { flex:1; min-width:84px; background:var(--panel-2); border:1px solid var(--line); color:var(--ink); padding:10px 8px; border-radius:10px; font-size:14px; font-weight:600; }
+  .btns .ok { border-color:var(--done); color:var(--done); } .btns .no { border-color:var(--err); color:var(--err); } .btns .view { color:var(--ink-2); }
+  .st { font-size:10px; text-transform:uppercase; letter-spacing:.5px; padding:2px 7px; border-radius:999px; border:1px solid var(--line); color:var(--ink-2); margin-right:6px; }
+  .st.done, .st.pass { color:var(--done); border-color:var(--done);} .st.failed, .st.fail { color:var(--err); border-color:var(--err);} .st.running, .st.queued { color:var(--tool); border-color:var(--tool);}
+  .empty { padding: 14px; color:var(--ink-3); font-size:13px; }
+  .cmd { position: fixed; left:0; right:0; bottom:0; padding: 10px 12px calc(env(safe-area-inset-bottom) + 10px); background: rgba(8,11,20,.95); backdrop-filter: blur(10px); border-top:1px solid var(--line); display:flex; gap:8px; }
+  .cmd input { flex:1; background:var(--panel); border:1px solid var(--line); color:var(--ink); padding:12px; border-radius:12px; font-size:16px; }
+  .cmd button { background:var(--accent); border:0; color:#fff; padding:0 16px; border-radius:12px; font-size:15px; font-weight:700; } .cmd #mic { background:var(--panel-2); border:1px solid var(--line); color:var(--ink); padding:0 12px; } .cmd #mic.on { border-color:var(--err); color:var(--err); }
+  .feed .item { font-size:13px; } .feed b { color:var(--ink); }
+  .toast { position:fixed; left:50%; transform:translateX(-50%); bottom: 96px; background:var(--panel-2); border:1px solid var(--line); color:var(--ink); padding:10px 14px; border-radius:12px; font-size:13px; display:none; z-index:9; }
+  .pre { white-space:pre-wrap; font: 12px/1.5 ui-monospace, Menlo, monospace; color:var(--ink-2); padding:12px 14px; max-height:50vh; overflow:auto; }
+  .row { display:flex; gap:8px; padding: 10px 14px; } .row button { flex:1; background:var(--panel-2); border:1px solid var(--line); color:var(--ink); padding:10px; border-radius:10px; font-size:13px; }
+  .kv { display:grid; grid-template-columns:1fr auto auto; gap: 3px 10px; padding: 10px 14px; font-size:13px; } .kv .k { color:var(--ink-2);} .kv .v { text-align:right;} .kv .t { color:var(--ink-3); text-align:right;} .kv .hit{color:var(--done)} .kv .miss{color:var(--tool)}
+</style>
+</head>
+<body>
+<header><span class="dot" id="conn"></span><b>AGENT HQ</b><span class="sp" id="engine">…</span></header>
+<div class="tiles">
+  <div class="tile"><div class="k">Agents</div><div class="v" id="t-agents">–</div></div>
+  <div class="tile"><div class="k">Running</div><div class="v" id="t-running">–</div></div>
+  <div class="tile"><div class="k">Open tasks</div><div class="v" id="t-tasks">–</div></div>
+  <div class="tile"><div class="k">Approvals</div><div class="v" id="t-appr">–</div></div>
+</div>
+
+<section><h3>Approvals waiting for you <span class="sp" id="appr-sp"></span></h3><div id="approvals"></div></section>
+<section><h3>Today <span class="sp" id="digest-sp"></span></h3><div id="digest" class="item" style="white-space:pre-wrap"></div></section>
+<section><h3>Task board <span class="sp" id="task-sp"></span></h3><div id="tasks"></div></section>
+<section><h3>Scorecard · this week</h3><div id="scorecard"></div></section>
+<section class="feed"><h3>Live feed <span class="sp" id="feed-sp"></span></h3><div id="feed"></div></section>
+<section><h3>Phone</h3><div class="row"><button id="push">Enable notifications</button><button onclick="location.href='/'">Open the office floor</button></div>
+  <div class="empty" id="push-status">Add this page to your Home Screen (Share → Add to Home Screen) to get an app icon and push notifications.</div></section>
+
+<div class="cmd"><input id="task" placeholder="Give the office a command…"><button id="mic">🎤</button><button id="go">Run</button></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const hhmm = ts => new Date(ts*1000).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+function toast(m) { const t = $("#toast"); t.textContent = m; t.style.display = "block"; setTimeout(() => t.style.display = "none", 2600); }
+const api = (p, body) => fetch(p, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : undefined).then(r => r.json());
+
+async function refresh() {
+  const s = await api("/api/state");
+  $("#t-agents").textContent = s.roster.length;
+  $("#t-tasks").textContent = s.tasks.filter(t => ["queued","running"].includes(t.status)).length;
+  $("#t-appr").textContent = s.approvals.length; $("#appr-sp").textContent = s.approvals.length ? s.approvals.length + " pending" : "";
+  $("#engine").textContent = (s.engine.providers || []).join(" → ") + " → ollama";
+  $("#approvals").innerHTML = s.approvals.length ? s.approvals.map(a => {
+    const paths = [...new Set((a.content.match(/(?:workspace\/)?([\w./-]+\/[\w.-]+\.(?:md|pdf))/g) || []).map(p => p.replace(/^workspace\//, "")))];
+    const qa = a.tags.includes("qa-pass") ? `<span class="st pass">QA pass</span>` : a.tags.includes("qa-fail") ? `<span class="st fail">QA fail</span>` : a.tags.includes("qa-queued") ? `<span class="st queued">QA pending</span>` : "";
+    const isApp = a.tags.includes("application") || /cv|cover letter|application/i.test(a.content);
+    return `<div class="item">${qa}${esc(a.content.replace(/^(QA: \w+ - )?PENDING APPROVAL from /, "From "))}
+      <div class="btns"><button class="ok" onclick="act('/api/approve',{id:${a.id},decision:'approved'},'Approved')">Approve</button>${isApp ? `<button class="ok" onclick="act('/api/applied',{id:${a.id}},'Marked applied')">I applied</button>` : ""}<button class="no" onclick="act('/api/approve',{id:${a.id},decision:'rejected'},'Rejected')">Reject</button>${paths.map(p => `<button class="view" onclick="view('${esc(p)}')">${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
+    : `<div class="empty">Nothing waiting.</div>`;
+  const open = s.tasks.filter(t => ["queued","running","blocked"].includes(t.status)); $("#task-sp").textContent = open.length ? open.length + " open" : "";
+  $("#tasks").innerHTML = s.tasks.length ? s.tasks.slice(0, 12).map(t => `<div class="item"><span class="st ${esc(t.status)}">${esc(t.status)}</span>${esc(t.title)}<div class="meta">${esc(t.owner)} · ${esc(t.created)}${t.result ? " · " + esc(String(t.result).slice(0, 120)) : ""}</div></div>`).join("") : `<div class="empty">No tasks.</div>`;
+  const dg = s.memories.find(m => m.tags.includes("digest")); $("#digest").textContent = dg ? dg.content : "No digest yet today. The Chief of Staff writes one at 08:30."; $("#digest-sp").textContent = dg ? dg.created : "";
+}
+async function refreshStats() {
+  const st = await api("/api/stats"); const c = st.scorecard || {}, t = c.targets_per_week || {};
+  const rows = ["applications_tailored","applications_marked_applied","contacts_logged","proposals_drafted","posts_approved","mock_interviews","commits_on_github"];
+  $("#scorecard").innerHTML = `<div class="kv">${rows.map(k => { const v = c[k] ?? "–", tg = t[k]; const cls = tg ? (Number(v) >= Number(tg) ? "hit" : "miss") : ""; return `<span class="k">${esc(k.replace(/_/g," "))}</span><span class="v ${cls}">${esc(v)}</span><span class="t">${tg ? "/ " + esc(tg) : ""}</span>`; }).join("")}</div>`;
+}
+async function act(url, body, msg) { const r = await api(url, body); toast(r.error || msg); refresh(); }
+async function view(p) { if (p.endsWith(".pdf")) { window.open("/api/file?path=" + encodeURIComponent(p)); return; } const r = await api("/api/file?path=" + encodeURIComponent(p)); const d = document.createElement("section"); d.innerHTML = `<h3>${esc(p)} <span class="sp" onclick="this.closest('section').remove()">close</span></h3><div class="pre">${esc(r.content || r.error)}</div>`; $("#approvals").closest("section").after(d); d.scrollIntoView({ behavior: "smooth" }); }
+$("#go").onclick = async () => { const task = $("#task").value.trim(); if (!task) return; const r = await api("/api/run", { task, agent: "chief-of-staff", engine: "auto" }); toast(r.started ? "Run started" : r.queued ? `Queued as task #${r.task_id}` : (r.error || "failed")); $("#task").value = ""; refresh(); };
+$("#task").addEventListener("keydown", e => { if (e.key === "Enter") $("#go").click(); });
+(() => { const SR = window.SpeechRecognition || window.webkitSpeechRecognition; const mic = $("#mic"); if (!SR) { mic.style.opacity = .4; return; } let rec = null;
+  mic.onclick = () => { if (rec) { rec.stop(); return; } rec = new SR(); rec.lang = "en-GB"; rec.interimResults = true; mic.classList.add("on");
+    rec.onresult = e => { $("#task").value = Array.from(e.results).map(r => r[0].transcript).join(" "); }; rec.onend = () => { mic.classList.remove("on"); rec = null; }; rec.onerror = rec.onend; rec.start(); }; })();
+
+/* live feed: SSE with the running count derived from events */
+let running = new Set();
+function connect() {
+  const es = new EventSource("/api/events");
+  const add = (e) => { if (["start","think","tool","delegate"].includes(e.type)) running.add(e.agent); if (["done","error"].includes(e.type)) running.delete(e.agent); $("#t-running").textContent = running.size;
+    if (["start","tool","delegate","done","error","fallback"].includes(e.type)) { const d = document.createElement("div"); d.className = "item";
+      const what = e.type === "start" ? "started · " + e.task : e.type === "tool" ? "→ " + e.tool : e.type === "delegate" ? "→ " + e.to : e.type === "done" ? "done · " + (e.answer || "") : e.type === "error" ? "error · " + e.detail : "switched to " + e.model;
+      d.innerHTML = `<b>${esc(e.agent)}</b> <span style="color:var(--ink-3)">${hhmm(e.ts)}</span><div class="meta">${esc(String(what).slice(0, 160))}</div>`; const f = $("#feed"); f.prepend(d); while (f.children.length > 40) f.lastChild.remove(); } };
+  es.addEventListener("snapshot", ev => { $("#feed").innerHTML = ""; running = new Set(); JSON.parse(ev.data).slice(-40).forEach(add); const now = Date.now()/1000; $("#conn").classList.remove("off"); });
+  es.addEventListener("ev", ev => { add(JSON.parse(ev.data)); refresh(); });
+  es.onerror = () => $("#conn").classList.add("off");
+}
+
+/* web push */
+const b64ToU8 = b => { const p = "=".repeat((4 - b.length % 4) % 4); const r = (b + p).replace(/-/g, "+").replace(/_/g, "/"); const s = atob(r); return Uint8Array.from([...s].map(c => c.charCodeAt(0))); };
+async function enablePush() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) { $("#push-status").textContent = "Push needs the Home Screen app on iOS 16.4+ (Share → Add to Home Screen), then open it from the icon."; return; }
+  try {
+    const reg = await navigator.serviceWorker.register("/sw.js"); const perm = await Notification.requestPermission();
+    if (perm !== "granted") { $("#push-status").textContent = "Notifications were not allowed."; return; }
+    const { key } = await api("/api/vapid"); const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(key) });
+    const r = await api("/api/push/subscribe", sub.toJSON()); $("#push-status").textContent = `Notifications on (${r.subscribers} device${r.subscribers > 1 ? "s" : ""}). You'll be pinged for approvals and finished tasks.`; $("#push").textContent = "Notifications enabled";
+  } catch (e) { $("#push-status").textContent = "Push setup failed: " + e.message; }
+}
+$("#push").onclick = enablePush;
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+
+refresh(); refreshStats(); connect(); setInterval(refresh, 15000); setInterval(refreshStats, 60000);
+</script>
+</body>
+</html>

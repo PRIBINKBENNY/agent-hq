@@ -108,6 +108,25 @@ into an A4 PDF ready to upload. The engine tile shows each provider's remaining 
   pass rate and fabrication rate. Runs weekly; results feed the Ops panel.
 - **Ops panel**: runs, tokens, time and failures per agent, provider share, last eval.
 
+## Phone app (iOS / Android)
+
+The office has a mobile command centre at `/m`: approvals (approve, reject, "I applied", view the
+file), today's digest, the task board, the scorecard, a live feed, voice commands, and push
+notifications for approvals and finished tasks. It installs as a Home Screen app (Safari: Share →
+Add to Home Screen), no App Store, no Apple developer account, free.
+
+Reach it from outside the Mac through a free tunnel; every remote request needs the
+`DASHBOARD_TOKEN` from `.env` (entered once, kept as a cookie):
+
+```bash
+./office/launchd/install.sh tunnel     # Cloudflare quick tunnel as a launch agent (URL changes on restart)
+./office/launchd/install.sh url        # print the current phone URL
+```
+
+For a permanent private URL use Tailscale, or a named Cloudflare tunnel on your own domain.
+See `DEPLOY.md`, which also covers running the office on a free cloud VM so it keeps working
+when the Mac is off. While it runs on the Mac, the dashboard keeps the machine awake on mains power.
+
 ## Operating it
 
 ```bash

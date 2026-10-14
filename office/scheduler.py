@@ -45,6 +45,12 @@ def _notify(title: str, message: str):
                        capture_output=True, timeout=10)
     except Exception:
         pass
+    try:
+        sys.path.insert(0, str(ROOT / "office"))
+        import push
+        push.send(t, m, "/m", "hq")
+    except Exception:
+        pass
 
 
 def check_approvals(brain: BrainStore) -> int:

@@ -18,3 +18,6 @@ uvicorn>=0.30
 sse-starlette>=2
 # tests
 pytest>=8
+# phone app
+pywebpush>=2
+python-multipart>=0.0.9

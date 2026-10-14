@@ -1,0 +1,11 @@
+{
+  "name": "Agent HQ",
+  "short_name": "Agent HQ",
+  "description": "Control Pribin's AI agent office from anywhere",
+  "start_url": "/m",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#080b14",
+  "theme_color": "#080b14",
+  "icons": [{ "src": "/icon.png", "sizes": "512x512", "type": "image/png" }]
+}
