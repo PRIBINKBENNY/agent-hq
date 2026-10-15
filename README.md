@@ -151,22 +151,23 @@ For a permanent private URL use Tailscale, or a named Cloudflare tunnel on your 
 See `DEPLOY.md`, which also covers running the office on a free cloud VM so it keeps working
 when the Mac is off. While it runs on the Mac, the dashboard keeps the machine awake on mains power.
 
-## The campus and the treasury
+## The ring campus and the treasury
 
-The floor is a daylight 3D campus (Three.js, free from a CDN). Headquarters stands in the centre: a glass
-atrium with the brain floating inside, the building every agent walks to when it recalls or remembers.
-Around it, one open-top wing per department, each joined to headquarters by a glass corridor, with a
-readable sign, a parapet in the department's colour, wood desks, soft monitors and a wall display of
-that department's work (a chart and ticker in the Trading Desk, code in the Studio, a kanban in the
-Project Office, job cards, posts, a checklist, a reception counter). Every agent sits at a desk, types
-while it works, stands and walks to headquarters for the brain, and crosses to a colleague to delegate.
-Labels are dark on white so they read at any zoom. Orbit, zoom and pan with the mouse; hover highlights
-an agent and a click opens its brief, runs and lessons; the Floor button hides the panels.
+The floor is a daylight 3D campus (Three.js, free from a CDN) built as one circular building, cut open from
+above. Each department is a segment of the ring with its own sign, a glass inner wall with a doorway, a
+parapet in its colour, wood desks facing the courtyard, soft monitors and a wall display of its work (a chart
+and ticker in the Trading Desk, code in the Studio, a kanban in the Project Office, job cards, posts, a
+checklist, a reception counter). The brain stands under an open canopy in the courtyard at the centre, and a
+radial walkway joins every department to it. Agents sit at desks, type while they work, and really use the
+walkways: an agent walks out of its doorway and down its walkway to the brain when it recalls or remembers,
+and crosses the courtyard to another department's walkway and doorway when it delegates, then walks home.
+Labels are dark on white so they read at any zoom. Orbit, zoom and pan with the mouse; hover highlights an
+agent and a click opens its brief, runs and lessons; the Floor button hides the panels.
 
 The Trading Desk is the financial hub: every profitable demo trade credits the office treasury, earns
-experience, lifts the office level, and showers gold over the wing while headquarters flashes gold.
-Losses cost credits but never experience, because losses are part of the business. The treasury, level
-and streak sit top-left on the floor, on the API, and in the brain's memory.
+experience, lifts the office level, and showers gold over the Trading Desk while the brain flashes gold.
+Losses cost credits but never experience, because losses are part of the business. The treasury, level and
+streak sit top-left on the floor, on the API, and in the brain's memory.
 
 ## Trading desk: learns, validates, then trades (Capital.com demo)
 
