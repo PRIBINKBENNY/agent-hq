@@ -1093,6 +1093,21 @@ def office_status():
 
 
 # ---------------------------------------------------------------- structured job records (the job portal reads these)
+def realistic_fit_cap(title: str, needs: str = "") -> int:
+    """Pribin is a graduate ML engineer: senior/staff/lead roles, PhD-required roles and 3+ years' experience
+    cannot score fit 5 whatever a model says. The strictest applicable cap wins."""
+    import re as _re
+    t = (title or "").lower(); n = (needs or "").lower(); caps = [5]
+    if _re.search(r"\b(senior|staff|principal|lead|head of|director|manager|architect|vp)\b", t):
+        caps.append(2)
+    if _re.search(r"\bphd\b|doctorate", n) and not _re.search(r"or equivalent|preferred|desirable", n):
+        caps.append(3)
+    m = _re.search(r"\b(\d{1,2})\+?\s*(?:years|yrs)\b", n)
+    if m:
+        yrs = int(m.group(1)); caps.append(2 if yrs >= 5 else 3 if yrs >= 3 else 5)
+    return min(caps)
+
+
 @registry.register("log_job", "Record a job posting as a structured job record (shows on the Jobs tab). Use this instead of brain_remember for jobs.", {
     "type": "object", "properties": {
         "title": {"type": "string"}, "company": {"type": "string"}, "url": {"type": "string"},
@@ -1104,6 +1119,7 @@ def log_job(title: str, company: str, url: str, fit: int, location: str = "Londo
     import re as _re
     slug = _re.sub(r"[^a-z0-9]+", "-", company.lower()).strip("-")
     fit = max(1, min(5, int(fit)))
+    fit = min(fit, realistic_fit_cap(title, needs))
     for m in brain.recent(limit=300, kind="job"):
         if (m.meta or {}).get("url") == url or (url.split("?")[0] in m.content):
             return f"already logged as job #{m.id}"

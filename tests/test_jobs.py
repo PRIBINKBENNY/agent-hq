@@ -43,3 +43,12 @@ def test_jobs_view_links_applications_and_orders_by_stage(env):
     assert jobs[0]["company"] == "Acme" and jobs[0]["status"] == "applied"                 # applied sorts before found
     assert jobs[0]["application"]["pdf"].endswith("cv.pdf") and jobs[0]["url"] == "https://x.test/a"
     assert jobs[1]["company"] == "Beta Ltd" and jobs[1]["application"] is None and jobs[1]["fit"] == 5
+
+
+def test_fit_is_capped_for_senior_and_phd_roles(env):
+    tools, dashboard, b, ws = env
+    assert tools.realistic_fit_cap("Senior Research Engineer", "") == 2
+    assert tools.realistic_fit_cap("Research Engineer", "PhD required, 5+ years") == 2
+    assert tools.realistic_fit_cap("Graduate ML Engineer", "Python, PyTorch") == 5
+    tools.log_job("Staff ML Engineer", "BigCo", "https://x.test/s", 5)
+    assert b.recent(limit=1, kind="job")[0].meta["fit"] == 2
