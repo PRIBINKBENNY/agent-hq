@@ -24,7 +24,8 @@
   .cmd input { flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--ink); padding: 8px 11px; border-radius: 8px; font-size: 13px; }
   .cmd select, .cmd button { background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); padding: 8px 10px; border-radius: 8px; font-size: 12px; }
   .cmd button.go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; cursor: pointer; }
-  .cmd #mic { cursor: pointer; } .cmd #pause { cursor: pointer; white-space: nowrap; } .cmd #pause.on { border-color: var(--tool); color: var(--tool); font-weight: 700; }
+  .cmd #mic { cursor: pointer; } .cmd #pause, .cmd #floor { cursor: pointer; white-space: nowrap; }
+  .app.floor .side { display: none; } .app.floor .stage { position: fixed; top: var(--topH, 75px); left: 0; right: 0; bottom: 0; z-index: 5; } .app.floor .legend { right: 16px; } .cmd #pause.on { border-color: var(--tool); color: var(--tool); font-weight: 700; }
   .banner { display: none; background: #3a2d0c; color: #f3d48a; border-bottom: 1px solid #6b5416; padding: 8px 16px; font-size: 13px; } .banner.on { display: block; } .cmd #mic.on { border-color: var(--err); color: var(--err); animation: ping 1.2s infinite; }
   .task { padding: 7px 12px; border-bottom: 1px solid var(--line); font-size: 11.5px; display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: start; }
   .appr .st { font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); }
@@ -136,6 +137,7 @@
       <select id="engine"><option value="auto">auto</option><option value="groq">groq</option><option value="ollama">ollama</option></select>
       <button id="mic" title="Speak a command (Chrome)">🎤</button>
       <button id="pause" title="Pause or resume the whole office">⏸ Pause</button>
+      <button id="floor" title="Hide the sidebar and let the office fill the screen">⛶ Floor</button>
       <button class="go" id="go">Run</button>
     </div>
     <div class="tiles">
@@ -465,6 +467,7 @@ $("#go").onclick = async () => {
   };
 })();
 $("#task").addEventListener("keydown", e => { if (e.key === "Enter") $("#go").click(); });
+$("#floor").onclick = () => { const on = !$(".app").classList.contains("floor"); $(".app").style.setProperty("--topH", $(".top").getBoundingClientRect().bottom + "px"); $(".app").classList.toggle("floor", on); $("#floor").textContent = on ? "⛶ Panels" : "⛶ Floor"; if (H3()) setTimeout(() => H3().floorView(on), 60); };
 $("#pause").onclick = async () => { const p = !$("#pause").dataset.paused; const r = await (await fetch("/api/pause", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paused: p, reason: p ? "paused from the dashboard" : "" }) })).json(); toast(r.message); refreshState(); };
 $("#memgo").onclick = async () => { const content = $("#memtext").value.trim(); if (!content) return;
   await fetch("/api/memory", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content }) }); $("#memtext").value = ""; refreshState(); };

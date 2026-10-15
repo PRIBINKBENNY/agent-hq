@@ -154,9 +154,12 @@ when the Mac is off. While it runs on the Mac, the dashboard keeps the machine a
 ## The 3D office and the treasury
 
 The floor is a real-time 3D office (Three.js, free from a CDN): glass-walled rooms on a ring around the
-brain core, each agent seated at a desk with a glowing monitor, typing while it works, walking to the brain
-when it recalls or remembers, and crossing to a colleague's desk to delegate. Orbit, zoom and pan with the
-mouse; click an agent for its brief, runs and lessons. The trading office is the financial hub: every
+brain core under a warm key light with bloom on the neon and screens, a reflective floor, and a wall display
+per room (candles and a ticker in trading, code in the studio, a kanban in the project office, job cards,
+social posts, a checklist, a reception desk). Each agent is a rounded character seated at a desk with a glowing
+monitor, typing while it works, walking to the brain when it recalls or remembers, and crossing to a
+colleague's desk to delegate. Orbit, zoom and pan with the mouse; hover highlights an agent and a click opens
+its brief, runs and lessons. The Floor button hides the panels so the office fills the screen for demos. The trading office is the financial hub: every
 profitable demo trade credits the office treasury, earns experience, lifts the office level and fires a
 gold burst at the brain; losses cost credits but never experience, because losses are part of the business.
 The treasury, level and streak sit top-left on the floor and in the brain's memory.
