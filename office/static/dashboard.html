@@ -14,7 +14,8 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; width: 100%; background: var(--bg); color: var(--ink); font: 13px/1.45 -apple-system, "Inter", "Segoe UI", system-ui, sans-serif; overflow: hidden; overscroll-behavior: none; }
   .app { max-width: 100vw; overflow: hidden; }
-  .app { display: grid; grid-template-rows: auto auto 1fr; height: 100vh; }
+  .app { display: grid; grid-template-rows: auto auto minmax(0, 1fr); height: 100vh; }
+  .app > .banner { grid-row: 1; } .app > .top { grid-row: 2; } .app > .main { grid-row: 3; height: 100%; }   /* explicit rows: a hidden banner must not shift the main area into an auto-sized row */
   .top { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; z-index: 5; }
   .brand { font-weight: 800; font-size: 16px; letter-spacing: .4px; display: flex; align-items: center; gap: 10px; white-space: nowrap; }
   .brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--done); animation: ping 2s infinite; }
