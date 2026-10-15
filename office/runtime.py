@@ -72,8 +72,30 @@ PROVIDERS: dict[str, dict] = {
         "lead": _env_list("GEMINI_LEAD_MODELS", "gemini-2.5-flash,gemini-2.5-pro"),
         "worker": _env_list("GEMINI_WORKER_MODELS", "gemini-2.5-flash-lite,gemini-2.5-flash"),
     },
+    # free with an email sign-up, no card: NVIDIA's hosted open models (about 40 requests/min)
+    "nvidia": {
+        "url": "https://integrate.api.nvidia.com/v1/chat/completions", "models_url": "https://integrate.api.nvidia.com/v1/models",
+        "key_env": "NVIDIA_API_KEY",
+        "lead": _env_list("NVIDIA_LEAD_MODELS", "meta/llama-3.3-70b-instruct,nvidia/llama-3.3-nemotron-super-49b-v1,qwen/qwen3-235b-a22b"),
+        "worker": _env_list("NVIDIA_WORKER_MODELS", "meta/llama-3.1-8b-instruct,meta/llama-3.3-70b-instruct"),
+    },
+    # free sign-up, no card: SambaNova Cloud (fast Llama / DeepSeek)
+    "sambanova": {
+        "url": "https://api.sambanova.ai/v1/chat/completions", "models_url": "https://api.sambanova.ai/v1/models",
+        "key_env": "SAMBANOVA_API_KEY",
+        "lead": _env_list("SAMBANOVA_LEAD_MODELS", "Meta-Llama-3.3-70B-Instruct,DeepSeek-V3-0324"),
+        "worker": _env_list("SAMBANOVA_WORKER_MODELS", "Meta-Llama-3.1-8B-Instruct,Meta-Llama-3.3-70B-Instruct"),
+    },
+    # free Cloudflare account, no card: Workers AI (10,000 neurons/day); needs the account id in the URL
+    "cloudflare": {
+        "url": f"https://api.cloudflare.com/client/v4/accounts/{os.environ.get('CLOUDFLARE_ACCOUNT_ID', 'ACCOUNT_ID')}/ai/v1/chat/completions",
+        "models_url": f"https://api.cloudflare.com/client/v4/accounts/{os.environ.get('CLOUDFLARE_ACCOUNT_ID', 'ACCOUNT_ID')}/ai/v1/models",
+        "key_env": "CLOUDFLARE_API_TOKEN",
+        "lead": _env_list("CLOUDFLARE_LEAD_MODELS", "@cf/meta/llama-3.3-70b-instruct-fp8-fast"),
+        "worker": _env_list("CLOUDFLARE_WORKER_MODELS", "@cf/meta/llama-3.1-8b-instruct-fast,@cf/meta/llama-3.3-70b-instruct-fp8-fast"),
+    },
 }
-PROVIDER_ORDER = _env_list("PROVIDER_ORDER", "cerebras,groq,mistral,gemini")
+PROVIDER_ORDER = _env_list("PROVIDER_ORDER", "cerebras,groq,gemini,mistral,nvidia,sambanova,cloudflare")
 
 
 _STORE = None
