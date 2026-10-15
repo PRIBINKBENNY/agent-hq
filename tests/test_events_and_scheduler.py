@@ -78,3 +78,61 @@ def test_housekeeping_removes_old_logs(tmp_path, monkeypatch):
     r = scheduler.housekeeping()
     assert r["task_logs"] == 1 and r["handoff"] == 1 and new.exists() and not old.exists() and not h.exists()
     assert scheduler.housekeeping() == {}     # rate-limited to every 6 hours
+
+
+def _brain(tmp_path):
+    from store import BrainStore, Embedder
+    class NoEmbed(Embedder):
+        def __init__(self): self.model_name = "none"; self.available = False; self._model = None
+    return BrainStore(tmp_path / "b.db", embedder=NoEmbed())
+
+
+def test_standing_work_fills_the_queue_and_respects_intervals(tmp_path, monkeypatch):
+    import yaml
+    b = _brain(tmp_path)
+    sf = tmp_path / "standing.yaml"; sf.write_text(yaml.safe_dump([
+        {"name": "a", "agent": "job-scout", "every_hours": 4, "task": "scout"},
+        {"name": "b", "agent": "tracker", "every_hours": 6, "task": "track"},
+        {"name": "night", "agent": "tester", "every_hours": 1, "hours": "01-02", "task": "tests"}]))
+    monkeypatch.setattr(scheduler, "STANDING_FILE", sf); monkeypatch.setattr(scheduler, "STATE_FILE", tmp_path / "st.json")
+    monkeypatch.setattr(scheduler, "MAX_PARALLEL", 2); monkeypatch.setattr(scheduler, "budget", lambda: {})
+    class Noon:  # fixed time: 12:00 on a Wednesday
+        @staticmethod
+        def now(): return datetime(2026, 10, 14, 12, 0)
+    monkeypatch.setattr(scheduler, "datetime", Noon)
+    assert sorted(scheduler.enqueue_standing_work(b)) == ["a", "b"]      # both overdue (never ran); 'night' outside its window
+    assert scheduler.enqueue_standing_work(b) == []                        # queue already has MAX_PARALLEL items
+    for t in b.task_list(status="queued"):
+        b.task_update(t["id"], status="done")
+    assert scheduler.enqueue_standing_work(b) == []                        # intervals not yet elapsed
+
+
+def test_budget_governor_blocks_standing_work_when_low(monkeypatch):
+    monkeypatch.setattr(scheduler, "budget", lambda: {"cerebras": {"day": 0.1, "minute": 0.9, "ok": False}, "groq": {"day": 0.2, "minute": 0.5, "ok": False}})
+    assert scheduler.standing_allowed() is False
+    monkeypatch.setattr(scheduler, "budget", lambda: {"cerebras": {"day": 0.1, "minute": 0.9, "ok": False}, "groq": {"day": 0.8, "minute": 0.5, "ok": True}})
+    assert scheduler.standing_allowed() is True
+    assert scheduler.pick_engine() == "groq"                               # only the healthy provider gets new runs
+
+
+def test_tick_runs_up_to_max_parallel(tmp_path, monkeypatch):
+    b = _brain(tmp_path)
+    monkeypatch.setattr(scheduler, "MAX_PARALLEL", 2); monkeypatch.setattr(scheduler, "STANDING_FILE", tmp_path / "none.yaml")
+    monkeypatch.setattr(scheduler, "SCHEDULE_FILE", tmp_path / "none2.yaml"); monkeypatch.setattr(scheduler, "STATE_FILE", tmp_path / "st.json")
+    monkeypatch.setattr(scheduler, "budget", lambda: {}); monkeypatch.setattr(scheduler, "_notify", lambda *a: None)
+    monkeypatch.setattr(scheduler, "housekeeping", lambda: {}); monkeypatch.setattr(scheduler, "check_approvals", lambda brain: 0)
+    scheduler._running.clear()
+    class FakeProc:
+        def __init__(self): self.returncode = None
+        def poll(self): return self.returncode
+    spawned = []
+    monkeypatch.setattr(scheduler, "_spawn", lambda task, eng: spawned.append(task["id"]) or FakeProc())
+    for i in range(3):
+        b.task_create(f"t{i}", "x", owner="job-scout", priority=3 - i)
+    info = scheduler.tick(b)
+    assert len(info["started"]) == 2 and len(scheduler.running_ids()) == 2 and len(b.task_list(status="queued")) == 1
+    scheduler._running[spawned[0]]["proc"].returncode = 0                    # one finishes (run.py would have marked it done)
+    b.task_update(spawned[0], status="done")
+    info = scheduler.tick(b)
+    assert info["finished"] == [spawned[0]] and len(info["started"]) == 1 and len(scheduler.running_ids()) == 2
+    scheduler._running.clear()

@@ -113,6 +113,7 @@ def state() -> dict:
         "running": [rid for rid, p in _procs.items() if p.poll() is None],
         "tasks": brain.task_list(limit=40),
         "scheduler_busy": scheduler.busy(),
+        "running_tasks": scheduler.running_ids(), "max_parallel": scheduler.MAX_PARALLEL, "budget": scheduler.budget(),
         "now": time.time(),
     }
 
@@ -186,7 +187,9 @@ async def api_events(request: Request):
 
 
 def _busy() -> bool:
-    return scheduler.busy() or any(p.poll() is None for p in _procs.values())
+    """No free slot: the scheduler's parallel slots are full (UI runs then queue and start within seconds)."""
+    direct = sum(1 for p in _procs.values() if p.poll() is None)
+    return len(scheduler.running_ids()) + direct >= scheduler.MAX_PARALLEL
 
 
 async def api_run(request: Request):

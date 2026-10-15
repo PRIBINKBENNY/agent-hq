@@ -52,6 +52,17 @@ Run a single agent with `--agent job-scout "..."`. Force local with `--engine ol
 | ops         | tracker (job + client pipelines), mail-assistant (email drafts to `workspace/outbox/`, .ics calendar files), fact-checker (QA gate: every outgoing text is verified against the brain before approval) |
 | pm          | project-manager (team leader: roadmap, daily sprint), release-manager (commits, changelog, pushes to Pribin's own GitHub), docs-writer, ml-researcher (weekly trends + project proposals) |
 
+## Always working
+
+Fixed jobs (`office/schedule.yaml`) cover the daily rhythm. Between them, `office/standing-work.yaml`
+keeps every office busy: fifteen standing items (rotating job scouting, warm paths, leads, the next
+roadmap milestone, nightly tests, docs refresh, research skims, content, pipeline refresh, drills,
+backtests, the evening wrap-up, light gardening, code review) each with a minimum interval and an
+optional time window. The scheduler runs up to `OFFICE_MAX_PARALLEL` tasks at once (default 2),
+spreading them across providers that still have budget, and a budget governor pauses standing work
+when a provider's daily allowance drops below 25%, so the free tiers are never exhausted by routine
+work. Scheduled jobs and anything you ask for always take priority over standing work.
+
 ## Task board and "nobody stops"
 
 Every run can be queued as a task; the scheduler runs queued tasks one at a time (Groq's free

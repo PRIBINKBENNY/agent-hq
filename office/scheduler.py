@@ -33,9 +33,96 @@ STATE_FILE = ROOT / "office" / "logs" / "schedule_state.json"
 LOG_DIR = ROOT / "office" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-_current: subprocess.Popen | None = None
-_current_task: dict | None = None
+STANDING_FILE = ROOT / "office" / "standing-work.yaml"
+MAX_PARALLEL = int(os.environ.get("OFFICE_MAX_PARALLEL", "2"))
+STANDING_BUDGET_FRACTION = float(os.environ.get("OFFICE_STANDING_BUDGET", "0.25"))   # keep this much of the daily budget in reserve
+
+_running: dict[int, dict] = {}       # task_id -> {"proc", "task", "engine"}
 _last_approval_id: int | None = None
+_rr = 0
+
+
+def running_ids() -> list[int]:
+    return [tid for tid, r in _running.items() if r["proc"].poll() is None]
+
+
+def busy() -> bool:
+    return bool(running_ids())
+
+
+def budget() -> dict:
+    """Per provider: fraction of the daily/minute budget left, from the latest rate-limit headers."""
+    try:
+        sys.path.insert(0, str(ROOT / "office"))
+        from runtime import read_usage, active_providers
+    except Exception:
+        return {}
+    out = {}
+    for prov in active_providers():
+        u = read_usage().get(prov, {})
+        def frac(rem_key, lim_key):
+            try:
+                return float(u[rem_key]) / float(u[lim_key]) if u.get(lim_key) else None
+            except (ValueError, ZeroDivisionError):
+                return None
+        day = frac("x-ratelimit-remaining-tokens-day", "x-ratelimit-limit-tokens-day")
+        if day is None:
+            day = frac("x-ratelimit-remaining-requests", "x-ratelimit-limit-requests")   # groq exposes daily requests
+        minute = frac("x-ratelimit-remaining-tokens-minute", "x-ratelimit-limit-tokens-minute")
+        if minute is None:
+            minute = frac("x-ratelimit-remaining-tokens", "x-ratelimit-limit-tokens")
+        out[prov] = {"day": day, "minute": minute, "ok": (day is None or day > STANDING_BUDGET_FRACTION) and (minute is None or minute > 0.15)}
+    return out
+
+
+def pick_engine() -> str:
+    """Spread parallel runs across providers that still have budget; round-robin among the healthy ones."""
+    global _rr
+    b = budget()
+    healthy = [p for p, v in b.items() if v["ok"]] or list(b.keys())
+    if not healthy:
+        return "auto"
+    _rr += 1
+    return healthy[_rr % len(healthy)]
+
+
+def standing_allowed() -> bool:
+    b = budget()
+    return not b or any(v["ok"] for v in b.values())
+
+
+def enqueue_standing_work(brain: BrainStore) -> list[str]:
+    """Keep every office busy: when the queue is short, add the standing item that has waited longest."""
+    if not STANDING_FILE.exists() or not standing_allowed():
+        return []
+    queued = [t for t in brain.task_list(limit=100, status="queued")]
+    if len(queued) >= MAX_PARALLEL:
+        return []
+    items = yaml.safe_load(STANDING_FILE.read_text()) or []
+    st = _load_state(); now = datetime.now(); ts = now.timestamp(); cands = []
+    for it in items:
+        if not it.get("enabled", True):
+            continue
+        if it.get("weekdays") and now.weekday() >= 5:
+            continue
+        if it.get("hours"):
+            lo, hi = [int(x) for x in str(it["hours"]).split("-")]
+            if not (lo <= now.hour <= hi):
+                continue
+        last = st.get("standing:" + it["name"], 0)
+        overdue = (ts - last) / 3600 - float(it.get("every_hours", 6))
+        if overdue >= 0 and not any(t.get("source") == "standing:" + it["name"] for t in queued):
+            cands.append((overdue, it))
+    if not cands:
+        return []
+    cands.sort(key=lambda c: -c[0])
+    out = []
+    for _, it in cands[:MAX_PARALLEL - len(queued)]:
+        brain.task_create(it.get("title", it["name"]), it["task"], owner=it["agent"], created_by="scheduler",
+                          priority=int(it.get("priority", 2)), source="standing:" + it["name"])
+        st["standing:" + it["name"]] = ts; out.append(it["name"])
+    _save_state(st)
+    return out
 
 
 def _notify(title: str, message: str):
@@ -165,25 +252,26 @@ def _spawn(task: dict, engine: str = "auto") -> subprocess.Popen:
 
 
 def tick(brain: BrainStore, engine: str = "auto") -> dict:
-    """One scheduler step: finish bookkeeping for a completed run, enqueue due jobs, start next task."""
-    global _current, _current_task
-    info = {"started": None, "finished": None, "enqueued": []}
-    if _current is not None and _current.poll() is not None:
-        # run.py marks the task done/failed itself; this is a safety net if it died hard
-        t = brain.task_get(_current_task["id"])
-        if t["status"] == "running":
-            brain.task_update(t["id"], agent="scheduler", status="failed", result=f"process exited {_current.returncode} without reporting")
-        info["finished"] = _current_task["id"]
-        t = brain.task_get(_current_task["id"])
-        _notify(f"Task {t['status']}: {t['owner']}", t["title"][:120])
-        _current = None; _current_task = None
-    info["enqueued"] = enqueue_due_jobs(brain)
+    """One scheduler step: reap finished runs, enqueue due + standing work, start tasks up to MAX_PARALLEL."""
+    info = {"started": [], "finished": [], "enqueued": []}
+    for tid, r in list(_running.items()):
+        if r["proc"].poll() is not None:
+            t = brain.task_get(tid)
+            if t["status"] == "running":   # run.py marks done/failed itself; safety net if it died hard
+                brain.task_update(tid, agent="scheduler", status="failed", result=f"process exited {r['proc'].returncode} without reporting")
+                t = brain.task_get(tid)
+            _notify(f"Task {t['status']}: {t['owner']}", t["title"][:120])
+            info["finished"].append(tid); _running.pop(tid, None)
+    info["enqueued"] = enqueue_due_jobs(brain) + enqueue_standing_work(brain)
     check_approvals(brain)
     housekeeping()
-    if _current is None:
+    while len(running_ids()) < MAX_PARALLEL:
         nxt = brain.task_claim_next()
-        if nxt:
-            _current = _spawn(nxt, engine); _current_task = nxt; info["started"] = nxt["id"]
+        if not nxt:
+            break
+        eng = engine if engine != "auto" else pick_engine()
+        _running[nxt["id"]] = {"proc": _spawn(nxt, eng), "task": nxt, "engine": eng}
+        info["started"].append(nxt["id"])
     return info
 
 
@@ -231,8 +319,6 @@ def housekeeping(days_logs: int = 14, days_handoff: int = 7) -> dict:
     return removed
 
 
-def busy() -> bool:
-    return _current is not None and _current.poll() is None
 
 
 if __name__ == "__main__":
@@ -240,10 +326,10 @@ if __name__ == "__main__":
     print("scheduler running: task board + schedule.yaml (Ctrl-C to stop)")
     while True:
         info = tick(brain)
-        if info["started"]:
-            print(time.strftime("%H:%M:%S"), "started task", info["started"])
-        if info["finished"]:
-            print(time.strftime("%H:%M:%S"), "finished task", info["finished"])
+        for tid in info["started"]:
+            print(time.strftime("%H:%M:%S"), "started task", tid, "on", _running.get(tid, {}).get("engine"))
+        for tid in info["finished"]:
+            print(time.strftime("%H:%M:%S"), "finished task", tid)
         for n in info["enqueued"]:
             print(time.strftime("%H:%M:%S"), "scheduled job enqueued:", n)
         time.sleep(5)

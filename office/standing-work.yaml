@@ -1,0 +1,150 @@
+# Standing work: what each office does whenever it has nothing more urgent. The scheduler picks the
+# item that has waited longest past its interval, as long as the free-tier budget governor allows.
+# every_hours: minimum gap between runs.  hours: London hours window (optional).  weekdays: true = Mon-Fri only.
+
+- name: scout-rotation
+  agent: job-scout
+  every_hours: 4
+  priority: 3
+  title: "Scout: fresh roles (rotating keywords)"
+  task: >
+    Rotate through these keyword sets, picking the one you used least recently (check brain events tagged
+    scout-rotation): (a) "machine learning engineer" (b) "AI engineer" (c) "computer vision engineer"
+    (d) "data scientist" junior (e) "MLOps engineer" junior (f) "research engineer" ML. Search days=2, London
+    then Remote UK. Log fit >= 3 that are not already in the brain. For any NEW role with fit >= 4,
+    task_create "Tailor CV for <company> <role>" owner application-tailor (max 2 per run).
+    brain_remember a kind=event tagged scout-rotation naming the keyword set used.
+
+- name: warm-paths
+  agent: networker
+  every_hours: 8
+  priority: 3
+  title: "Networker: one more company"
+  task: >
+    Pick ONE company from the brain's jobs (fit >= 4) that has no contacts yet (brain_query company:<slug>),
+    find up to 3 relevant people and draft connection notes. Request approval. If every company is covered, say so.
+
+- name: lead-hunt
+  agent: lead-finder
+  every_hours: 6
+  priority: 2
+  title: "Lead-finder: two new leads"
+  task: >
+    Find 2 new freelance leads for the offer in workspace/offer.md that are not already in the brain.
+    Log them; for fit >= 4 create a proposal task.
+
+- name: roadmap-sprint
+  agent: project-manager
+  every_hours: 3
+  priority: 4
+  title: "Sprint: next roadmap milestone"
+  task: >
+    Run a sprint on the next open milestone in workspace/roadmap.md (prefer finishing an in-progress
+    project). Get it built, tested, reviewed, committed and pushed by release-manager. Update the roadmap.
+    If every milestone is done, pick a project from the Proposed section, write its milestones, and start it.
+
+- name: nightly-tests
+  agent: tester
+  every_hours: 24
+  priority: 2
+  hours: "01-05"
+  title: "Tester: run every project's tests"
+  task: >
+    For each project under workspace/projects/, run_tests and report pass/fail counts. For any failure,
+    task_create "Fix failing tests in <project>" owner debugger with the exact output.
+
+- name: docs-refresh
+  agent: docs-writer
+  every_hours: 24
+  priority: 2
+  title: "Docs: bring one README up to date"
+  task: >
+    Pick the project under workspace/projects/ whose README is most out of date versus its code (check git
+    log and the files). Rewrite the README truthfully, commit with git.
+
+- name: research-skim
+  agent: ml-researcher
+  every_hours: 12
+  priority: 2
+  title: "Researcher: one credible item"
+  task: >
+    Find ONE credible recent ML/AI item (paper, model release, UK hiring signal) not already in the brain,
+    summarise it in 3 lines with the URL, store as kind=note tag research. If it suggests a project idea
+    that fits the roadmap, append it under Proposed.
+
+- name: content-script
+  agent: content-writer
+  every_hours: 24
+  priority: 2
+  title: "Content: one short-video script"
+  task: >
+    Write one 30-60s script about something real the office did in the last 24h (brain events), save it,
+    request approval.
+
+- name: linkedin-post
+  agent: linkedin-writer
+  every_hours: 48
+  priority: 2
+  title: "LinkedIn: one post from real work"
+  task: >
+    Write one LinkedIn post from a concrete thing in the brain from the last 2 days (a shipped milestone, a
+    lesson, a number). Three variants, request approval.
+
+- name: pipeline-refresh
+  agent: tracker
+  every_hours: 6
+  priority: 2
+  title: "Tracker: pipeline refresh"
+  task: >
+    Refresh pipeline/jobs.md and pipeline/clients.md from the brain; create follow-up tasks for anything due.
+
+- name: weak-spot-drill
+  agent: interview-coach
+  every_hours: 12
+  priority: 2
+  title: "Coach: drill the weakest spot"
+  task: >
+    From weak-spot lessons in the brain, write a 10-minute drill on the weakest area to
+    interviews/drills/<date>-weakspot.md with hidden model answers. If there are no weak spots yet, write a
+    drill on model evaluation metrics.
+
+- name: nightly-backtest
+  agent: strategy-analyst
+  every_hours: 24
+  priority: 2
+  hours: "18-23"
+  weekdays: true
+  title: "Strategy: backtest one idea"
+  task: >
+    Backtest ONE strategy idea on one watchlist instrument (rotate; check brain for what was tested) with
+    capital_prices DAY 200 points or market_data 1y. Save the script and results; store the metrics.
+
+- name: evening-wrap
+  agent: chief-of-staff
+  every_hours: 24
+  priority: 3
+  hours: "20-23"
+  title: "Chief: evening wrap-up and tomorrow's plan"
+  task: >
+    Summarise today: tasks done/failed, what shipped, approvals waiting, scorecard vs targets, and the
+    three things the office will do tomorrow. Store as kind=event tag wrap, notify Pribin in one line.
+
+- name: light-gardening
+  agent: chief-of-staff
+  every_hours: 24
+  priority: 1
+  hours: "03-05"
+  title: "Chief: light brain gardening"
+  task: >
+    Delete exact-duplicate memories and job postings older than 30 days; merge obvious near-duplicates.
+    Report counts.
+
+- name: review-latest
+  agent: reviewer
+  every_hours: 24
+  priority: 2
+  title: "Reviewer: review the latest commits"
+  task: >
+    For the project with the most recent commit under workspace/projects/, review the last 3 commits
+    (git log, git diff) for bugs, secrets, and README accuracy. Store the verdict; task_create fixes for the
+    debugger if needed.
