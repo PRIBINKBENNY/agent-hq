@@ -183,3 +183,35 @@ def test_pause_stops_new_work_but_reaps_finished(tmp_path, monkeypatch):
     scheduler.set_paused(True, "timed", hours=-1)
     assert scheduler.paused()["paused"] is False
     scheduler._running.clear()
+
+
+def test_agents_cannot_resume_unless_their_task_asks(tmp_path, monkeypatch):
+    import tools, events, json as _j
+    monkeypatch.setattr(scheduler, "TUNING_FILE", tmp_path / "t.json"); (tmp_path / "t.json").write_text(_j.dumps({"paused": True, "paused_reason": "x"}))
+    monkeypatch.setattr(events, "EVENTS_FILE", tmp_path / "ev.jsonl")
+    events.emit("start", "chief-of-staff", "r1", task="tell every agent to rest")
+    assert tools.office_resume("", _agent="chief-of-staff").startswith("refused") and scheduler.paused()["paused"]
+    events.emit("start", "chief-of-staff", "r2", task="Pribin says resume the office")
+    assert tools.office_resume("", _agent="chief-of-staff").startswith("office resumed") and not scheduler.paused()["paused"]
+    scheduler.set_paused(True, "again"); assert tools.office_resume("", _agent="pribin").startswith("office resumed")
+
+
+def test_scheduler_parallelism_follows_healthy_providers_and_retries_model_outages(tmp_path, monkeypatch):
+    import json as _j
+    b = _brain(tmp_path); scheduler._running.clear(); scheduler._reconciled = True
+    tf = tmp_path / "tuning.json"; tf.write_text(_j.dumps({"max_parallel": 2})); monkeypatch.setattr(scheduler, "TUNING_FILE", tf); monkeypatch.setenv("OFFICE_MAX_PARALLEL", "2")
+    monkeypatch.setattr(scheduler, "STANDING_FILE", tmp_path / "s.yaml"); monkeypatch.setattr(scheduler, "SCHEDULE_FILE", tmp_path / "j.yaml"); monkeypatch.setattr(scheduler, "STATE_FILE", tmp_path / "st.json")
+    monkeypatch.setattr(scheduler, "_notify", lambda *a: None); monkeypatch.setattr(scheduler, "housekeeping", lambda: {}); monkeypatch.setattr(scheduler, "check_approvals", lambda brain: 0)
+    monkeypatch.setattr(scheduler, "budget", lambda: {"cerebras": {"day": 1, "minute": 1, "down": True, "ok": False}, "groq": {"day": 1, "minute": 1, "down": False, "ok": True}})
+    class P:
+        returncode = None
+        def poll(self): return self.returncode
+    monkeypatch.setattr(scheduler, "_spawn", lambda task, eng: P())
+    for i in range(3): b.task_create(f"t{i}", "x", owner="job-scout")
+    info = scheduler.tick(b)
+    assert len(info["started"]) == 1                      # only one healthy provider -> one run at a time
+    tid = info["started"][0]; scheduler._running[tid]["proc"].returncode = 1
+    b.task_update(tid, status="failed", result="EngineError: no capable model available: every cloud provider is cooling down")
+    info = scheduler.tick(b)
+    t = b.task_get(tid); assert t["status"] == "queued" and "retry_after:" in t["result"]   # retried later, not abandoned
+    scheduler._running.clear()

@@ -1113,6 +1113,16 @@ def office_pause(reason: str, hours: float | None = None, _agent="unknown"):
     "type": "object", "properties": {"note": {"type": "string"}}})
 def office_resume(note: str = "", _agent="unknown"):
     import scheduler
+    if _agent != "pribin":
+        # the agent may only resume when the task it is running on literally asks for it
+        try:
+            from events import read_tail
+            starts = [e for e in read_tail(400) if e.get("type") == "start" and e.get("agent") == _agent]
+            task = starts[-1]["task"] if starts else ""
+        except Exception:
+            task = ""
+        if not re.search(r"\b(resume|unpause|continue the office|start again|carry on|go ahead|restart the office)\b", task, re.I):
+            return "refused: only Pribin can resume the office (press Resume on the dashboard or phone, or tell the chief 'resume'). Your current task does not ask for it."
     scheduler.set_paused(False)
     brain.remember(f"Office RESUMED by {_agent}. {note}".strip(), agent=_agent, kind="event", importance=4, tags=["ops", "resume"])
     return "office resumed: the scheduler is starting work again."

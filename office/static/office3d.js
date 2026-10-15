@@ -15,7 +15,7 @@ const STATE_COLOR = { idle: 0x9aa3b5, think: 0x3b6fd6, tool: 0xd98433, delegate:
 const SKIN = [0xf3cfae, 0xe0b08a, 0xc48e63, 0x9c6a45, 0x6f4a30, 0xf7dcc0];
 const TOPS = [0x2d3f6b, 0xf2f2f2, 0x6b7a99, 0x8fb0d9, 0xd9c7b0, 0x3f3f4a, 0xb9d3c2, 0xe6b3b3, 0x4a6b8a, 0xf0d9a8];
 const HAIR = [0x1d140e, 0x3b2616, 0x6b3f22, 0xb8842d, 0x2a2a2a, 0x8a8a8a, 0xc24b2f];
-const RI = 34, RO = 54, RP = 13, H = 6;          // ring inner/outer radius, courtyard plaza radius, wall height
+const RI = 34, RO = 50, RP = 13, H = 6;          // ring inner/outer radius, courtyard plaza radius, wall height
 
 let renderer, scene, camera, controls, container, clock, raycaster, mouse;
 let ring, figures = {}, depts = {}, brain, brainRings = [], brainLight, particles = [], labels = [], opts = {}, lastFrame = 0, hovered = null;
@@ -113,7 +113,6 @@ export function init(el, options = {}) {
   const plazaRing = new THREE.Mesh(new THREE.RingGeometry(RP - 0.5, RP, 64), M.wallDark); plazaRing.rotation.x = -Math.PI / 2; plazaRing.position.y = 0.06; scene.add(plazaRing);
   for (let i = 0; i < 34; i++) { const a = (i / 34) * Math.PI * 2 + 0.1, r = RO + 14 + (i % 3) * 12; const tree = new THREE.Group(); const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.7, 5, 8), M.trunk); trunk.position.y = 2.5; trunk.castShadow = true; tree.add(trunk);
     const c1 = new THREE.Mesh(new THREE.SphereGeometry(3.4 + (i % 2), 12, 10), M.canopy); c1.position.y = 7; c1.castShadow = true; tree.add(c1); tree.position.copy(polar(r, a)); scene.add(tree); }
-  for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2 + 0.3, r = RP + 7 + (i % 2) * 6; if (Math.abs(Math.sin(a * 3.5)) < 0.25) continue; const tree = new THREE.Group(); const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 3.5, 8), M.trunk); trunk.position.y = 1.75; tree.add(trunk); const c1 = new THREE.Mesh(new THREE.SphereGeometry(2.2, 12, 10), M.canopy); c1.position.y = 4.6; c1.castShadow = true; tree.add(c1); tree.position.copy(polar(r, a)); scene.add(tree); }
   buildCenter();
   renderer.domElement.addEventListener("pointerdown", e => { mouse.userData = { x: e.clientX, y: e.clientY }; });
   renderer.domElement.addEventListener("pointerup", e => { const d = mouse.userData; if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 5) { const f = pick(e); if (f && opts.onAgentClick) opts.onAgentClick(f.name); } });
@@ -163,43 +162,64 @@ export function setRoster(list) {
   const byOffice = {}; list.forEach(a => (byOffice[a.office] = byOffice[a.office] || []).push(a));
   const names = Object.keys(byOffice).sort((a, b) => (OFFICE_ORDER.indexOf(a) + 99) % 100 - (OFFICE_ORDER.indexOf(b) + 99) % 100);
   const n = names.length; const span = Math.PI * 2 / n; const gap = 0.012;
-  // shared parts: floor slab, outer wall, roof overhang ring
-  const slab = new THREE.Mesh(new THREE.RingGeometry(RI - 0.6, RO + 0.6, 96), M.wallDark); slab.rotation.x = -Math.PI / 2; slab.position.y = 0.4; slab.receiveShadow = true; ring.add(slab);
-  const carpet = new THREE.Mesh(new THREE.RingGeometry(RI, RO, 96), M.carpet); carpet.rotation.x = -Math.PI / 2; carpet.position.y = 0.82; carpet.receiveShadow = true; ring.add(carpet);
-  arcWall(ring, RO, 0, Math.PI * 2, 0.8 + H / 2, H, 0.5, M.wall, 0.04);
-  const eave = new THREE.Mesh(new THREE.RingGeometry(RO - 0.2, RO + 2.2, 96), M.wall); eave.rotation.x = -Math.PI / 2; eave.position.y = 0.8 + H + 0.2; eave.castShadow = true; ring.add(eave);
+  // the building shell: slab, outer wall with a window band, roof eave
+  const slab = new THREE.Mesh(new THREE.RingGeometry(RI - 0.6, RO + 0.6, 128), M.wallDark); slab.rotation.x = -Math.PI / 2; slab.position.y = 0.4; slab.receiveShadow = true; ring.add(slab);
+  arcWall(ring, RO, 0, Math.PI * 2, 0.8 + 1.2, 2.4, 0.5, M.wall, 0.04);           // low wall
+  arcWall(ring, RO, 0, Math.PI * 2, 0.8 + 2.4 + 1.6, 3.2, 0.25, M.glass, 0.04);   // window band
+  arcWall(ring, RO, 0, Math.PI * 2, 0.8 + H - 0.2, 0.4, 0.5, M.wall, 0.04);        // beam
+  for (let i = 0; i < 64; i++) { const a = (i / 64) * Math.PI * 2; const mull = box(0.25, H, 0.25, M.frame); mull.position.copy(polar(RO, a, 0.8 + H / 2)); mull.rotation.y = a; ring.add(mull); }
+  const eave = new THREE.Mesh(new THREE.RingGeometry(RO - 0.2, RO + 2.4, 128), M.wall); eave.rotation.x = -Math.PI / 2; eave.position.y = 0.8 + H + 0.25; eave.castShadow = true; ring.add(eave);
+  // courtyard: a promenade joining every doorway, radial walkways under glass canopies, lawn wedges with one tree each
+  const prom = new THREE.Mesh(new THREE.RingGeometry(RI - 4.6, RI - 1.0, 128), M.path); prom.rotation.x = -Math.PI / 2; prom.position.y = 0.06; prom.receiveShadow = true; ring.add(prom);
+  for (const r of [RI - 4.6, RI - 1.0]) { const kerb = new THREE.Mesh(new THREE.RingGeometry(r - 0.12, r + 0.12, 128), M.wallDark); kerb.rotation.x = -Math.PI / 2; kerb.position.y = 0.07; ring.add(kerb); }
   names.forEach((name, i) => {
-    const members = byOffice[name]; const accent = ACCENT[name] || 0x3b6fd6;
+    const members = byOffice[name]; const accent = ACCENT[name] || 0x3b6fd6; const acc = new THREE.Color(accent);
     const th0 = Math.PI / 2 + i * span + gap, th1 = Math.PI / 2 + (i + 1) * span - gap, mid = (th0 + th1) / 2;
-    depts[name] = { name, mid, accent, gate: polar(RI - 1.2, mid), plaza: polar(RP + 1.2, mid), centre: polar((RI + RO) / 2, mid) };
-    // partitions, inner glass wall with a doorway on the walkway, parapet in the department colour
-    for (const th of [th0, th1]) { const part = box(RO - RI, H, 0.4, M.wall); part.position.copy(polar((RI + RO) / 2, th, 0.8 + H / 2)); part.rotation.y = th + Math.PI / 2; ring.add(part); }
+    depts[name] = { name, mid, accent, gate: polar(RI - 1.4, mid), plaza: polar(RP + 1.4, mid), centre: polar((RI + RO) / 2, mid) };
+    // tinted floor for this department
+    const floor = new THREE.Mesh(new THREE.RingGeometry(RI, RO, 48, 1, th0, th1 - th0), new THREE.MeshStandardMaterial({ color: acc.clone().multiplyScalar(0.25).lerp(new THREE.Color(0xd8dde6), 0.72), roughness: 1, side: THREE.DoubleSide }));
+    floor.rotation.x = -Math.PI / 2; floor.position.y = 0.82; floor.receiveShadow = true; ring.add(floor);
+    // partitions (solid below, glass above), inner glass wall with a doorway, parapets in the department colour
+    for (const th of [th0, th1]) { const low = box(RO - RI, 2.6, 0.5, M.wall); low.position.copy(polar((RI + RO) / 2, th, 0.8 + 1.3)); low.rotation.y = th + Math.PI / 2; ring.add(low);
+      const up = new THREE.Mesh(new THREE.BoxGeometry(RO - RI, H - 2.6, 0.3), M.glass); up.position.copy(polar((RI + RO) / 2, th, 0.8 + 2.6 + (H - 2.6) / 2)); up.rotation.y = th + Math.PI / 2; ring.add(up);
+      const cap = box(RO - RI, 0.3, 0.5, M.wall); cap.position.copy(polar((RI + RO) / 2, th, 0.8 + H - 0.15)); cap.rotation.y = th + Math.PI / 2; ring.add(cap); }
     const door = 2.6 / RI;
-    arcWall(ring, RI, th0, mid - door, 0.8 + H / 2, H, 0.3, M.glass); arcWall(ring, RI, mid + door, th1, 0.8 + H / 2, H, 0.3, M.glass);
-    arcWall(ring, RI, th0, th1, 0.8 + H + 0.17, 0.35, 0.7, M.accentBand(accent)); arcWall(ring, RO, th0, th1, 0.8 + H + 0.17, 0.35, 0.7, M.accentBand(accent));
-    for (const th of [mid - door, mid + door]) { const post = box(0.3, H, 0.3, M.frame); post.position.copy(polar(RI, th, 0.8 + H / 2)); ring.add(post); }
-    const lintel = box(0.4, 0.4, RI * door * 2 + 0.6, M.frame); lintel.position.copy(polar(RI, mid, 0.8 + H - 0.2)); lintel.rotation.y = mid; ring.add(lintel);
-    // walkway from the doorway to the plaza
-    const L = RI - RP - 2.4; const walk = box(3.6, 0.12, L, M.path); walk.position.copy(polar(RP + 1.2 + L / 2, mid, 0.06)); walk.rotation.y = mid; walk.receiveShadow = true; ring.add(walk);
-    for (const sx of [-1, 1]) { const kerb = box(0.22, 0.25, L, M.wallDark); kerb.position.copy(polar(RP + 1.2 + L / 2, mid, 0.12)); kerb.rotation.y = mid; kerb.translateX(sx * 1.95); ring.add(kerb); }
-    const lamp = new THREE.Group(); const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 4.2, 8), M.frame); pole.position.y = 2.1; lamp.add(pole); const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), M.light(0xfff4dc, 0.6)); head.position.y = 4.3; lamp.add(head); lamp.position.copy(polar(RP + L / 2, mid)); lamp.rotation.y = mid; lamp.translateX(2.6); ring.add(lamp);
-    // department sign over the doorway and the wall display on the outer wall
-    const sign = textSprite(TITLE[name] || name, { size: 34, accent: "#" + accent.toString(16).padStart(6, "0") }); sign.position.copy(polar(RI - 0.5, mid, 0.8 + H + 4.0)); ring.add(sign);
-    const count = textSprite(`${members.length} agent${members.length > 1 ? "s" : ""}`, { size: 19, bold: false, bg: "rgba(255,255,255,.85)" }); count.position.copy(polar(RI - 0.5, mid, 0.8 + H + 2.3)); ring.add(count);
-    const arcLen = RO * (th1 - th0); const sw = Math.min(arcLen - 6, 11), sh = sw / 2; const tex = screenTexture(name, accent);
+    arcWall(ring, RI, th0, mid - door, 0.8 + 1.3, 2.6, 0.25, M.glass); arcWall(ring, RI, mid + door, th1, 0.8 + 1.3, 2.6, 0.25, M.glass);   // glass balustrade, open above
+    arcWall(ring, RI, th0, mid - door, 0.8 + 2.65, 0.12, 0.4, M.frame); arcWall(ring, RI, mid + door, th1, 0.8 + 2.65, 0.12, 0.4, M.frame);
+    arcWall(ring, RI - 0.9, th0, th1, 0.86, 0.12, 1.2, M.accentBand(accent)); arcWall(ring, RO, th0, th1, 0.8 + H + 0.17, 0.35, 0.7, M.accentBand(accent));   // colour strip along the inner floor edge, parapet on the outer wall
+    for (const th of [mid - door, mid + door]) { const post = box(0.3, 2.8, 0.3, M.frame); post.position.copy(polar(RI, th, 0.8 + 1.4)); ring.add(post); }
+    // walkway: plaza edge -> through the promenade -> into the doorway, with a glass canopy on slim posts
+    const L = RI - RP + 1.6; const walk = box(3.6, 0.12, L, M.path); walk.position.copy(polar(RP + L / 2 - 0.4, mid, 0.07)); walk.rotation.y = mid; walk.receiveShadow = true; ring.add(walk);
+    for (const sx of [-1, 1]) { const kerb = box(0.22, 0.25, L, M.wallDark); kerb.position.copy(polar(RP + L / 2 - 0.4, mid, 0.12)); kerb.rotation.y = mid; kerb.translateX(sx * 1.95); ring.add(kerb);
+      for (let k = 0; k < 4; k++) { const post = box(0.18, 4.2, 0.18, M.frame); post.position.copy(polar(RP + 2.5 + k * (L - 4) / 3, mid, 2.1)); post.rotation.y = mid; post.translateX(sx * 2.0); ring.add(post); } }
+    const canopy = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.18, L - 1), M.glass); canopy.position.copy(polar(RP + L / 2 - 0.4, mid, 4.3)); canopy.rotation.y = mid; ring.add(canopy);
+    const canopyEdge = box(4.6, 0.12, 0.3, M.frame); canopyEdge.position.copy(polar(RP + 1.4, mid, 4.3)); canopyEdge.rotation.y = mid; ring.add(canopyEdge);
+    // lawn wedge between this walkway and the next, with one tree and a bench
+    const wedgeMid = mid + span / 2; const tree = new THREE.Group(); const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.55, 4, 8), M.trunk); trunk.position.y = 2; trunk.castShadow = true; tree.add(trunk);
+    const c1 = new THREE.Mesh(new THREE.SphereGeometry(2.8, 12, 10), M.canopy); c1.position.y = 5.4; c1.castShadow = true; tree.add(c1); tree.position.copy(polar(RP + 9, wedgeMid)); ring.add(tree);
+    const bench = box(2.4, 0.4, 0.8, M.wood); bench.position.copy(polar(RP + 5, wedgeMid, 0.6)); bench.rotation.y = wedgeMid + Math.PI / 2; ring.add(bench);
+    // department sign over the doorway, the wall display and a whiteboard on the outer wall
+    const sign = textSprite(TITLE[name] || name, { size: 34, accent: "#" + accent.toString(16).padStart(6, "0") }); sign.position.copy(polar(RI - 0.5, mid, 0.8 + 7.2)); ring.add(sign);
+    const count = textSprite(`${members.length} agent${members.length > 1 ? "s" : ""}`, { size: 19, bold: false, bg: "rgba(255,255,255,.85)" }); count.position.copy(polar(RI - 0.5, mid, 0.8 + 5.6)); ring.add(count);
+    const arcLen = RO * (th1 - th0); const sw = Math.min(arcLen - 8, 10), sh = sw / 2; const tex = screenTexture(name, accent);
     const screen = new THREE.Mesh(new THREE.PlaneGeometry(sw, sh), new THREE.MeshStandardMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.35, roughness: 0.4 }));
-    screen.position.copy(polar(RO - 0.6, mid, 0.8 + 2.3 + sh / 2)); screen.rotation.y = mid - Math.PI / 2; ring.add(screen);   // face the courtyard
-    const bezel = box(sw + 0.5, sh + 0.5, 0.2, M.monitor); bezel.position.copy(polar(RO - 0.36, mid, 0.8 + 2.3 + sh / 2)); bezel.rotation.y = mid + Math.PI / 2; ring.add(bezel);
-    for (const th of [th0 + 0.05, th1 - 0.05]) { const plant = new THREE.Group(); const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.6, 1.3, 14), M.pot); pot.position.y = 1.45; plant.add(pot); for (let k = 0; k < 5; k++) { const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.75, 10, 8), M.plant); leaf.position.set(Math.cos(k * 1.26) * 0.55, 2.7 + (k % 2) * 0.4, Math.sin(k * 1.26) * 0.55); leaf.castShadow = true; plant.add(leaf); } plant.position.copy(polar(RO - 2.2, th, 0.8)); ring.add(plant); }
-    if (name === "front-desk") { const counter = box(6.5, 2.6, 1.6, M.wall); counter.position.copy(polar(RI + 3.2, mid, 2.1)); counter.rotation.y = mid + Math.PI / 2; ring.add(counter); const ctop = box(6.9, 0.2, 2.0, M.wood); ctop.position.copy(polar(RI + 3.2, mid, 3.5)); ctop.rotation.y = mid + Math.PI / 2; ring.add(ctop); }
+    screen.position.copy(polar(RO - 0.7, mid, 0.8 + 1.4 + sh / 2)); screen.rotation.y = mid - Math.PI / 2; ring.add(screen);
+    const bezel = box(sw + 0.5, sh + 0.5, 0.2, M.monitor); bezel.position.copy(polar(RO - 0.45, mid, 0.8 + 1.4 + sh / 2)); bezel.rotation.y = mid + Math.PI / 2; ring.add(bezel);
+    // meeting corner: round table with stools near one partition; plants at the other
+    const tbl = new THREE.Group(); const ttop = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.7, 0.18, 24), M.wood); ttop.position.y = 2.3; ttop.castShadow = true; tbl.add(ttop); const tleg = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.4, 2.2, 12), M.frame); tleg.position.y = 1.1; tbl.add(tleg);
+    for (let k = 0; k < 4; k++) { const st = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.25, 12), M.chair); st.position.set(Math.cos(k * 1.57) * 2.4, 1.4, Math.sin(k * 1.57) * 2.4); tbl.add(st); const sl = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 1.3, 8), M.frame); sl.position.set(Math.cos(k * 1.57) * 2.4, 0.7, Math.sin(k * 1.57) * 2.4); tbl.add(sl); }
+    tbl.position.copy(polar(RO - 4.5, th0 + 3.6 / (RO - 4.5), 0.8)); ring.add(tbl);
+    const wb = box(3.6, 2.0, 0.12, M.wall); wb.position.copy(polar(RO - 0.7, th0 + 3.6 / RO, 0.8 + 3.2)); wb.rotation.y = th0 + 3.6 / RO + Math.PI / 2; ring.add(wb);
+    for (const th of [th1 - 0.04]) { const plant = new THREE.Group(); const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.6, 1.3, 14), M.pot); pot.position.y = 1.45; plant.add(pot); for (let k = 0; k < 5; k++) { const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.75, 10, 8), M.plant); leaf.position.set(Math.cos(k * 1.26) * 0.55, 2.7 + (k % 2) * 0.4, Math.sin(k * 1.26) * 0.55); leaf.castShadow = true; plant.add(leaf); } plant.position.copy(polar(RO - 2.4, th, 0.8)); ring.add(plant); }
+    if (name === "front-desk") { const counter = box(6.5, 2.6, 1.6, M.wall); counter.position.copy(polar(RI + 4.2, mid, 2.1)); counter.rotation.y = mid; ring.add(counter); const ctop = box(6.9, 0.2, 2.0, M.wood); ctop.position.copy(polar(RI + 4.2, mid, 3.5)); ctop.rotation.y = mid; ring.add(ctop); }
     // desks: rows along the radius, columns along the arc, everyone facing the courtyard
     const cols = Math.min(4, Math.ceil(members.length / 2)), rows = Math.ceil(members.length / cols);
     members.forEach((a, k) => {
       const row = Math.floor(k / cols), col = k % cols; const inRow = Math.min(cols, members.length - row * cols);
-      const r = RI + 7 + row * 7.5 + (name === "front-desk" ? 3 : 0); const dth = 7.2 / r; const th = mid + (col - (inRow - 1) / 2) * dth;
+      const r = RI + 6.5 + row * 7 + (name === "front-desk" ? 3.5 : 0); const dth = 7.2 / r; const th = mid + (col - (inRow - 1) / 2) * dth;
       const deskPos = polar(r, th, 0.8); const rot = facing(deskPos, new THREE.Vector3(0, 0.8, 0));
       const desk = addDesk(); desk.position.copy(deskPos); desk.rotation.y = rot; ring.add(desk);
-      const seat = deskPos.clone().add(new THREE.Vector3(Math.sin(rot) * 2.0, 0, Math.cos(rot) * 2.0));   // the chair is at local +z, behind the desk from the courtyard
+      const seat = deskPos.clone().add(new THREE.Vector3(Math.sin(rot) * 2.0, 0, Math.cos(rot) * 2.0));
       const fig = makeFigure(a, k, accent); fig.group.position.copy(seat); fig.group.rotation.y = rot;
       fig.home = seat.clone(); fig.homeRot = rot; fig.dept = name; scene.add(fig.group);
       fig.label = textSprite(a.name, { size: 21, accent: "#" + accent.toString(16).padStart(6, "0") }); fig.label.position.copy(seat).add(new THREE.Vector3(0, 7.6, 0)); scene.add(fig.label);

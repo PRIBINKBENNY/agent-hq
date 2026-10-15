@@ -123,6 +123,15 @@ def busy() -> bool:
     return bool(running_ids())
 
 
+def _provider_down() -> dict:
+    try:
+        sys.path.insert(0, str(ROOT / "office"))
+        from runtime import provider_down
+        return provider_down()
+    except Exception:
+        return {}
+
+
 def budget() -> dict:
     """Per provider: fraction of the daily/minute budget left, from the latest rate-limit headers."""
     try:
@@ -144,7 +153,8 @@ def budget() -> dict:
         minute = frac("x-ratelimit-remaining-tokens-minute", "x-ratelimit-limit-tokens-minute")
         if minute is None:
             minute = frac("x-ratelimit-remaining-tokens", "x-ratelimit-limit-tokens")
-        out[prov] = {"day": day, "minute": minute, "ok": (day is None or day > STANDING_BUDGET_FRACTION) and (minute is None or minute > 0.15)}
+        down = prov in _provider_down()
+        out[prov] = {"day": day, "minute": minute, "down": down, "ok": not down and (day is None or day > STANDING_BUDGET_FRACTION) and (minute is None or minute > 0.15)}
     return out
 
 
@@ -348,6 +358,10 @@ def tick(brain: BrainStore, engine: str = "auto") -> dict:
             continue
         if r["proc"].poll() is not None:
             t = brain.task_get(tid)
+            if t["status"] == "failed" and "no capable model" in (t.get("result") or "") and (t.get("result") or "").count("retry_after") < 3:
+                # every cloud provider was cooling down: try again in 15 minutes instead of giving up
+                brain.task_update(tid, agent="scheduler", status="queued", result=(t.get("result") or "")[:300] + f" | retry_after:{int(time.time()) + 900}")
+                info["finished"].append(tid); _running.pop(tid, None); continue
             if t["status"] == "running":   # run.py marks done/failed itself; safety net if it died hard
                 brain.task_update(tid, agent="scheduler", status="failed", result=f"process exited {r['proc'].returncode} without reporting")
                 t = brain.task_get(tid)
@@ -360,9 +374,16 @@ def tick(brain: BrainStore, engine: str = "auto") -> dict:
     info["enqueued"] = enqueue_due_jobs(brain) + enqueue_standing_work(brain)
     check_approvals(brain)
     housekeeping()
-    while len(running_ids()) < MAX_PARALLEL:
+    healthy = [p for p, v in budget().items() if v["ok"] and not v.get("down")]
+    effective = max(1, min(MAX_PARALLEL, len(healthy))) if budget() else MAX_PARALLEL
+    now = time.time()
+    while len(running_ids()) < effective:
         nxt = brain.task_claim_next()
         if not nxt:
+            break
+        m = re.search(r"retry_after:(\d+)", nxt.get("result") or "")
+        if m and float(m.group(1)) > now:
+            brain.task_update(nxt["id"], agent="scheduler", status="queued")   # not yet: leave it queued for a later tick
             break
         eng = engine if engine != "auto" else pick_engine()
         _running[nxt["id"]] = {"proc": _spawn(nxt, eng), "task": nxt, "engine": eng}

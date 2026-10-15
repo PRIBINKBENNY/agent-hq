@@ -5,8 +5,8 @@
  "standing_budget_fraction": 0.25,
  "task_wall_seconds": 1500,
  "notes": "Bounded knobs the COO may change: max_parallel 1-4, run_token_budget 30000-120000, max_turns 10-30, standing_budget_fraction 0.1-0.6, task_wall_seconds 600-3600",
- "paused": true,
- "paused_reason": "paused from the dashboard",
- "paused_at": 1792035005.639434,
+ "paused": false,
+ "paused_reason": "",
+ "paused_at": null,
  "paused_until": null
 }
