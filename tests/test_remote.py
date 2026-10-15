@@ -46,3 +46,34 @@ def test_push_subscribe_and_vapid(client, tmp_path, monkeypatch):
     assert r.status_code == 200 and r.json()["subscribers"] == 1
     assert client.post("/api/push/subscribe", json={}).status_code == 400
     assert push.unsubscribe("https://push.example/abc") == 0
+
+
+def test_approval_detail_and_typed_follow_ups(client, tmp_path, monkeypatch):
+    import dashboard, tools, store
+    class NoEmbed(store.Embedder):
+        def __init__(self): self.model_name = "none"; self.available = False; self._model = None
+    b = store.BrainStore(tmp_path / "b.db", embedder=NoEmbed())
+    monkeypatch.setattr(dashboard, "brain", b); monkeypatch.setattr(dashboard, "WORKSPACE", tmp_path)
+    (tmp_path / "applications" / "acme" / "ml").mkdir(parents=True)
+    (tmp_path / "applications" / "acme" / "ml" / "cv.md").write_text("# CV\nreal content")
+    (tmp_path / "applications" / "acme" / "ml" / "QA.md").write_text("PASS")
+    app = b.remember("PENDING APPROVAL from application-tailor: application ready at workspace/applications/acme/ml/ (cv.md)", agent="application-tailor", kind="approval", tags=["pending", "application"])
+    mail = b.remember("PENDING APPROVAL from mail-assistant: email draft 'Follow-up' to Acme at workspace/outbox/x.md", agent="mail-assistant", kind="approval", tags=["pending", "email"])
+    h = {"authorization": "Bearer test-token-123"}
+    d = client.get(f"/api/approval?id={app.id}", headers=h).json()
+    assert d["kind"] == "application" and d["files"][0]["name"] == "cv.md" and "real content" in d["files"][0]["content"] and d["qa"] == "PASS"
+    # approving an application creates a tracker follow-up; approving an email creates nothing (no chains)
+    r = client.post("/api/approve", json={"id": app.id, "decision": "approved"}, headers=h).json()
+    assert r["follow_up_task"] is not None and "Do NOT draft any email" in b.task_get(r["follow_up_task"])["detail"]
+    r = client.post("/api/approve", json={"id": mail.id, "decision": "approved"}, headers=h).json()
+    assert r["follow_up_task"] is None
+
+
+def test_draft_email_refuses_placeholders(tmp_path, monkeypatch):
+    import tools, store
+    class NoEmbed(store.Embedder):
+        def __init__(self): self.model_name = "none"; self.available = False; self._model = None
+    monkeypatch.setattr(tools, "brain", store.BrainStore(tmp_path / "b.db", embedder=NoEmbed())); monkeypatch.setattr(tools, "WORKSPACE", tmp_path)
+    assert tools.draft_email("<company>", "Follow-up", "Dear <name>,").startswith("refused")
+    assert tools.draft_email("workspace/outbox/x.md", "Hi", "body").startswith("refused")
+    assert "draft saved" in tools.draft_email("jobs@acme.com", "Follow-up on my application", "Dear Acme team, ...", _agent="mail-assistant")

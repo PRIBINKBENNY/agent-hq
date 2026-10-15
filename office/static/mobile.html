@@ -33,6 +33,9 @@
   .st { font-size:10px; text-transform:uppercase; letter-spacing:.5px; padding:2px 7px; border-radius:999px; border:1px solid var(--line); color:var(--ink-2); margin-right:6px; }
   .st.done, .st.pass { color:var(--done); border-color:var(--done);} .st.failed, .st.fail { color:var(--err); border-color:var(--err);} .st.running, .st.queued { color:var(--tool); border-color:var(--tool);}
   .empty { padding: 14px; color:var(--ink-3); font-size:13px; }
+  .det { display:none; margin-top:10px; } .item.open .det { display:block; } .det h5 { margin:8px 0 4px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-3); }
+  .det .body { white-space:pre-wrap; font-size:13px; color:var(--ink-2); background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:10px; max-height:45vh; overflow:auto; }
+  .more { background:none; border:0; color:var(--accent); font-size:14px; padding:8px 0; } .who { color:var(--ink-3); font-size:12px; margin-bottom:4px; }
   .cmd { position: fixed; left:0; right:0; bottom:0; padding: 10px 12px calc(env(safe-area-inset-bottom) + 10px); background: rgba(8,11,20,.95); backdrop-filter: blur(10px); border-top:1px solid var(--line); display:flex; gap:8px; }
   .cmd input { flex:1; background:var(--panel); border:1px solid var(--line); color:var(--ink); padding:12px; border-radius:12px; font-size:16px; }
   .cmd button { background:var(--accent); border:0; color:#fff; padding:0 16px; border-radius:12px; font-size:15px; font-weight:700; } .cmd #mic { background:var(--panel-2); border:1px solid var(--line); color:var(--ink); padding:0 12px; } .cmd #mic.on { border-color:var(--err); color:var(--err); }
@@ -82,7 +85,8 @@ async function refresh() {
     const isApp = a.tags.includes("application") || /cv|cover letter|application/i.test(a.content);
     const isPost = /linkedin/i.test(a.content) && !a.tags.includes("posted");
     const postBtns = isPost ? paths.filter(p => p.includes("posts/")).map(p => `<button class="ok" onclick="postLinkedIn(${a.id},'${esc(p)}')">Post ${esc(p.split("/").pop().replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(".md", ""))}</button>`).join("") : "";
-    return `<div class="item">${qa}${esc(a.content.replace(/^(QA: \w+ - )?PENDING APPROVAL from /, "From "))}
+    return `<div class="item" id="appr-${a.id}"><div class="who">#${a.id} · ${esc(a.agent)} · ${esc(a.created)}</div>${qa}${esc(a.content.replace(/^(QA: \w+ - )?PENDING APPROVAL from [\w-]+: /, ""))}
+      <div><button class="more" onclick="toggleApproval(${a.id})">Show details</button></div><div class="det"></div>
       <div class="btns"><button class="ok" onclick="act('/api/approve',{id:${a.id},decision:'approved'},'Approved')">Approve</button>${isApp ? `<button class="ok" onclick="act('/api/applied',{id:${a.id}},'Marked applied')">I applied</button>` : ""}${postBtns}<button class="no" onclick="act('/api/approve',{id:${a.id},decision:'rejected'},'Rejected')">Reject</button>${paths.map(p => `<button class="view" onclick="view('${esc(p)}')">${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
     : `<div class="empty">Nothing waiting.</div>`;
   const open = s.tasks.filter(t => ["queued","running","blocked"].includes(t.status)); $("#task-sp").textContent = open.length ? open.length + " open" : "";
@@ -95,6 +99,14 @@ async function refreshStats() {
   $("#scorecard").innerHTML = `<div class="kv">${rows.map(k => { const v = c[k] ?? "–", tg = t[k]; const cls = tg ? (Number(v) >= Number(tg) ? "hit" : "miss") : ""; return `<span class="k">${esc(k.replace(/_/g," "))}</span><span class="v ${cls}">${esc(v)}</span><span class="t">${tg ? "/ " + esc(tg) : ""}</span>`; }).join("")}</div>`;
 }
 async function postLinkedIn(id, path) { if (!confirm("Publish this variant to LinkedIn now?")) return; const r = await api("/api/linkedin/post", { id, path }); toast(r.posted ? "Posted to LinkedIn" : (r.error || "failed")); refresh(); }
+async function toggleApproval(id) {
+  const card = document.getElementById("appr-" + id); const det = card.querySelector(".det"); const btn = card.querySelector(".more");
+  if (card.classList.contains("open")) { card.classList.remove("open"); btn.textContent = "Show details"; return; }
+  if (!det.dataset.loaded) { const d = await api("/api/approval?id=" + id);
+    det.innerHTML = (d.files || []).map(f => `<h5>${esc(f.name)}</h5><div class="body">${esc(f.content)}</div>`).join("") + (d.qa ? `<h5>QA report</h5><div class="body">${esc(d.qa)}</div>` : "") + ((d.files || []).length ? "" : `<div class="body">No file behind this approval; the note above is all there is.</div>`);
+    det.dataset.loaded = "1"; }
+  card.classList.add("open"); btn.textContent = "Hide details";
+}
 async function act(url, body, msg) { const r = await api(url, body); toast(r.error || msg); refresh(); }
 async function view(p) { if (p.endsWith(".pdf")) { window.open("/api/file?path=" + encodeURIComponent(p)); return; } const r = await api("/api/file?path=" + encodeURIComponent(p)); const d = document.createElement("section"); d.innerHTML = `<h3>${esc(p)} <span class="sp" onclick="this.closest('section').remove()">close</span></h3><div class="pre">${esc(r.content || r.error)}</div>`; $("#approvals").closest("section").after(d); d.scrollIntoView({ behavior: "smooth" }); }
 $("#go").onclick = async () => { const task = $("#task").value.trim(); if (!task) return; const r = await api("/api/run", { task, agent: "chief-of-staff", engine: "auto" }); toast(r.started ? "Run started" : r.queued ? `Queued as task #${r.task_id}` : (r.error || "failed")); $("#task").value = ""; refresh(); };

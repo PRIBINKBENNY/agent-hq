@@ -493,6 +493,13 @@ def market_data(ticker: str, period: str = "3mo", points: int = 20):
     }, "required": ["to", "subject", "body"]})
 def draft_email(to: str, subject: str, body: str, _agent="unknown"):
     import re as _re
+    blob = f"{to}\n{subject}\n{body}"
+    if _re.search(r"<\s*(company|client|name|recipient|role|date|email|url)\s*>|\[(company|client|name|recipient)\]|lorem ipsum", blob, re.I):
+        return "refused: the draft contains placeholders like <company>. Fill in the real company, person and details from the brain, or report that they are unknown."
+    if not (_re.search(r"[\w.+-]+@[\w-]+\.[\w.]+", to) or _re.search(r"[A-Za-z]{3,}", to)):
+        return "refused: 'to' must be an email address or a named person/company"
+    if "workspace/" in to or "outbox" in to:
+        return "refused: 'to' is a file path, not a recipient"
     slug = _re.sub(r"[^a-z0-9]+", "-", subject.lower())[:50].strip("-") or "email"
     path = f"outbox/{time.strftime('%Y%m%d-%H%M')}-{slug}.md"
     write_file(path, f"To: {to}\nSubject: {subject}\nFrom-agent: {_agent}\n\n{body}\n")

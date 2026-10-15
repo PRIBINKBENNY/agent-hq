@@ -266,12 +266,27 @@ async def api_approve(request: Request):
     brain.update(mid, agent="pribin", content=new, tags=[t for t in m.tags if t != "pending"] + [decision])
     follow = None
     if decision == "approved":
-        follow = brain.task_create(f"Approved #{mid}: next step", 
-            f"Pribin APPROVED this item: {new}\n\nDo the natural next step and nothing external: e.g. for an application, "
-            f"have tracker log it as 'applied' and mail-assistant prepare a follow-up draft dated 7 days out; for a proposal, "
-            f"have tracker log it as 'proposed'; for a brief proposal, apply it with apply_proposal (approval id {mid}); for a LinkedIn post, publish the recommended variant with linkedin_post "
-            f"(approval id {mid}) and then have tracker note the publish date. Report what you did.",
-            owner="chief-of-staff", created_by="pribin", priority=4, source="approval")
+        txt = new.lower(); tags = m.tags
+        if "brief-proposal" in tags:
+            detail = f"Pribin APPROVED brief proposal #{mid}. Apply it with apply_proposal(approval_id={mid}) and confirm which agent changed."
+        elif "email" in tags or "/outbox/" in txt:
+            detail = None   # he will send it himself; nothing to chain (chaining emails created junk follow-ups)
+        elif "application" in tags or "/applications/" in txt:
+            detail = (f"Pribin APPROVED application #{mid}: {new[:200]}. tracker: set that company's stage to 'approved, ready to apply' in pipeline/jobs.md. "
+                      "Do NOT draft any email; he presses 'I applied' when he has applied.")
+        elif "/posts/" in txt or "linkedin post" in txt:
+            detail = f"Pribin APPROVED LinkedIn draft #{mid}: {new[:200]}. If LinkedIn is connected, publish the recommended variant with linkedin_post(approval_id={mid}); otherwise tell him it is ready to paste. tracker notes the date."
+        elif "/proposals/" in txt:
+            detail = f"Pribin APPROVED proposal #{mid}: {new[:200]}. tracker: set the client's stage to 'proposed' in pipeline/clients.md with a follow-up date 5 days out. No email."
+        elif "/networking/" in txt:
+            detail = f"Pribin APPROVED outreach #{mid}: {new[:200]}. tracker: mark those contacts status:contacted. No email."
+        else:
+            detail = None
+        if detail:
+            title = f"Approved #{mid}: next step"
+            recent_same = [t for t in brain.task_list(limit=50) if t["title"] == title]
+            if not recent_same:
+                follow = brain.task_create(title, detail, owner="chief-of-staff", created_by="pribin", priority=4, source="approval")
     return JSONResponse({"ok": True, "follow_up_task": follow["id"] if follow else None})
 
 
@@ -481,6 +496,40 @@ async def api_brain_search(request: Request):
     return JSONResponse({"results": [m.to_dict() for m in res]})
 
 
+async def api_approval(request: Request):
+    """Everything behind one approval: the memory, the drafts' text, the QA report, a proposal's diff."""
+    import re as _re
+    mid = int(request.query_params.get("id", "0"))
+    try:
+        m = brain.get(mid)
+    except KeyError:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    text = m.content
+    paths = []
+    for mt in _re.finditer(r"(?:workspace/)?((?:applications|posts|proposals|outbox|interviews|networking|ops)/[\w./ -]+?)(?=[\s,;)]|$)", text):
+        paths.append(mt.group(1).rstrip("."))
+    files = []
+    seen = set()
+    for pth in paths:
+        p = (WORKSPACE / pth).resolve()
+        if WORKSPACE.resolve() not in p.parents:
+            continue
+        cands = [p] if p.is_file() else sorted(p.glob("*.md")) if p.is_dir() else []
+        for c in cands:
+            if c in seen or c.name == "QA.md":
+                continue
+            seen.add(c)
+            files.append({"path": str(c.relative_to(WORKSPACE)), "name": c.name, "content": c.read_text()[:12000]})
+    qa = None
+    for c in seen:
+        q = c.parent / "QA.md"
+        if q.exists():
+            qa = q.read_text()[:4000]; break
+    kind = ("brief-proposal" if "brief-proposal" in m.tags else "email" if "email" in m.tags else "application" if "application" in m.tags or "/applications/" in text
+            else "post" if "/posts/" in text or "linkedin" in text.lower() else "proposal" if "/proposals/" in text else "outreach" if "/networking/" in text else "other")
+    return JSONResponse({"id": m.id, "agent": m.agent, "created": m.to_dict()["created"], "tags": m.tags, "content": text, "kind": kind, "files": files, "qa": qa})
+
+
 async def api_file(request: Request):
     """Read a workspace file for previews (approvals, task results)."""
     path = request.query_params.get("path", "")
@@ -534,6 +583,7 @@ app = Starlette(middleware=[Middleware(AuthMiddleware)], routes=[
     Route("/api/applied", api_applied, methods=["POST"]),
     Route("/api/runs", api_runs),
     Route("/api/file", api_file),
+    Route("/api/approval", api_approval),
     Route("/api/agent", api_agent),
     Route("/api/trading", api_trading),
     Route("/api/schedule", api_schedule),
