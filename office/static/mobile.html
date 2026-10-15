@@ -58,6 +58,7 @@
 
 <section><h3>Approvals waiting for you <span class="sp" id="appr-sp"></span></h3><div id="approvals"></div></section>
 <section><h3>Today <span class="sp" id="digest-sp"></span></h3><div id="digest" class="item" style="white-space:pre-wrap"></div></section>
+<section><h3>Jobs <span class="sp" id="jobs-sp"></span></h3><div id="jobs"></div></section>
 <section><h3>Task board <span class="sp" id="task-sp"></span></h3><div id="tasks"></div></section>
 <section><h3>Scorecard · this week</h3><div id="scorecard"></div></section>
 <section class="feed"><h3>Live feed <span class="sp" id="feed-sp"></span></h3><div id="feed"></div></section>
@@ -96,6 +97,16 @@ async function refresh() {
   $("#tasks").innerHTML = s.tasks.length ? s.tasks.slice(0, 12).map(t => `<div class="item"><span class="st ${esc(t.status)}">${esc(t.status)}</span>${esc(t.title)}<div class="meta">${esc(t.owner)} · ${esc(t.created)}${t.result ? " · " + esc(String(t.result).slice(0, 120)) : ""}</div></div>`).join("") : `<div class="empty">No tasks.</div>`;
   const dg = s.memories.find(m => m.tags.includes("digest")); $("#digest").textContent = dg ? dg.content : "No digest yet today. The Chief of Staff writes one at 08:30."; $("#digest-sp").textContent = dg ? dg.created : "";
 }
+async function refreshJobs() {
+  const r = await api("/api/jobs"); const jobs = (r.jobs || []).filter(j => !["rejected", "dismissed"].includes(j.status)).slice(0, 15);
+  $("#jobs-sp").textContent = jobs.length ? jobs.length + " open" : "";
+  $("#jobs").innerHTML = jobs.length ? jobs.map(j => `<div class="item"><span class="st ${esc(j.status)}">${esc(j.status)}</span><b>${esc(j.title)}</b> · ${esc(j.company)} · fit ${j.fit}/5
+      <div class="meta">${esc(j.location)}${j.posted && j.posted !== "n/a" ? " · posted " + esc(j.posted) : ""}${j.needs ? "<br>Needs: " + esc(j.needs) : ""}</div>
+      <div class="btns">${j.url ? `<button class="ok" onclick="window.open('${esc(j.url)}','_blank')">Open posting</button>` : ""}${j.application ? `<button class="view" onclick="view('${esc(j.application.cv)}')">CV</button>` : `<button onclick="jobAct(${j.id},'tailor')">Tailor CV</button>`}${j.status !== "applied" ? `<button class="ok" onclick="jobStatus(${j.id},'applied')">I applied</button>` : ""}<button class="no" onclick="jobStatus(${j.id},'dismissed')">Dismiss</button></div></div>`).join("")
+    : `<div class="empty">No open jobs yet.</div>`;
+}
+async function jobAct(id, action) { const r = await api("/api/jobs", { id, action }); toast(r.task ? `Queued as task #${r.task}` : (r.error || "done")); }
+async function jobStatus(id, status) { await api("/api/jobs", { id, action: "status", status }); refreshJobs(); }
 async function refreshStats() {
   const st = await api("/api/stats"); const c = st.scorecard || {}, t = c.targets_per_week || {};
   const rows = ["applications_tailored","applications_marked_applied","contacts_logged","proposals_drafted","posts_approved","mock_interviews","commits_on_github"];
@@ -147,7 +158,7 @@ $("#push").onclick = enablePush;
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 fetch("/api/linkedin/status").then(r => r.json()).then(st => { const b = $("#li-btn"); if (!st.configured) b.textContent = "LinkedIn: add app keys"; else if (st.connected) b.textContent = `LinkedIn: ${st.name} (${st.days_left}d)`; else b.textContent = "Connect LinkedIn"; }).catch(() => {});
-refresh(); refreshStats(); connect(); setInterval(refresh, 15000); setInterval(refreshStats, 60000);
+refresh(); refreshStats(); connect(); refreshJobs(); setInterval(refreshJobs, 120000); setInterval(refresh, 15000); setInterval(refreshStats, 60000);
 </script>
 </body>
 </html>

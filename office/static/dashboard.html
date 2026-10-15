@@ -58,6 +58,13 @@
   .appr .det .qa { font-size: 11.5px; color: var(--ink-2); white-space: pre-wrap; } .appr .who { color: var(--ink-3); font-size: 11px; margin-bottom: 4px; }
   .appr .more { background: none; border: 0; color: var(--accent); cursor: pointer; font-size: 11.5px; padding: 4px 0; }
   .usage { font-size: 10px; color: var(--ink-3); }
+  .job { padding: 9px 12px; border-bottom: 1px solid var(--line); font-size: 12px; } .job:last-child { border-bottom: 0; }
+  .job .hd { display: flex; align-items: center; gap: 8px; } .job .hd b { color: var(--ink); } .job .co { color: var(--ink-2); }
+  .job .fit { margin-left: auto; font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); } .job .fit.f5 { color: var(--done); border-color: var(--done); } .job .fit.f4 { color: var(--think); border-color: var(--think); }
+  .job .meta { color: var(--ink-3); font-size: 11px; margin: 3px 0; } .job .needs { color: var(--ink-2); font-size: 11.5px; }
+  .job .st { font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); margin-right: 6px; }
+  .job .st.applied, .job .st.interview, .job .st.offer { color: var(--done); border-color: var(--done); } .job .st.tailored { color: var(--think); border-color: var(--think); } .job .st.rejected, .job .st.dismissed { color: var(--ink-3); }
+  .job .acts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; } .job .acts a, .job .acts button { background: var(--panel); border: 1px solid var(--line); color: var(--ink-2); padding: 3px 8px; border-radius: 6px; font-size: 11px; cursor: pointer; text-decoration: none; } .job .acts a.open { color: var(--accent); border-color: var(--accent); }
   .kv { display: grid; grid-template-columns: 1fr auto auto; gap: 2px 10px; padding: 8px 12px; font-size: 11.5px; }
   .kv .k { color: var(--ink-2); } .kv .v { font-variant-numeric: tabular-nums; text-align: right; } .kv .t { color: var(--ink-3); text-align: right; }
   .kv .hit { color: var(--done); } .kv .miss { color: var(--tool); }
@@ -151,7 +158,7 @@
     <div class="side">
       <div class="tabs">
         <button class="tab on" data-tab="work">Work</button><button class="tab" data-tab="approvals">Approvals <span class="badge" id="tab-appr"></span></button>
-        <button class="tab" data-tab="brain">Brain</button><button class="tab" data-tab="trading">Trading</button><button class="tab" data-tab="ops">Ops</button>
+        <button class="tab" data-tab="jobs">Jobs <span class="badge" id="tab-jobs"></span></button><button class="tab" data-tab="brain">Brain</button><button class="tab" data-tab="trading">Trading</button><button class="tab" data-tab="ops">Ops</button>
       </div>
       <div class="pane on" data-pane="work">
         <div class="panel"><h3>Quick actions</h3><div class="quick" id="quick"></div></div>
@@ -162,6 +169,11 @@
       <div class="pane" data-pane="approvals">
         <div class="panel"><h3>Approvals waiting for you <span class="sp" id="appr-count"></span></h3><div class="list tall" id="approvals"></div></div>
         <div class="panel"><h3>Today</h3><div class="mem" id="digest" style="white-space:pre-wrap"></div></div>
+      </div>
+      <div class="pane" data-pane="jobs">
+        <div class="panel"><h3>Job portal <span class="sp" id="jobs-sp"></span></h3>
+          <div class="memadd"><input id="jobq" placeholder="filter: company, title, status"><select id="jobmin" style="background:var(--bg);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px"><option value="1">fit 1+</option><option value="3" selected>fit 3+</option><option value="4">fit 4+</option><option value="5">fit 5</option></select></div>
+          <div class="list tall" id="jobs"></div></div>
       </div>
       <div class="pane" data-pane="brain">
         <div class="panel"><h3>Search the brain</h3><div class="memadd"><input id="bq" placeholder="e.g. what jobs did we find at Trainline"><button id="bgo">Search</button></div><div class="list tall" id="bresults"></div></div>
@@ -539,7 +551,7 @@ function applyEvent(e, live) {
 }
 
 /* ============================== sidebar: tabs, toasts, quick actions ============================== */
-document.querySelectorAll(".tab").forEach(t => t.onclick = () => { document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t)); document.querySelectorAll(".pane").forEach(p => p.classList.toggle("on", p.dataset.pane === t.dataset.tab)); try { localStorage.setItem("hq-tab", t.dataset.tab); } catch (_) {} if (t.dataset.tab === "trading") refreshTrading(); if (t.dataset.tab === "work") refreshSchedule(); });
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => { document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t)); document.querySelectorAll(".pane").forEach(p => p.classList.toggle("on", p.dataset.pane === t.dataset.tab)); try { localStorage.setItem("hq-tab", t.dataset.tab); } catch (_) {} if (t.dataset.tab === "trading") refreshTrading(); if (t.dataset.tab === "work") refreshSchedule(); if (t.dataset.tab === "jobs") refreshJobs(); });
 try { const saved = localStorage.getItem("hq-tab"); if (saved) document.querySelector(`.tab[data-tab="${saved}"]`)?.click(); } catch (_) {}
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 3500); }
 const QUICK = [
@@ -571,6 +583,29 @@ async function refreshTrading() {
   const rec = [...(t.signals || []), ...(t.recent || [])].sort((x, y) => y.created_at - x.created_at).slice(0, 12);
   $("#trade-recent").innerHTML = rec.length ? rec.map(m => `<div class="mem"><span class="k">${esc(m.kind)}</span>${esc(m.content)}<div class="who">${esc(m.agent)} · ${esc(m.created)}</div></div>`).join("") : `<div class="empty">No signals or trades yet. The desk runs 08:00-16:00 London time on weekdays.</div>`;
 }
+let JOBS = [];
+async function refreshJobs() {
+  const r = await (await fetch("/api/jobs")).json(); JOBS = r.jobs || []; renderJobs();
+  const open = JOBS.filter(j => !["rejected", "dismissed"].includes(j.status)); $("#tab-jobs").textContent = open.length || "";
+}
+function renderJobs() {
+  const q = ($("#jobq").value || "").toLowerCase(); const min = +$("#jobmin").value;
+  const rows = JOBS.filter(j => j.fit >= min && (!q || (j.company + " " + j.title + " " + j.status + " " + j.location).toLowerCase().includes(q)));
+  $("#jobs-sp").textContent = `${rows.length} of ${JOBS.length}`;
+  $("#jobs").innerHTML = rows.length ? rows.map(j => `<div class="job">
+      <div class="hd"><b>${esc(j.title)}</b><span class="co">· ${esc(j.company)}</span><span class="fit f${j.fit}">fit ${j.fit}/5</span></div>
+      <div class="meta"><span class="st ${esc(j.status)}">${esc(j.status)}</span>${esc(j.location)}${j.salary && j.salary !== "n/a" ? " · " + esc(j.salary) : ""}${j.posted && j.posted !== "n/a" ? " · posted " + esc(j.posted) : ""} · found ${esc(j.found)}${j.contacts ? " · " + j.contacts + " contact" + (j.contacts > 1 ? "s" : "") : ""}</div>
+      ${j.needs ? `<div class="needs">Needs: ${esc(j.needs)}</div>` : ""}
+      <div class="acts">${j.url ? `<a class="open" href="${esc(j.url)}" target="_blank" rel="noopener">Open posting ↗</a>` : ""}
+        ${j.application ? `<button onclick="viewFile('${esc(j.application.cv)}')">CV</button>${j.application.letter ? `<button onclick="viewFile('${esc(j.application.letter)}')">Letter</button>` : ""}${j.application.pdf ? `<button onclick="window.open('/api/file?path=' + encodeURIComponent('${esc(j.application.pdf)}'))">PDF</button>` : ""}` : `<button onclick="jobAct(${j.id},'tailor')">Tailor CV</button>`}
+        <button onclick="jobAct(${j.id},'prep')">Interview prep</button><button onclick="jobAct(${j.id},'warm')">Warm paths</button>
+        ${j.status !== "applied" ? `<button onclick="jobStatus(${j.id},'applied')">I applied</button>` : `<button onclick="jobStatus(${j.id},'interview')">Got interview</button>`}
+        ${!["rejected", "dismissed"].includes(j.status) ? `<button onclick="jobStatus(${j.id},'dismissed')">Dismiss</button>` : `<button onclick="jobStatus(${j.id},'found')">Restore</button>`}</div></div>`).join("")
+    : `<div class="empty">No jobs match. The scout logs new roles here every few hours.</div>`;
+}
+async function jobAct(id, action) { const r = await (await fetch("/api/jobs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action }) })).json(); toast(r.task ? `Queued as task #${r.task}` : (r.error || "done")); refreshState(); }
+async function jobStatus(id, status) { await fetch("/api/jobs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "status", status }) }); refreshJobs(); refreshStats(); }
+$("#jobq").addEventListener("input", renderJobs); $("#jobmin").addEventListener("change", renderJobs);
 async function brainSearch() {
   const q = $("#bq").value.trim(); if (!q) return;
   const r = await (await fetch("/api/brain/search?q=" + encodeURIComponent(q))).json();
@@ -709,7 +744,8 @@ function connect() {
 }
 
 resize();
-refreshState().then(() => { fitCamera(); connect(); requestAnimationFrame(frame); refreshSchedule(); refreshTrading(); });
+refreshState().then(() => { fitCamera(); connect(); requestAnimationFrame(frame); refreshSchedule(); refreshTrading(); refreshJobs(); });
+setInterval(refreshJobs, 120000);
 setInterval(refreshSchedule, 60000); setInterval(refreshTrading, 120000);
 setInterval(refreshState, 8000); refreshRuns(); setInterval(refreshRuns, 20000); refreshStats(); setInterval(refreshStats, 60000);
 </script>

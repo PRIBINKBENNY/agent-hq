@@ -541,6 +541,56 @@ async def api_approval(request: Request):
     return JSONResponse({"id": m.id, "agent": m.agent, "created": m.to_dict()["created"], "tags": m.tags, "content": text, "kind": kind, "files": files, "qa": qa})
 
 
+def _jobs() -> list[dict]:
+    import re as _re
+    out = []
+    apps_root = WORKSPACE / "applications"
+    for m in brain.recent(limit=400, kind="job"):
+        meta = dict(m.meta or {})
+        if not meta.get("url"):
+            u = _re.search(r"https?://\S+", m.content); meta["url"] = u.group(0).rstrip(".)") if u else (m.source or "")
+        slug = meta.get("slug") or _re.sub(r"[^a-z0-9]+", "-", (meta.get("company") or "unknown").lower()).strip("-")
+        status = meta.get("status") or next((t.split(":", 1)[1] for t in m.tags if t.startswith("status:")), "found")
+        app = None
+        for d in sorted(apps_root.glob(f"{slug}*/*/")) if apps_root.exists() else []:
+            if (d / "cv.md").exists():
+                app = {"folder": str(d.relative_to(WORKSPACE)), "cv": str((d / "cv.md").relative_to(WORKSPACE)), "pdf": str((d / "cv.pdf").relative_to(WORKSPACE)) if (d / "cv.pdf").exists() else None,
+                       "letter": str((d / "cover-letter.md").relative_to(WORKSPACE)) if (d / "cover-letter.md").exists() else None}
+                break
+        contacts = len(brain.recall("", limit=20, tags=[f"company:{slug}"], kind="contact"))
+        out.append({"id": m.id, "title": meta.get("title") or m.content[:60], "company": meta.get("company") or "", "slug": slug, "location": meta.get("location") or "",
+                    "fit": int(meta.get("fit") or m.importance or 3), "needs": meta.get("needs") or "", "posted": meta.get("posted") or "", "salary": meta.get("salary") or "",
+                    "url": meta.get("url") or "", "status": status, "status_at": meta.get("status_at"), "found": m.to_dict()["created"], "agent": m.agent, "application": app, "contacts": contacts})
+    order = {"offer": 0, "interview": 1, "applied": 2, "tailored": 3, "found": 4, "rejected": 8, "dismissed": 9}
+    out.sort(key=lambda j: (order.get(j["status"], 5), -j["fit"], j["found"]), reverse=False)
+    return out
+
+
+async def api_jobs(request: Request):
+    if request.method == "GET":
+        return JSONResponse({"jobs": await asyncio.to_thread(_jobs)})
+    body = await request.json()
+    from tools import registry as _reg
+    jid = int(body.get("id")); action = body.get("action")
+    if action == "status":
+        return JSONResponse({"result": _reg.call("job_status", {"job_id": jid, "status": body.get("status"), "note": "set on the dashboard"}, "pribin")})
+    if action == "tailor":
+        j = brain.get(jid); meta = j.meta or {}
+        t = brain.task_create(f"Tailor CV for {meta.get('company', '?')} {meta.get('title', '')}"[:120],
+                              f"Tailor my CV and write a cover letter for job #{jid}: {j.content}. Use job_details once on {meta.get('url', '')}, run cv_truth_check, export PDFs, request approval, then job_status(job_id={jid}, status='tailored').",
+                              owner="application-tailor", created_by="pribin", priority=4, source="ui")
+        return JSONResponse({"task": t["id"]})
+    if action == "prep":
+        j = brain.get(jid); meta = j.meta or {}
+        t = brain.task_create(f"Interview prep for {meta.get('company', '?')}"[:120], f"Build the interview prep pack for job #{jid}: {j.content}", owner="interview-coach", created_by="pribin", priority=3, source="ui")
+        return JSONResponse({"task": t["id"]})
+    if action == "warm":
+        j = brain.get(jid); meta = j.meta or {}
+        t = brain.task_create(f"Warm paths into {meta.get('company', '?')}"[:120], f"Find up to 3 relevant people at {meta.get('company')} for job #{jid} ({meta.get('title')}) and draft connection notes. Request approval.", owner="networker", created_by="pribin", priority=3, source="ui")
+        return JSONResponse({"task": t["id"]})
+    return JSONResponse({"error": "unknown action"}, status_code=400)
+
+
 async def api_file(request: Request):
     """Read a workspace file for previews (approvals, task results)."""
     path = request.query_params.get("path", "")
@@ -596,6 +646,7 @@ app = Starlette(middleware=[Middleware(AuthMiddleware)], routes=[
     Route("/api/runs", api_runs),
     Route("/api/file", api_file),
     Route("/api/approval", api_approval),
+    Route("/api/jobs", api_jobs, methods=["GET", "POST"]),
     Route("/api/agent", api_agent),
     Route("/api/trading", api_trading),
     Route("/api/schedule", api_schedule),

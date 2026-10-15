@@ -1090,3 +1090,40 @@ def office_status():
     import scheduler
     st = scheduler.paused()
     return json.dumps({**st, "running": scheduler.running_ids(), "queued": len(brain.task_list(limit=200, status="queued")), "max_parallel": scheduler.MAX_PARALLEL})
+
+
+# ---------------------------------------------------------------- structured job records (the job portal reads these)
+@registry.register("log_job", "Record a job posting as a structured job record (shows on the Jobs tab). Use this instead of brain_remember for jobs.", {
+    "type": "object", "properties": {
+        "title": {"type": "string"}, "company": {"type": "string"}, "url": {"type": "string"},
+        "location": {"type": "string", "default": "London"}, "fit": {"type": "integer", "description": "1-5"},
+        "needs": {"type": "string", "description": "3-6 key requirements, comma separated"}, "posted": {"type": "string", "description": "YYYY-MM-DD or n/a"},
+        "salary": {"type": "string", "default": "n/a"}, "source": {"type": "string", "default": "linkedin"},
+    }, "required": ["title", "company", "url", "fit"]})
+def log_job(title: str, company: str, url: str, fit: int, location: str = "London", needs: str = "", posted: str = "n/a", salary: str = "n/a", source: str = "linkedin", _agent="unknown"):
+    import re as _re
+    slug = _re.sub(r"[^a-z0-9]+", "-", company.lower()).strip("-")
+    fit = max(1, min(5, int(fit)))
+    for m in brain.recent(limit=300, kind="job"):
+        if (m.meta or {}).get("url") == url or (url.split("?")[0] in m.content):
+            return f"already logged as job #{m.id}"
+    content = f"{title} at {company} ({location}, {salary}). Fit {fit}/5. Needs: {needs or 'n/a'}. Apply: {url}. Posted: {posted}."
+    m = brain.remember(content, agent=_agent, kind="job", importance=fit, tags=["job", f"company:{slug}", f"fit:{fit}", "status:found"], source=url,
+                       meta={"title": title, "company": company, "slug": slug, "url": url, "location": location, "fit": fit, "needs": needs,
+                             "posted": posted, "salary": salary, "source": source, "status": "found"})
+    return f"job #{m.id} logged ({company}: {title}, fit {fit}/5)"
+
+
+@registry.register("job_status", "Set a job's stage: found | tailored | applied | interview | offer | rejected | dismissed.", {
+    "type": "object", "properties": {"job_id": {"type": "integer"}, "status": {"type": "string"}, "note": {"type": "string"}}, "required": ["job_id", "status"]})
+def job_status(job_id: int, status: str, note: str = "", _agent="unknown"):
+    allowed = ("found", "tailored", "applied", "interview", "offer", "rejected", "dismissed")
+    if status not in allowed:
+        return f"refused: status must be one of {allowed}"
+    try:
+        m = brain.get(int(job_id))
+    except KeyError:
+        return "no such job"
+    meta = {**(m.meta or {}), "status": status, "status_note": note, "status_at": time.strftime("%Y-%m-%d %H:%M")}
+    brain.update(m.id, agent=_agent, meta=meta, add_tags=[f"status:{status}"])
+    return f"job #{m.id} -> {status}"
