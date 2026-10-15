@@ -187,6 +187,7 @@ class Brief:
     system: str
     description: str = ""
     model: Optional[str] = None     # pin a specific model (optional)
+    local_ok: bool = False          # may run on the local 3B model when every cloud provider is cooling down
 
 
 def load_brief(name: str) -> Brief:
@@ -204,6 +205,7 @@ def load_brief(name: str) -> Brief:
         tier=meta.get("tier", "worker"),
         tools=list(meta.get("tools", [])),
         delegates=list(meta.get("delegates", [])),
+        local_ok=bool(meta.get("local_ok", False)),
         system=m.group(2).strip(),
         description=meta.get("description", ""),
         model=meta.get("model"),
@@ -227,6 +229,42 @@ def provider_down() -> dict:
         return {k: v for k, v in d.items() if v > time.time()}
     except Exception:
         return {}
+
+
+COOL_FILE = LOG_DIR / "provider_cool.json"
+
+
+def persisted_cooldowns() -> dict:
+    """{'provider:model': until_ts} for long rate-limit cooldowns, shared across processes."""
+    try:
+        return {k: v for k, v in json.loads(COOL_FILE.read_text()).items() if v > time.time()}
+    except Exception:
+        return {}
+
+
+def persist_cooldown(provider: str, model: str, until: float):
+    if until - time.time() < 90:
+        return
+    d = persisted_cooldowns(); d[f"{provider}:{model}"] = until
+    try:
+        COOL_FILE.parent.mkdir(parents=True, exist_ok=True); COOL_FILE.write_text(json.dumps(d))
+    except Exception:
+        pass
+
+
+def cloud_available() -> tuple[bool, float]:
+    """(True, 0) if some cloud model can be called now; otherwise (False, soonest_time_it_will_be)."""
+    down = provider_down(); cool = persisted_cooldowns(); soonest = None
+    for prov in active_providers():
+        if prov in down:
+            soonest = min(soonest or down[prov], down[prov]); continue
+        models = (PROVIDERS[prov]["lead"] + PROVIDERS[prov]["worker"])
+        for m in models:
+            until = cool.get(f"{prov}:{m}", 0)
+            if until <= time.time():
+                return True, 0.0
+            soonest = min(soonest or until, until)
+    return (False, soonest or time.time() + 600) if active_providers() else (False, time.time() + 3600)
 
 
 def mark_provider_down(provider: str, hours: float = 6, reason: str = ""):
@@ -494,8 +532,8 @@ class Agent:
         """Best usable model: the preferred one if it is not cooling down, else the first remote model
         that is not cooling down; if every remote model is cooling down and the shortest wait is
         under 45s, sleep and reuse it; otherwise the local fallback."""
-        now = time.time(); down = provider_down()
-        cool = lambda c: max(_COOLDOWN.get(c, 0), down.get(c[0], 0))
+        now = time.time(); down = provider_down(); pc = persisted_cooldowns()
+        cool = lambda c: max(_COOLDOWN.get(c, 0), down.get(c[0], 0), pc.get(f"{c[0]}:{c[1]}", 0))
         usable = [c for c in chain if cool(c) <= now]
         if prefer not in (None, "first") and prefer in usable:
             return prefer
@@ -522,7 +560,7 @@ class Agent:
                 self._say(f"all remote models cooling down, waiting {wait:.0f}s for {soonest[0]}:{soonest[1]}")
                 time.sleep(max(0.5, wait + 0.5))
                 return soonest
-        if self.brief.tier == "lead" and remote_all and os.environ.get("OFFICE_LEAD_LOCAL_FALLBACK", "0") != "1":
+        if self.brief.tier == "lead" and remote_all and not self.brief.local_ok and os.environ.get("OFFICE_LEAD_LOCAL_FALLBACK", "0") != "1":
             raise EngineError("no capable model available: every cloud provider is cooling down and lead agents do not run on the local 3B model. Retry later.")
         return usable[-1] if usable else chain[-1]
 
@@ -601,7 +639,7 @@ class Agent:
                 except RateLimited as e:
                     ra = str(e)
                     wait = float(ra) if re.fullmatch(r"[\d.]+", ra) else 30.0
-                    _COOLDOWN[(engine, model)] = time.time() + wait
+                    _COOLDOWN[(engine, model)] = time.time() + wait; persist_cooldown(engine, model, time.time() + wait)
                     rl_hits += 1
                     self._say(f"{engine}:{model} rate-limited for {wait:.0f}s (hit {rl_hits})")
                     if rl_hits >= 8 and chain[-1][0] == "ollama":
@@ -718,7 +756,7 @@ class Agent:
                 break
             except RateLimited as e:
                 wait = float(str(e)) if re.fullmatch(r"[\d.]+", str(e)) else 30.0
-                _COOLDOWN[(engine, model)] = time.time() + wait
+                _COOLDOWN[(engine, model)] = time.time() + wait; persist_cooldown(engine, model, time.time() + wait)
                 engine, model = self._pick(chain, prefer=None)
             except EngineError:
                 _COOLDOWN[(engine, model)] = time.time() + 120

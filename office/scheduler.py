@@ -376,6 +376,13 @@ def tick(brain: BrainStore, engine: str = "auto") -> dict:
     housekeeping()
     healthy = [p for p, v in budget().items() if v["ok"] and not v.get("down")]
     effective = max(1, min(MAX_PARALLEL, len(healthy))) if budget() else MAX_PARALLEL
+    try:
+        from runtime import cloud_available
+        ok_cloud, soonest = cloud_available()
+    except Exception:
+        ok_cloud, soonest = True, 0
+    if not ok_cloud:
+        info["waiting_for_cloud_until"] = soonest; effective = 0        # queue, do not burn runs that will fail
     now = time.time()
     while len(running_ids()) < effective:
         nxt = brain.task_claim_next()

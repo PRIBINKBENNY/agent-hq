@@ -124,6 +124,7 @@ def state() -> dict:
         "scheduler_busy": scheduler.busy(),
         "running_tasks": scheduler.running_ids(), "max_parallel": scheduler.MAX_PARALLEL, "budget": scheduler.budget(),
         "paused": scheduler.paused(),
+        "cloud": (lambda r: {"available": r[0], "until": r[1]})(__import__("runtime").cloud_available()),
         "treasury": _treasury_state(),
         "now": time.time(),
     }
@@ -275,9 +276,12 @@ async def api_run(request: Request):
     engine = body.get("engine") or "auto"
     if not task:
         return JSONResponse({"error": "task is empty"}, status_code=400)
-    if _busy() or body.get("queue"):
+    from runtime import cloud_available
+    ok_cloud, soonest = cloud_available()
+    if _busy() or body.get("queue") or (not ok_cloud and engine != "ollama"):
         t = brain.task_create(task[:120], task, owner=agent, created_by="pribin", priority=4, source="ui")
-        return JSONResponse({"queued": True, "task_id": t["id"]})
+        note = None if ok_cloud else f"every free cloud model is cooling down; runs from about {time.strftime('%H:%M', time.localtime(soonest))}"
+        return JSONResponse({"queued": True, "task_id": t["id"], "note": note})
     rid = f"ui{int(time.time())}"
     log = ROOT / "office" / "logs" / f"run-{rid}.log"
     cmd = [sys.executable, str(ROOT / "office" / "run.py"), "--agent", agent, "--engine", engine, task]

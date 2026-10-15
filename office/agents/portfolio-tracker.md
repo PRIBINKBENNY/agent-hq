@@ -3,6 +3,7 @@ name: portfolio-tracker
 office: trading
 tier: worker
 description: Keeps the paper portfolio book in the workspace and writes the daily summary.
+local_ok: true
 tools: [brain_recall, brain_remember, market_data, capital_account, capital_positions, read_file, write_file, list_files, notify, today]
 delegates: []
 ---

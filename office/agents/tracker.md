@@ -3,6 +3,7 @@ name: tracker
 office: ops
 tier: worker
 description: Keeps the job-application pipeline and the client pipeline up to date, with follow-up dates.
+local_ok: true
 tools: [brain_recall, brain_query, brain_remember, brain_recent, job_status, read_file, write_file, list_files, task_create, task_list, today]
 delegates: []
 ---

@@ -311,3 +311,21 @@ def test_errored_tool_calls_do_not_back_claims():
     assert unbacked_claim("I saved the file to notes.md", calls, ["write_file"]) is not None
     calls = [{"tool": "write_file", "args": {}, "result_preview": "wrote notes.md"}]
     assert unbacked_claim("I saved the file to notes.md", calls, ["write_file"]) is None
+
+
+def test_cloud_available_and_local_ok(tmp_path, monkeypatch):
+    import runtime as rt
+    monkeypatch.setattr(rt, "COOL_FILE", tmp_path / "cool.json"); monkeypatch.setattr(rt, "PROVIDER_DOWN_FILE", tmp_path / "down.json")
+    monkeypatch.setattr(rt, "active_providers", lambda: ["groq"]); monkeypatch.setattr(rt, "PROVIDERS", {"groq": {"lead": ["big"], "worker": ["small"]}})
+    assert rt.cloud_available()[0] is True
+    rt.persist_cooldown("groq", "big", time.time() + 600); rt.persist_cooldown("groq", "small", time.time() + 400)
+    ok, soonest = rt.cloud_available(); assert ok is False and soonest > time.time() + 300
+    rt.persist_cooldown("groq", "small", time.time() + 10)           # too short to persist: ignored
+    assert rt.cloud_available()[0] is False
+    rt._COOLDOWN.clear()
+    chain = [("groq", "big"), ("groq", "small"), ("ollama", "local")]
+    lead = Agent(Brief("l", "o", "lead", [], [], "s"), ToolRegistry(), engine="auto", verbose=False)
+    with pytest.raises(rt.EngineError):
+        lead._pick(chain)
+    ok_lead = Agent(Brief("l2", "o", "lead", [], [], "s", local_ok=True), ToolRegistry(), engine="auto", verbose=False)
+    assert ok_lead._pick(chain) == ("ollama", "local")
