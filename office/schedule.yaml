@@ -1,151 +1,166 @@
 # Recurring jobs. The scheduler enqueues each as a task on the board when it is due.
-# every: daily | weekdays | weekly (+ day:) | hourly     at: HH:MM London     after: <job that must finish first today>
+# every: daily | weekdays | weekly (+ day:) | hourly (+ hours:)   at: HH:MM London   after: <job>   window_hours: default 6
 
 - name: morning-job-scan
   every: daily
-  at: "08:00"
+  at: 08:00
   agent: job-scout
   priority: 4
-  title: "Daily scan: new junior/graduate ML, AI and CV roles in London"
-  task: >
-    Find new junior / graduate Machine Learning Engineer, AI Engineer and Computer Vision roles in
-    London posted in the last 2 days (days=2). Skip anything already in the brain. Log fit >= 3 and
-    give a ranked list. Keep it to the 5 best.
+  title: 'Daily scan: new junior/graduate ML, AI and CV roles in London'
+  task: 'Find new junior / graduate Machine Learning Engineer, AI Engineer and Computer Vision roles in London posted
+    in the last 2 days (days=2). Skip anything already in the brain. Log fit >= 3 and give a ranked list. Keep it
+    to the 5 best.
 
+    '
 - name: morning-digest
   every: daily
-  at: "08:30"
+  at: 08:30
   after: morning-job-scan
   agent: chief-of-staff
   priority: 3
-  title: "Morning digest for Pribin"
-  task: >
-    Write a short morning digest: new jobs found since yesterday (brain, kind job), open tasks and
-    anything blocked (task_list), pending approvals, yesterday's sprint result (brain, tag sprint), and
-    the single most useful thing Pribin should do today. Max 12 lines. Store it in the brain as
-    kind=event with tag digest, then notify Pribin with a one-line summary.
+  title: Morning digest for Pribin
+  task: 'Write a short morning digest: new jobs found since yesterday (brain, kind job), open tasks and anything
+    blocked (task_list), pending approvals, yesterday''s sprint result (brain, tag sprint), and the single most
+    useful thing Pribin should do today. Max 12 lines. Store it in the brain as kind=event with tag digest, then
+    notify Pribin with a one-line summary.
 
+    '
 - name: daily-dev-sprint
   every: weekdays
-  at: "10:00"
+  at: '10:00'
   agent: project-manager
   priority: 4
-  title: "Run today's sprint: one finished, tested, committed milestone"
-  task: >
-    Run today's sprint from workspace/roadmap.md. Pick one milestone that can be finished today,
-    get it built, tested, reviewed, committed and pushed to Pribin's GitHub by release-manager,
-    update the roadmap, and report what shipped.
+  title: 'Run today''s sprint: one finished, tested, committed milestone'
+  task: 'Run today''s sprint from workspace/roadmap.md. Pick one milestone that can be finished today, get it built,
+    tested, reviewed, committed and pushed to Pribin''s GitHub by release-manager, update the roadmap, and report
+    what shipped.
 
+    '
 - name: pipeline-update
   every: weekdays
-  at: "18:00"
+  at: '18:00'
   agent: tracker
   priority: 2
-  title: "Evening pipeline update"
-  task: >
-    Update pipeline/jobs.md and pipeline/clients.md from today's events and create follow-up tasks
-    for anything overdue. Use write_file; never report a change you did not write.
+  title: Evening pipeline update
+  task: 'Update pipeline/jobs.md and pipeline/clients.md from today''s events and create follow-up tasks for anything
+    overdue. Use write_file; never report a change you did not write.
 
+    '
 - name: weekly-research
   every: weekly
   day: monday
-  at: "09:00"
+  at: 09:00
   agent: ml-researcher
   priority: 3
-  title: "Weekly ML research and project proposals"
-  task: >
-    Do the weekly research pass: skills employers keep asking for (from brain jobs), 3-5 recent
-    credible ML items, and 2-3 proposed projects appended to roadmap.md.
+  title: Weekly ML research and project proposals
+  task: 'Do the weekly research pass: skills employers keep asking for (from brain jobs), 3-5 recent credible ML
+    items, and 2-3 proposed projects appended to roadmap.md.
 
+    '
 - name: weekly-brain-gardening
   every: weekly
   day: sunday
-  at: "20:00"
+  at: '20:00'
   agent: chief-of-staff
   priority: 2
-  title: "Weekly brain gardening"
-  task: >
-    Tidy the shared brain: brain_recent limit 100. Delete (brain_forget) job postings older than
-    30 days and exact duplicates; merge near-duplicates with brain_update; raise importance of
-    facts other agents keep recalling. Store one kind=event summary of what you cleaned.
+  title: Weekly brain gardening
+  task: 'Tidy the shared brain: brain_recent limit 100. Delete (brain_forget) job postings older than 30 days and
+    exact duplicates; merge near-duplicates with brain_update; raise importance of facts other agents keep recalling.
+    Store one kind=event summary of what you cleaned.
 
+    '
 - name: paper-portfolio-summary
   every: weekdays
-  at: "17:30"
+  at: '17:30'
   agent: portfolio-tracker
   priority: 2
   enabled: true
-  title: "Paper portfolio daily summary"
-  task: >
-    Write today's paper portfolio summary. If the book does not exist yet, create it with cash 10000
-    and say so.
+  title: Paper portfolio daily summary
+  task: 'Write today''s paper portfolio summary. If the book does not exist yet, create it with cash 10000 and say
+    so.
 
+    '
 - name: interview-drill
   every: weekdays
-  at: "07:30"
+  at: 07:30
   agent: interview-coach
   priority: 3
-  title: "Daily interview drill"
-  task: >
-    Daily drill: one ML fundamentals question and one project deep-dive question for today, written to
-    interviews/drills/<date>.md with hidden model answers. Vary topics; check weak-spot lessons first.
+  title: Daily interview drill
+  task: 'Daily drill: one ML fundamentals question and one project deep-dive question for today, written to interviews/drills/<date>.md
+    with hidden model answers. Vary topics; check weak-spot lessons first.
 
+    '
 - name: weekly-review
   every: weekly
   day: monday
-  at: "09:30"
+  at: 09:30
   agent: chief-of-staff
   priority: 4
-  title: "Weekly review vs the 90-day plan"
-  task: >
-    Run the scorecard for the last 7 days, compare every number with the weekly targets in
-    workspace/plan-90-days.md, write what moved, what stalled, and ONE change for this week. Store as
-    kind=event tag review and notify Pribin with the headline.
+  title: Weekly review vs the 90-day plan
+  task: 'Run the scorecard for the last 7 days, compare every number with the weekly targets in workspace/plan-90-days.md,
+    write what moved, what stalled, and ONE change for this week. Store as kind=event tag review and notify Pribin
+    with the headline.
 
+    '
 - name: weekly-networking
   every: weekly
   day: tuesday
-  at: "11:00"
+  at: '11:00'
   agent: networker
   priority: 3
-  title: "Warm paths for this week's target companies"
-  task: >
-    For the 3 newest jobs in the brain with fit >= 4, find up to 3 relevant people each and draft
-    connection notes and follow-ups. Request approval per company.
+  title: Warm paths for this week's target companies
+  task: 'For the 3 newest jobs in the brain with fit >= 4, find up to 3 relevant people each and draft connection
+    notes and follow-ups. Request approval per company.
 
+    '
 - name: weekly-eval
   every: weekly
   day: saturday
-  at: "11:00"
-  command: ".venv/bin/python office/eval/run_eval.py --quick"
+  at: '11:00'
+  command: .venv/bin/python office/eval/run_eval.py --quick
   priority: 2
-  title: "Weekly agent eval (fabrication and success rate per provider)"
-
+  title: Weekly agent eval (fabrication and success rate per provider)
 - name: weekly-publish
   every: weekly
   day: friday
-  at: "17:00"
-  command: "./office/publish.sh"
+  at: '17:00'
+  command: ./office/publish.sh
   priority: 2
-  title: "Publish the public portfolio repo from the dev repo"
-
-# --- trading desk (Capital.com DEMO, virtual money). London hours, weekdays. ---
+  title: Publish the public portfolio repo from the dev repo
 - name: market-pulse
   every: hourly
   agent: market-researcher
   priority: 2
-  hours: "08-16"
-  title: "Market pulse (DEMO desk)"
-  task: >
-    Market pulse: live quotes for the watchlist, flag notable moves, store one fact per notable move.
-    Then run the hourly signal scan logic by creating a task "Signal scan" for strategy-analyst only if at
-    least one instrument moved more than 1%.
+  hours: 08-16
+  title: Market pulse (DEMO desk)
+  task: 'Market pulse: live quotes for the watchlist, flag notable moves, store one fact per notable move. Then
+    run the hourly signal scan logic by creating a task "Signal scan" for strategy-analyst only if at least one
+    instrument moved more than 1%.
 
+    '
 - name: positions-manage
   every: hourly
   agent: trader
   priority: 3
-  hours: "08-16"
-  title: "Manage open DEMO positions"
-  task: >
-    Manage task: review open positions, trail stops per the rules, close only on a stored exit rule. Report briefly.
+  hours: 08-16
+  title: Manage open DEMO positions
+  task: 'Manage task: review open positions, trail stops per the rules, close only on a stored exit rule. Report
+    briefly.
+
+    '
+- name: daily-optimisation
+  every: daily
+  at: 07:00
+  agent: coo
+  priority: 4
+  title: 'COO: daily optimisation pass'
+  task: 'Optimisation pass: ops_metrics 24h vs yesterday''s ops-review memory; revert what made things worse, set
+    today''s knobs, propose at most one brief change with evidence.'
+- name: weekly-deep-review
+  every: weekly
+  day: sunday
+  at: '19:00'
+  agent: coo
+  priority: 3
+  title: 'COO: weekly deep review'
+  task: 'Weekly deep review: rank agents by value per token, propose at most 3 brief changes, write workspace/ops/weekly-review.md.'

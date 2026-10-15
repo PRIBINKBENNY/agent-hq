@@ -34,9 +34,19 @@ LOG_DIR = ROOT / "office" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 STANDING_FILE = ROOT / "office" / "standing-work.yaml"
-MAX_PARALLEL = int(os.environ.get("OFFICE_MAX_PARALLEL", "2"))
-TASK_WALL_SECONDS = int(os.environ.get("OFFICE_TASK_WALL_SECONDS", "1500"))   # 25 min, then the run is stopped and the task requeued once
-STANDING_BUDGET_FRACTION = float(os.environ.get("OFFICE_STANDING_BUDGET", "0.25"))   # keep this much of the daily budget in reserve
+TUNING_FILE = ROOT / "office" / "tuning.json"
+
+
+def _knob(name: str, default):
+    try:
+        return type(default)(json.loads(TUNING_FILE.read_text()).get(name, default))
+    except Exception:
+        return default
+
+
+MAX_PARALLEL = int(os.environ.get("OFFICE_MAX_PARALLEL") or _knob("max_parallel", 2))
+TASK_WALL_SECONDS = int(os.environ.get("OFFICE_TASK_WALL_SECONDS") or _knob("task_wall_seconds", 1500))
+STANDING_BUDGET_FRACTION = float(os.environ.get("OFFICE_STANDING_BUDGET") or _knob("standing_budget_fraction", 0.25))
 
 _running: dict[int, dict] = {}       # task_id -> {"proc", "task", "engine"}
 _last_approval_id: int | None = None
@@ -290,6 +300,9 @@ def _spawn(task: dict, engine: str = "auto") -> subprocess.Popen:
 
 def tick(brain: BrainStore, engine: str = "auto") -> dict:
     """One scheduler step: reap finished runs, enqueue due + standing work, start tasks up to MAX_PARALLEL."""
+    global MAX_PARALLEL, TASK_WALL_SECONDS, STANDING_BUDGET_FRACTION
+    if not os.environ.get("OFFICE_MAX_PARALLEL"):
+        MAX_PARALLEL = _knob("max_parallel", 2); TASK_WALL_SECONDS = _knob("task_wall_seconds", 1500); STANDING_BUDGET_FRACTION = _knob("standing_budget_fraction", 0.25)
     info = {"started": [], "finished": [], "enqueued": []}
     if not _reconciled:
         info["reconciled"] = reconcile(brain)

@@ -44,13 +44,26 @@ Run a single agent with `--agent job-scout "..."`. Force local with `--engine ol
 
 | Office      | Agents |
 | ----------- | ------ |
-| front-desk  | chief-of-staff: your single contact; splits commands, delegates, keeps the board, guards approvals |
+| front-desk  | chief-of-staff: your single contact; splits commands, delegates, keeps the board, guards approvals. **coo**: oversees the office's own operations and optimises the workflow |
 | job-hunt    | job-scout (LinkedIn search + fit score), application-tailor (CV + cover letter, truth-checked), interview-coach (prep packs, mocks) |
 | studio      | studio-lead, agent-builder, web-builder, app-developer, code-builder, tester (never fixes), debugger (never weakens tests), reviewer (never writes) |
 | brand-sales | linkedin-writer, content-writer (reels/shorts scripts), lead-finder (buyers for the productised offer), proposal-writer (pitches + quotes), networker (warm paths into target companies) |
 | trading     | market-researcher (live quotes), strategy-analyst (backtests, signals), risk-officer (sizes and approves, can veto), trader (executes on the Capital.com **demo** account), portfolio-tracker. **Virtual money; the live endpoint is locked in code.** |
 | ops         | tracker (job + client pipelines), mail-assistant (email drafts to `workspace/outbox/`, .ics calendar files), fact-checker (QA gate: every outgoing text is verified against the brain before approval) |
 | pm          | project-manager (team leader: roadmap, daily sprint), release-manager (commits, changelog, pushes to Pribin's own GitHub), docs-writer, ml-researcher (weekly trends + project proposals) |
+
+## The COO: oversight and self-optimisation
+
+The `coo` agent runs an ops review every six hours, an optimisation pass at 07:00, and a deep review
+on Sundays. It reads `ops_metrics` (runs, tokens and time per agent, failures, timeouts, continuations,
+empty answers, fabrications caught, approval age, stuck tasks, provider budget) and acts in two ways:
+
+- **Directly, within bounds**: `office/tuning.json` knobs (parallelism 1-4, per-run token budget,
+  turn limit, budget reserve, wall-clock limit) and standing-work intervals. Every change is logged in
+  the brain with its reason, and the daily pass reverts anything that made the numbers worse.
+- **By proposal, with your approval**: changes to what an agent *is* (its brief) are written to
+  `workspace/ops/proposals/` with a diff and the evidence, and appear in your approvals. Approve and the
+  Chief of Staff applies it, keeping a backup of the old brief.
 
 ## Always working
 

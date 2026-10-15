@@ -269,7 +269,7 @@ async def api_approve(request: Request):
         follow = brain.task_create(f"Approved #{mid}: next step", 
             f"Pribin APPROVED this item: {new}\n\nDo the natural next step and nothing external: e.g. for an application, "
             f"have tracker log it as 'applied' and mail-assistant prepare a follow-up draft dated 7 days out; for a proposal, "
-            f"have tracker log it as 'proposed'; for a LinkedIn post, publish the recommended variant with linkedin_post "
+            f"have tracker log it as 'proposed'; for a brief proposal, apply it with apply_proposal (approval id {mid}); for a LinkedIn post, publish the recommended variant with linkedin_post "
             f"(approval id {mid}) and then have tracker note the publish date. Report what you did.",
             owner="chief-of-staff", created_by="pribin", priority=4, source="approval")
     return JSONResponse({"ok": True, "follow_up_task": follow["id"] if follow else None})

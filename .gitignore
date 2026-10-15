@@ -18,3 +18,4 @@ workspace/proposals/
 workspace/posts/
 workspace/projects/*/.git/
 workspace/.handoff/
+office/agents/.backups/

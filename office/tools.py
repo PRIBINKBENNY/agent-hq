@@ -898,3 +898,160 @@ def linkedin_post(approval_id: int, path: str, _agent="unknown"):
                    tags=["linkedin", "posted", "status:posted"])
     brain.update(m.id, agent=_agent, add_tags=["posted"])
     return json.dumps(r)
+
+
+# ---------------------------------------------------------------- COO: oversight and self-optimisation (bounded)
+KNOB_BOUNDS = {"max_parallel": (1, 4), "run_token_budget": (30000, 120000), "max_turns": (10, 30), "standing_budget_fraction": (0.1, 0.6), "task_wall_seconds": (600, 3600)}
+TUNING_FILE = ROOT / "office" / "tuning.json"
+STANDING_FILE = ROOT / "office" / "standing-work.yaml"
+AGENTS_DIR = ROOT / "office" / "agents"
+PROPOSALS_DIR = WORKSPACE / "ops" / "proposals"
+
+
+@registry.register("ops_metrics", "Office health over the last N hours: runs, tokens and time per agent, failures, timeouts, continuations, "
+                   "empty answers, fabrications caught, approvals waiting and their age, stuck tasks, budget per provider, current knobs.", {
+    "type": "object", "properties": {"hours": {"type": "integer", "default": 24}}})
+def ops_metrics(hours: int = 24):
+    import glob, collections
+    since = time.time() - int(hours) * 3600
+    runs = []
+    for f in glob.glob(str(ROOT / "office" / "logs" / "20*.jsonl")):
+        for ln in open(f):
+            try:
+                e = json.loads(ln)
+                if time.mktime(time.strptime(e["ts"], "%Y-%m-%d %H:%M:%S")) >= since:
+                    runs.append(e)
+            except Exception:
+                pass
+    by = collections.defaultdict(lambda: {"runs": 0, "tokens": 0, "seconds": 0.0, "empty": 0, "hit_turn_limit": 0})
+    for e in runs:
+        a = by[e["agent"]]; a["runs"] += 1; a["tokens"] += int(e.get("tokens_in", 0)) + int(e.get("tokens_out", 0)); a["seconds"] += float(e.get("seconds", 0))
+        ans = e.get("answer") or ""
+        if not ans.strip() or "No final answer" in ans or "turn limit" in ans: a["empty"] += 1
+        if ans.startswith("DONE:") and "REMAINING:" in ans and "REMAINING: none" not in ans.lower(): a["hit_turn_limit"] += 1
+    agents = sorted(({"agent": k, **v, "avg_tokens": v["tokens"] // max(1, v["runs"]), "avg_seconds": round(v["seconds"] / max(1, v["runs"]))} for k, v in by.items()), key=lambda r: -r["tokens"])
+    tasks = [t for t in brain.task_list(limit=500) if t["created_at"] >= since]
+    tstat = collections.Counter(t["status"] for t in tasks)
+    timeouts = sum(1 for t in tasks if "wall-clock" in (t.get("result") or ""))
+    cont = sum(1 for t in tasks if t.get("source") == "continuation")
+    stuck = [t["id"] for t in brain.task_list(limit=200, status="running") if time.time() - (t.get("started_at") or time.time()) > 1800]
+    pend = [m for m in brain.recent(limit=50, kind="approval") if "pending" in m.tags]
+    oldest = max((time.time() - m.created_at for m in pend), default=0) / 3600
+    fab = sum(1 for m in brain.recent(limit=300) if m.kind == "lesson" and "fabrication" in m.tags) + sum(1 for m in pend if "qa-fail" in m.tags)
+    try:
+        sys.path.insert(0, str(ROOT / "office")); import scheduler as _s
+        budget = _s.budget()
+    except Exception:
+        budget = {}
+    try:
+        knobs = json.loads(TUNING_FILE.read_text())
+    except Exception:
+        knobs = {}
+    import yaml
+    standing = [{"name": i["name"], "agent": i["agent"], "every_hours": i.get("every_hours"), "enabled": i.get("enabled", True)} for i in (yaml.safe_load(STANDING_FILE.read_text()) or [])]
+    return json.dumps({"hours": hours, "runs": len(runs), "tokens": sum(a["tokens"] for a in agents), "by_agent": agents[:15],
+                       "tasks": dict(tstat), "continuations": cont, "timeouts": timeouts, "stuck_tasks": stuck,
+                       "approvals_pending": len(pend), "oldest_approval_hours": round(oldest, 1), "fabrications_caught": fab,
+                       "budget": budget, "knobs": {k: v for k, v in knobs.items() if k != "notes"}, "knob_bounds": KNOB_BOUNDS, "standing": standing})
+
+
+@registry.register("tune", "Change a bounded office knob (max_parallel, run_token_budget, max_turns, standing_budget_fraction, task_wall_seconds) "
+                   "or a standing-work item's every_hours / enabled. Takes effect within a minute. Out-of-bounds values are refused.", {
+    "type": "object", "properties": {
+        "knob": {"type": "string", "description": "a knob name, or 'standing:<item-name>'"},
+        "value": {"type": "number", "description": "new value (for standing items: hours)"},
+        "enabled": {"type": "boolean", "description": "for standing items only"},
+        "reason": {"type": "string"},
+    }, "required": ["knob", "reason"]})
+def tune(knob: str, reason: str, value: float | None = None, enabled: bool | None = None, _agent="unknown"):
+    import yaml
+    if knob.startswith("standing:"):
+        name = knob.split(":", 1)[1]
+        items = yaml.safe_load(STANDING_FILE.read_text()) or []
+        it = next((i for i in items if i["name"] == name), None)
+        if not it:
+            return f"refused: no standing item '{name}'"
+        if value is not None:
+            if not (1 <= float(value) <= 168):
+                return "refused: every_hours must be 1-168"
+            it["every_hours"] = float(value)
+        if enabled is not None:
+            it["enabled"] = bool(enabled)
+        STANDING_FILE.write_text("# Standing work (managed partly by the COO; edits are logged in the brain).\n\n" + yaml.safe_dump(items, sort_keys=False, allow_unicode=True, width=110))
+        brain.remember(f"COO tune: standing:{name} -> every_hours={it.get('every_hours')} enabled={it.get('enabled', True)}. Reason: {reason}",
+                       agent=_agent, kind="decision", importance=3, tags=["ops", "tune", f"standing:{name}"])
+        return f"standing:{name} now every_hours={it.get('every_hours')} enabled={it.get('enabled', True)}"
+    if knob not in KNOB_BOUNDS:
+        return f"refused: unknown knob (allowed: {', '.join(KNOB_BOUNDS)})"
+    lo, hi = KNOB_BOUNDS[knob]
+    if value is None or not (lo <= float(value) <= hi):
+        return f"refused: {knob} must be between {lo} and {hi}"
+    try:
+        knobs = json.loads(TUNING_FILE.read_text())
+    except Exception:
+        knobs = {}
+    old = knobs.get(knob)
+    knobs[knob] = int(value) if knob != "standing_budget_fraction" else float(value)
+    TUNING_FILE.write_text(json.dumps(knobs, indent=1))
+    brain.remember(f"COO tune: {knob} {old} -> {knobs[knob]}. Reason: {reason}", agent=_agent, kind="decision", importance=3, tags=["ops", "tune", knob])
+    return f"{knob}: {old} -> {knobs[knob]}"
+
+
+@registry.register("read_brief", "Read an agent's brief (its frontmatter and system prompt).", {
+    "type": "object", "properties": {"agent": {"type": "string"}}, "required": ["agent"]})
+def read_brief(agent: str):
+    p = AGENTS_DIR / f"{agent}.md"
+    return p.read_text() if p.exists() and p.resolve().parent == AGENTS_DIR.resolve() else f"no agent '{agent}'"
+
+
+@registry.register("propose_brief", "Propose a new version of an agent's brief. Saved as a proposal and sent to Pribin for approval; "
+                   "nothing changes until he approves and it is applied.", {
+    "type": "object", "properties": {"agent": {"type": "string"}, "new_text": {"type": "string", "description": "the complete new brief file"},
+                                     "reason": {"type": "string", "description": "what problem this fixes, with the metric"}}, "required": ["agent", "new_text", "reason"]})
+def propose_brief(agent: str, new_text: str, reason: str, _agent="unknown"):
+    import difflib
+    p = AGENTS_DIR / f"{agent}.md"
+    if not p.exists():
+        return f"refused: no agent '{agent}'"
+    if not new_text.startswith("---") or "\n---\n" not in new_text or f"name: {agent}" not in new_text:
+        return "refused: new_text must be a complete brief with YAML frontmatter including name"
+    PROPOSALS_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M")
+    prop = PROPOSALS_DIR / f"{stamp}-{agent}.md"
+    diff = "".join(difflib.unified_diff(p.read_text().splitlines(True), new_text.splitlines(True), fromfile=f"{agent}.md (current)", tofile=f"{agent}.md (proposed)"))
+    prop.write_text(f"# Brief proposal: {agent}\n\nProposed by {_agent} at {stamp}.\n\n## Reason\n{reason}\n\n## Diff\n```diff\n{diff}\n```\n\n## Full proposed brief\n\n{new_text}\n")
+    m = brain.remember(f"PENDING APPROVAL from {_agent}: brief change for {agent} at workspace/ops/proposals/{prop.name}. Reason: {reason[:200]}",
+                       agent=_agent, kind="approval", importance=4, tags=["pending", "brief-proposal", f"agent:{agent}"])
+    return f"proposal saved to ops/proposals/{prop.name}; approval #{m.id} requested"
+
+
+@registry.register("apply_proposal", "Apply a brief proposal that Pribin has APPROVED (approval memory tagged approved). Backs up the old brief.", {
+    "type": "object", "properties": {"approval_id": {"type": "integer"}}, "required": ["approval_id"]})
+def apply_proposal(approval_id: int, _agent="unknown"):
+    import re as _re, shutil
+    try:
+        m = brain.get(int(approval_id))
+    except KeyError:
+        return "refused: approval not found"
+    if "brief-proposal" not in m.tags or "approved" not in m.tags:
+        return "refused: not an approved brief proposal"
+    if "applied" in m.tags:
+        return "already applied"
+    mm = _re.search(r"workspace/ops/proposals/([\w.-]+\.md)", m.content)
+    if not mm:
+        return "refused: proposal file not named in the approval"
+    prop = PROPOSALS_DIR / mm.group(1)
+    if not prop.exists():
+        return "refused: proposal file missing"
+    body = prop.read_text().split("## Full proposed brief\n\n", 1)[-1].strip() + "\n"
+    agent = next((t.split(":", 1)[1] for t in m.tags if t.startswith("agent:")), None)
+    target = AGENTS_DIR / f"{agent}.md"
+    if not agent or not target.exists() or f"name: {agent}" not in body:
+        return "refused: proposal does not match an existing agent"
+    bdir = AGENTS_DIR / ".backups"; bdir.mkdir(exist_ok=True)
+    shutil.copy(target, bdir / f"{agent}-{time.strftime('%Y%m%d-%H%M%S')}.md")
+    target.write_text(body)
+    brain.update(m.id, agent=_agent, add_tags=["applied"])
+    brain.remember(f"Brief updated for {agent} from proposal {prop.name} (approved by Pribin). Backup kept in office/agents/.backups/.",
+                   agent=_agent, kind="event", importance=4, tags=["ops", "brief-applied", f"agent:{agent}"])
+    return f"applied: {agent}.md updated (backup saved)"

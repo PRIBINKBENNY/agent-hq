@@ -1,7 +1,12 @@
-# Standing work: what each office does whenever it has nothing more urgent. The scheduler picks the
-# item that has waited longest past its interval, as long as the free-tier budget governor allows.
-# every_hours: minimum gap between runs.  hours: London hours window (optional).  weekdays: true = Mon-Fri only.
+# Standing work (managed partly by the COO; edits are logged in the brain).
 
+- name: ops-review
+  agent: coo
+  every_hours: 6
+  priority: 4
+  title: 'COO: ops review'
+  task: 'Ops review: ops_metrics for 24h; fix stuck/failed tasks, nudge old approvals, manage budget, flag cost
+    outliers and quality problems, propose brief changes where justified. Store one ops-review memory and report.'
 - name: scout-rotation
   agent: job-scout
   every_hours: 6

@@ -134,11 +134,21 @@ def provider_models(name: str, tier: str) -> list[str]:
 LEAD_MODELS = PROVIDERS["groq"]["lead"]
 WORKER_MODELS = PROVIDERS["groq"]["worker"]
 
-MAX_TURNS = int(os.environ.get("OFFICE_MAX_TURNS", "20"))
+TUNING_FILE = ROOT / "office" / "tuning.json"
+
+
+def tuning() -> dict:
+    try:
+        return json.loads(TUNING_FILE.read_text())
+    except Exception:
+        return {}
+
+
+MAX_TURNS = int(os.environ.get("OFFICE_MAX_TURNS") or tuning().get("max_turns", 20))
 READ_TOOLS = {"read_file", "list_files", "brain_recall", "brain_recent", "brain_query", "job_details", "web_fetch", "fact_check",
               "cv_truth_check", "market_data", "task_list", "github_status", "job_search", "web_search"}
 TOOL_RESULT_CAP = int(os.environ.get("OFFICE_TOOL_RESULT_CAP", "3000"))
-RUN_TOKEN_BUDGET = int(os.environ.get("OFFICE_RUN_TOKEN_BUDGET", "60000"))   # soft cap per run: wrap up + continue
+RUN_TOKEN_BUDGET = int(os.environ.get("OFFICE_RUN_TOKEN_BUDGET") or tuning().get("run_token_budget", 60000))   # soft cap per run
 _COOLDOWN: dict[tuple[str, str], float] = {}   # (engine, model) -> unix ts when usable again
 
 
