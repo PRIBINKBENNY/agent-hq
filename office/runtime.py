@@ -532,6 +532,7 @@ class Agent:
         seen: dict[tuple, int] = {}
         rl_hits = 0
         nudged_claims = False
+        nudged_json = False
         t0 = time.time(); tok_in = tok_out = 0
         self._say(f"task: {task[:120]}")
         self._emit("start", task=task[:300], office=self.brief.office)
@@ -583,10 +584,12 @@ class Agent:
             content = re.sub(r"<think>.*?</think>", "", content, flags=re.S).strip()  # qwen thinking tags
             tool_calls = msg.get("tool_calls") or []
 
-            if not tool_calls and not content and turn < MAX_TURNS:
-                # small models sometimes return nothing; nudge once
-                self._say("empty reply, nudging")
-                messages.append({"role": "user", "content": "You returned nothing. Either call a tool now or give your final answer."})
+            looks_like_tool_json = bool(re.match(r'^\s*\{\s*"name"\s*:', content)) or ('"parameters"' in content[:200] and content.lstrip().startswith("{"))
+            if not tool_calls and (not content or looks_like_tool_json) and turn < MAX_TURNS and not nudged_json:
+                nudged_json = True
+                self._say("empty or tool-JSON reply, nudging")
+                messages.append({"role": "assistant", "content": content or "(empty)"})
+                messages.append({"role": "user", "content": "That was not a valid tool call and not a final answer. Call the tool through the tool interface (not as text), or give your final answer in plain words."})
                 continue
 
             if not tool_calls and turn < MAX_TURNS and not nudged_claims:

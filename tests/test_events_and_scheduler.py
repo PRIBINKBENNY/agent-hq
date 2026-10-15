@@ -116,7 +116,9 @@ def test_budget_governor_blocks_standing_work_when_low(monkeypatch):
 
 
 def test_tick_runs_up_to_max_parallel(tmp_path, monkeypatch):
-    b = _brain(tmp_path)
+    import json
+    b = _brain(tmp_path); scheduler._reconciled = True
+    tf = tmp_path / "tuning.json"; tf.write_text(json.dumps({"max_parallel": 2})); monkeypatch.setattr(scheduler, "TUNING_FILE", tf); monkeypatch.setenv("OFFICE_MAX_PARALLEL", "2")
     monkeypatch.setattr(scheduler, "MAX_PARALLEL", 2); monkeypatch.setattr(scheduler, "STANDING_FILE", tmp_path / "none.yaml")
     monkeypatch.setattr(scheduler, "SCHEDULE_FILE", tmp_path / "none2.yaml"); monkeypatch.setattr(scheduler, "STATE_FILE", tmp_path / "st.json")
     monkeypatch.setattr(scheduler, "budget", lambda: {}); monkeypatch.setattr(scheduler, "_notify", lambda *a: None)
@@ -153,3 +155,31 @@ def test_reconcile_adopts_live_runs_and_requeues_dead_ones(tmp_path, monkeypatch
     assert info["adopted"] == [live["id"]] and info["requeued"] == [dead["id"]]
     assert b.task_get(dead["id"])["status"] == "queued" and scheduler.running_ids() == [live["id"]]
     scheduler._running.clear(); scheduler._reconciled = False
+
+
+def test_pause_stops_new_work_but_reaps_finished(tmp_path, monkeypatch):
+    import json
+    b = _brain(tmp_path); scheduler._running.clear(); scheduler._reconciled = True
+    tf = tmp_path / "tuning.json"; tf.write_text(json.dumps({"max_parallel": 2})); monkeypatch.setattr(scheduler, "TUNING_FILE", tf)
+    monkeypatch.setattr(scheduler, "STANDING_FILE", tmp_path / "s.yaml"); monkeypatch.setattr(scheduler, "SCHEDULE_FILE", tmp_path / "j.yaml"); monkeypatch.setattr(scheduler, "STATE_FILE", tmp_path / "st.json")
+    monkeypatch.setattr(scheduler, "budget", lambda: {}); monkeypatch.setattr(scheduler, "_notify", lambda *a: None); monkeypatch.setattr(scheduler, "housekeeping", lambda: {}); monkeypatch.setattr(scheduler, "check_approvals", lambda brain: 0)
+    monkeypatch.setenv("OFFICE_MAX_PARALLEL", "2")
+    class P:
+        returncode = None
+        def poll(self): return self.returncode
+    monkeypatch.setattr(scheduler, "_spawn", lambda task, eng: P())
+    b.task_create("t1", "x", owner="job-scout"); b.task_create("t2", "x", owner="tracker")
+    assert scheduler.set_paused(True, "test")["paused"] is True
+    info = scheduler.tick(b)
+    assert info.get("paused") and info["started"] == [] and len(b.task_list(status="queued")) == 2    # nothing starts while paused
+    scheduler.set_paused(False)
+    info = scheduler.tick(b)
+    assert len(info["started"]) == 2
+    scheduler._running[info["started"][0]]["proc"].returncode = 0; b.task_update(info["started"][0], status="done")
+    scheduler.set_paused(True, "again")
+    info = scheduler.tick(b)
+    assert info["finished"] == [b.task_list(status="done")[0]["id"]] and info["started"] == []        # paused: reaps, starts nothing
+    # timed pause expires
+    scheduler.set_paused(True, "timed", hours=-1)
+    assert scheduler.paused()["paused"] is False
+    scheduler._running.clear()

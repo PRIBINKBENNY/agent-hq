@@ -89,6 +89,32 @@ def reconcile(brain: BrainStore) -> dict:
     return info
 
 
+def paused() -> dict:
+    """Global pause: {'paused': bool, 'reason': str, 'until': ts|None}. Expired timed pauses count as resumed."""
+    try:
+        d = json.loads(TUNING_FILE.read_text())
+    except Exception:
+        return {"paused": False}
+    if not d.get("paused"):
+        return {"paused": False}
+    until = d.get("paused_until")
+    if until and time.time() > float(until):
+        d["paused"] = False; TUNING_FILE.write_text(json.dumps(d, indent=1))
+        return {"paused": False}
+    return {"paused": True, "reason": d.get("paused_reason", ""), "until": until, "since": d.get("paused_at")}
+
+
+def set_paused(flag: bool, reason: str = "", hours: float | None = None) -> dict:
+    try:
+        d = json.loads(TUNING_FILE.read_text())
+    except Exception:
+        d = {}
+    d["paused"] = bool(flag); d["paused_reason"] = reason if flag else ""
+    d["paused_at"] = time.time() if flag else None; d["paused_until"] = (time.time() + hours * 3600) if (flag and hours) else None
+    TUNING_FILE.write_text(json.dumps(d, indent=1))
+    return paused()
+
+
 def running_ids() -> list[int]:
     return [tid for tid, r in _running.items() if r["proc"].poll() is None]
 
@@ -327,6 +353,10 @@ def tick(brain: BrainStore, engine: str = "auto") -> dict:
                 t = brain.task_get(tid)
             _notify(f"Task {t['status']}: {t['owner']}", t["title"][:120])
             info["finished"].append(tid); _running.pop(tid, None)
+    if paused()["paused"]:
+        info["paused"] = True
+        check_approvals(brain); housekeeping()
+        return info                     # finished runs are reaped above; nothing new is enqueued or started
     info["enqueued"] = enqueue_due_jobs(brain) + enqueue_standing_work(brain)
     check_approvals(brain)
     housekeeping()

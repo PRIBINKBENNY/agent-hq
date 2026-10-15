@@ -115,6 +115,7 @@ def state() -> dict:
         "tasks": brain.task_list(limit=40),
         "scheduler_busy": scheduler.busy(),
         "running_tasks": scheduler.running_ids(), "max_parallel": scheduler.MAX_PARALLEL, "budget": scheduler.budget(),
+        "paused": scheduler.paused(),
         "now": time.time(),
     }
 
@@ -305,6 +306,16 @@ async def api_applied(request: Request):
                           "tracker: set stage applied in pipeline/jobs.md with a follow-up date 7 days out. mail-assistant: draft the follow-up email dated then.",
                           owner="chief-of-staff", created_by="pribin", priority=3, source="applied")
     return JSONResponse({"ok": True, "event": ev.id, "task": t["id"]})
+
+
+async def api_pause(request: Request):
+    body = await request.json()
+    from tools import registry as _reg
+    if body.get("paused"):
+        r = _reg.call("office_pause", {"reason": body.get("reason") or "paused from the dashboard", "hours": body.get("hours")}, "pribin")
+    else:
+        r = _reg.call("office_resume", {"note": "resumed from the dashboard"}, "pribin")
+    return JSONResponse({"ok": True, "message": r, "paused": scheduler.paused()})
 
 
 async def api_tasks(request: Request):
@@ -581,6 +592,7 @@ app = Starlette(middleware=[Middleware(AuthMiddleware)], routes=[
     Route("/api/memory", api_memory, methods=["POST"]),
     Route("/api/tasks", api_tasks, methods=["GET", "POST"]),
     Route("/api/applied", api_applied, methods=["POST"]),
+    Route("/api/pause", api_pause, methods=["POST"]),
     Route("/api/runs", api_runs),
     Route("/api/file", api_file),
     Route("/api/approval", api_approval),

@@ -1062,3 +1062,31 @@ def apply_proposal(approval_id: int, _agent="unknown"):
     brain.remember(f"Brief updated for {agent} from proposal {prop.name} (approved by Pribin). Backup kept in office/agents/.backups/.",
                    agent=_agent, kind="event", importance=4, tags=["ops", "brief-applied", f"agent:{agent}"])
     return f"applied: {agent}.md updated (backup saved)"
+
+
+
+# ---------------------------------------------------------------- global pause / resume (the only correct way to stop the office)
+@registry.register("office_pause", "PAUSE THE WHOLE OFFICE: the scheduler starts no new tasks and no standing work until office_resume. "
+                   "Running tasks finish. Use this whenever Pribin says pause/stop/rest/hold. Do NOT message agents to rest; that does nothing.", {
+    "type": "object", "properties": {"reason": {"type": "string"}, "hours": {"type": "number", "description": "optional: auto-resume after this many hours"}}, "required": ["reason"]})
+def office_pause(reason: str, hours: float | None = None, _agent="unknown"):
+    import scheduler
+    st = scheduler.set_paused(True, reason, hours)
+    brain.remember(f"Office PAUSED by {_agent}: {reason}" + (f" (auto-resume in {hours}h)" if hours else ""), agent=_agent, kind="event", importance=4, tags=["ops", "pause"])
+    return f"office paused: no new tasks will start until office_resume{' or ' + str(hours) + 'h' if hours else ''}. Running tasks will finish."
+
+
+@registry.register("office_resume", "Resume the office after a pause: the scheduler starts queued and standing work again.", {
+    "type": "object", "properties": {"note": {"type": "string"}}})
+def office_resume(note: str = "", _agent="unknown"):
+    import scheduler
+    scheduler.set_paused(False)
+    brain.remember(f"Office RESUMED by {_agent}. {note}".strip(), agent=_agent, kind="event", importance=4, tags=["ops", "resume"])
+    return "office resumed: the scheduler is starting work again."
+
+
+@registry.register("office_status", "Is the office paused? Plus running/queued counts and the knobs.", {"type": "object", "properties": {}})
+def office_status():
+    import scheduler
+    st = scheduler.paused()
+    return json.dumps({**st, "running": scheduler.running_ids(), "queued": len(brain.task_list(limit=200, status="queued")), "max_parallel": scheduler.MAX_PARALLEL})

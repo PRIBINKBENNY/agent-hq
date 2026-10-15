@@ -48,6 +48,7 @@
 </head>
 <body>
 <header><span class="dot" id="conn"></span><b>AGENT HQ</b><span class="sp" id="engine">…</span></header>
+<div id="banner" style="display:none;background:#3a2d0c;color:#f3d48a;padding:10px 16px;font-size:13px"></div>
 <div class="tiles">
   <div class="tile"><div class="k">Agents</div><div class="v" id="t-agents">–</div></div>
   <div class="tile"><div class="k">Running</div><div class="v" id="t-running">–</div></div>
@@ -60,7 +61,7 @@
 <section><h3>Task board <span class="sp" id="task-sp"></span></h3><div id="tasks"></div></section>
 <section><h3>Scorecard · this week</h3><div id="scorecard"></div></section>
 <section class="feed"><h3>Live feed <span class="sp" id="feed-sp"></span></h3><div id="feed"></div></section>
-<section><h3>Phone</h3><div class="row"><button id="push">Enable notifications</button><button onclick="location.href='/linkedin/connect'" id="li-btn">Connect LinkedIn</button></div>
+<section><h3>Phone</h3><div class="row"><button id="pausebtn" onclick="togglePause()">⏸ Pause office</button><button id="push">Enable notifications</button></div><div class="row"><button onclick="location.href='/linkedin/connect'" id="li-btn">Connect LinkedIn</button><button onclick="location.href='/'">Office floor</button></div>
   <div class="empty" id="push-status">Add this page to your Home Screen (Share → Add to Home Screen) to get an app icon and push notifications.</div></section>
 
 <div class="cmd"><input id="task" placeholder="Give the office a command…"><button id="mic">🎤</button><button id="go">Run</button></div>
@@ -79,6 +80,8 @@ async function refresh() {
   $("#t-tasks").textContent = s.tasks.filter(t => ["queued","running"].includes(t.status)).length;
   $("#t-appr").textContent = s.approvals.length; $("#appr-sp").textContent = s.approvals.length ? s.approvals.length + " pending" : "";
   $("#engine").textContent = (s.engine.providers || []).join(" → ") + " → ollama";
+  const pz = s.paused || {}; const b = $("#banner"); b.style.display = pz.paused ? "block" : "none"; if (pz.paused) b.textContent = "OFFICE PAUSED" + (pz.reason ? " · " + pz.reason : "") + ". Nothing new starts until you resume.";
+  $("#pausebtn").textContent = pz.paused ? "▶ Resume office" : "⏸ Pause office"; $("#pausebtn").dataset.paused = pz.paused ? "1" : "";
   $("#approvals").innerHTML = s.approvals.length ? s.approvals.map(a => {
     const paths = [...new Set((a.content.match(/(?:workspace\/)?([\w./-]+\/[\w.-]+\.(?:md|pdf))/g) || []).map(p => p.replace(/^workspace\//, "")))];
     const qa = a.tags.includes("qa-pass") ? `<span class="st pass">QA pass</span>` : a.tags.includes("qa-fail") ? `<span class="st fail">QA fail</span>` : a.tags.includes("qa-queued") ? `<span class="st queued">QA pending</span>` : "";
@@ -107,6 +110,7 @@ async function toggleApproval(id) {
     det.dataset.loaded = "1"; }
   card.classList.add("open"); btn.textContent = "Hide details";
 }
+async function togglePause() { const p = !$("#pausebtn").dataset.paused; const r = await api("/api/pause", { paused: p, reason: p ? "paused from the phone" : "" }); toast(r.message); refresh(); }
 async function act(url, body, msg) { const r = await api(url, body); toast(r.error || msg); refresh(); }
 async function view(p) { if (p.endsWith(".pdf")) { window.open("/api/file?path=" + encodeURIComponent(p)); return; } const r = await api("/api/file?path=" + encodeURIComponent(p)); const d = document.createElement("section"); d.innerHTML = `<h3>${esc(p)} <span class="sp" onclick="this.closest('section').remove()">close</span></h3><div class="pre">${esc(r.content || r.error)}</div>`; $("#approvals").closest("section").after(d); d.scrollIntoView({ behavior: "smooth" }); }
 $("#go").onclick = async () => { const task = $("#task").value.trim(); if (!task) return; const r = await api("/api/run", { task, agent: "chief-of-staff", engine: "auto" }); toast(r.started ? "Run started" : r.queued ? `Queued as task #${r.task_id}` : (r.error || "failed")); $("#task").value = ""; refresh(); };

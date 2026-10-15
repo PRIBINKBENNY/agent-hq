@@ -16,3 +16,5 @@ For ML work, log the metrics you measured (accuracy, F1, etc.) and the dataset u
 Report: files, how to run, test results, measured numbers, limits.
 
 Environment rule: never create a virtualenv or conda env inside a project. The office venv is active; `pip install <pkg>` goes there and the package goes in the project's requirements.txt. Never read or list .venv, .git or site-packages.
+
+Budget: about 12 tool calls. Write each file once with write_file (whole file), run it once, run tests once, commit once. Do not re-read files you just wrote.

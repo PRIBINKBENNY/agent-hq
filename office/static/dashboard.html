@@ -13,7 +13,7 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px/1.45 -apple-system, "Inter", "Segoe UI", system-ui, sans-serif; overflow: hidden; }
-  .app { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+  .app { display: grid; grid-template-rows: auto auto 1fr; height: 100vh; }
   .top { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; z-index: 5; }
   .brand { font-weight: 800; font-size: 16px; letter-spacing: .4px; display: flex; align-items: center; gap: 10px; white-space: nowrap; }
   .brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--done); animation: ping 2s infinite; }
@@ -23,7 +23,8 @@
   .cmd input { flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--ink); padding: 8px 11px; border-radius: 8px; font-size: 13px; }
   .cmd select, .cmd button { background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); padding: 8px 10px; border-radius: 8px; font-size: 12px; }
   .cmd button.go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; cursor: pointer; }
-  .cmd #mic { cursor: pointer; } .cmd #mic.on { border-color: var(--err); color: var(--err); animation: ping 1.2s infinite; }
+  .cmd #mic { cursor: pointer; } .cmd #pause { cursor: pointer; } .cmd #pause.on { border-color: var(--tool); color: var(--tool); font-weight: 700; }
+  .banner { display: none; background: #3a2d0c; color: #f3d48a; border-bottom: 1px solid #6b5416; padding: 8px 16px; font-size: 13px; } .banner.on { display: block; } .cmd #mic.on { border-color: var(--err); color: var(--err); animation: ping 1.2s infinite; }
   .task { padding: 7px 12px; border-bottom: 1px solid var(--line); font-size: 11.5px; display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: start; }
   .appr .st { font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); }
   .appr .st.done { color: var(--done); border-color: var(--done); } .appr .st.failed { color: var(--err); border-color: var(--err); } .appr .st.queued { color: var(--tool); border-color: var(--tool); }
@@ -115,6 +116,7 @@
 <div class="toast" id="toast"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <div class="app">
+  <div class="banner" id="banner"></div>
   <div class="top">
     <div class="brand"><span class="dot" id="conn"></span> AGENT HQ</div>
     <div class="cmd">
@@ -122,6 +124,7 @@
       <select id="agent"></select>
       <select id="engine"><option value="auto">auto</option><option value="groq">groq</option><option value="ollama">ollama</option></select>
       <button id="mic" title="Speak a command (Chrome)">🎤</button>
+      <button id="pause" title="Pause or resume the whole office">⏸ Pause</button>
       <button class="go" id="go">Run</button>
     </div>
     <div class="tiles">
@@ -666,6 +669,7 @@ $("#go").onclick = async () => {
   };
 })();
 $("#task").addEventListener("keydown", e => { if (e.key === "Enter") $("#go").click(); });
+$("#pause").onclick = async () => { const p = !$("#pause").dataset.paused; const r = await (await fetch("/api/pause", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ paused: p, reason: p ? "paused from the dashboard" : "" }) })).json(); toast(r.message); refreshState(); };
 $("#memgo").onclick = async () => { const content = $("#memtext").value.trim(); if (!content) return;
   await fetch("/api/memory", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content }) }); $("#memtext").value = ""; refreshState(); };
 

@@ -48,6 +48,8 @@ def main():
         from runtime import active_providers, read_usage
         ok = lambda c, msg: print(("  OK   " if c else "  FAIL ") + msg)
         print("Agent HQ doctor")
+        import scheduler as _sch
+        pz = _sch.paused(); print(("  INFO OFFICE PAUSED: " + pz.get("reason", "")) if pz.get("paused") else "  OK   office running (not paused)")
         ok(bool(active_providers()), f"providers with keys: {', '.join(active_providers()) or 'none (Ollama only)'}")
         u = read_usage()
         for prov, d in u.items():
