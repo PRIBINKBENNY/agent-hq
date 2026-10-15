@@ -24,7 +24,7 @@
   .cmd input { flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--ink); padding: 8px 11px; border-radius: 8px; font-size: 13px; }
   .cmd select, .cmd button { background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); padding: 8px 10px; border-radius: 8px; font-size: 12px; }
   .cmd button.go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; cursor: pointer; }
-  .cmd #mic { cursor: pointer; } .cmd #pause { cursor: pointer; } .cmd #pause.on { border-color: var(--tool); color: var(--tool); font-weight: 700; }
+  .cmd #mic { cursor: pointer; } .cmd #pause { cursor: pointer; white-space: nowrap; } .cmd #pause.on { border-color: var(--tool); color: var(--tool); font-weight: 700; }
   .banner { display: none; background: #3a2d0c; color: #f3d48a; border-bottom: 1px solid #6b5416; padding: 8px 16px; font-size: 13px; } .banner.on { display: block; } .cmd #mic.on { border-color: var(--err); color: var(--err); animation: ping 1.2s infinite; }
   .task { padding: 7px 12px; border-bottom: 1px solid var(--line); font-size: 11.5px; display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: start; }
   .appr .st { font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); }
@@ -181,7 +181,7 @@
 </div>
 
 <script>
-window.onerror = (m, src, line, col) => { const h = document.getElementById('hint'); if (h) h.textContent = 'JS error: ' + m + ' @' + line + ':' + col; };
+window.onerror = (m, src, line, col) => { if (String(m).includes("ResizeObserver loop")) return true; const h = document.getElementById('hint'); if (h) h.textContent = 'JS error: ' + m + ' @' + line + ':' + col; };
 window.addEventListener('unhandledrejection', e => { const h = document.getElementById('hint'); if (h) h.textContent = 'Promise error: ' + (e.reason && (e.reason.stack || e.reason.message || e.reason)); });
 /* ============================== data & helpers ============================== */
 const $ = s => document.querySelector(s);
@@ -219,7 +219,7 @@ function resize() {
   canvas.style.width = W + "px"; canvas.style.height = H + "px";      // explicit CSS size so the pixel buffer never dictates layout
   canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
 }
-new ResizeObserver(() => { resize(); }).observe($("#stage"));
+new ResizeObserver(() => { const st = $("#stage"); if (st.clientWidth !== W || st.clientHeight !== H) { resize(); fitCamera(); } }).observe($("#stage"));
 /* layout watchdog: if anything ever pushes the page wider/taller than the window, snap it back and say so */
 setInterval(() => {
   const de = document.documentElement; const side = $(".side").getBoundingClientRect();
