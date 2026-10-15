@@ -151,18 +151,22 @@ For a permanent private URL use Tailscale, or a named Cloudflare tunnel on your 
 See `DEPLOY.md`, which also covers running the office on a free cloud VM so it keeps working
 when the Mac is off. While it runs on the Mac, the dashboard keeps the machine awake on mains power.
 
-## The 3D office and the treasury
+## The campus and the treasury
 
-The floor is a real-time 3D office (Three.js, free from a CDN): glass-walled rooms on a ring around the
-brain core under a warm key light with bloom on the neon and screens, a reflective floor, and a wall display
-per room (candles and a ticker in trading, code in the studio, a kanban in the project office, job cards,
-social posts, a checklist, a reception desk). Each agent is a rounded character seated at a desk with a glowing
-monitor, typing while it works, walking to the brain when it recalls or remembers, and crossing to a
-colleague's desk to delegate. Orbit, zoom and pan with the mouse; hover highlights an agent and a click opens
-its brief, runs and lessons. The Floor button hides the panels so the office fills the screen for demos. The trading office is the financial hub: every
-profitable demo trade credits the office treasury, earns experience, lifts the office level and fires a
-gold burst at the brain; losses cost credits but never experience, because losses are part of the business.
-The treasury, level and streak sit top-left on the floor and in the brain's memory.
+The floor is a daylight 3D campus (Three.js, free from a CDN). Headquarters stands in the centre: a glass
+atrium with the brain floating inside, the building every agent walks to when it recalls or remembers.
+Around it, one open-top wing per department, each joined to headquarters by a glass corridor, with a
+readable sign, a parapet in the department's colour, wood desks, soft monitors and a wall display of
+that department's work (a chart and ticker in the Trading Desk, code in the Studio, a kanban in the
+Project Office, job cards, posts, a checklist, a reception counter). Every agent sits at a desk, types
+while it works, stands and walks to headquarters for the brain, and crosses to a colleague to delegate.
+Labels are dark on white so they read at any zoom. Orbit, zoom and pan with the mouse; hover highlights
+an agent and a click opens its brief, runs and lessons; the Floor button hides the panels.
+
+The Trading Desk is the financial hub: every profitable demo trade credits the office treasury, earns
+experience, lifts the office level, and showers gold over the wing while headquarters flashes gold.
+Losses cost credits but never experience, because losses are part of the business. The treasury, level
+and streak sit top-left on the floor, on the API, and in the brain's memory.
 
 ## Trading desk: learns, validates, then trades (Capital.com demo)
 

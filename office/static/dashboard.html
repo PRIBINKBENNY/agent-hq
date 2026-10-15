@@ -71,8 +71,9 @@
   .kv .hit { color: var(--done); } .kv .miss { color: var(--tool); }
   .stage { position: relative; min-height: 0; min-width: 0; overflow: hidden; background: radial-gradient(1200px 700px at 50% 40%, #0f1630 0%, #080b14 70%); }
   #stage3d { position: absolute; inset: 0; } #stage3d canvas { display: block; cursor: grab; }
-  .treasury { position: absolute; top: 12px; left: 12px; background: rgba(8,11,20,.78); border: 1px solid #5a4a1a; border-radius: 12px; padding: 8px 12px; font-size: 12px; color: #ffe58a; display: none; backdrop-filter: blur(6px); }
-  .treasury b { font-size: 16px; display: block; } .treasury .lvl { color: var(--ink-2); font-size: 11px; }
+  .treasury { position: absolute; top: 12px; left: 12px; background: rgba(255,255,255,.92); border: 1px solid rgba(0,0,0,.12); border-radius: 12px; padding: 8px 12px; font-size: 12px; color: #5a3e00; display: none; box-shadow: 0 4px 14px rgba(0,0,0,.12); }
+  .treasury b { font-size: 16px; display: block; color: #1b2130; } .treasury .lvl { color: #4a5568; font-size: 11px; }
+  .stage .hint, .stage .legend { background: rgba(255,255,255,.9) !important; color: #1b2130 !important; border: 1px solid rgba(0,0,0,.12); } .stage .legend span { color: #1b2130; }
   canvas.drag { cursor: grabbing; }
   .overlay { position: absolute; inset: 0; pointer-events: none; }
   .card { position: absolute; transform: translate(-50%, -100%); background: rgba(16,21,31,.92); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; display: flex; align-items: center; gap: 8px; white-space: nowrap; backdrop-filter: blur(4px); box-shadow: 0 6px 24px -8px #000; }
