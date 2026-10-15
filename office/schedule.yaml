@@ -74,7 +74,7 @@
   at: "17:30"
   agent: portfolio-tracker
   priority: 2
-  enabled: false
+  enabled: true
   title: "Paper portfolio daily summary"
   task: >
     Write today's paper portfolio summary. If the book does not exist yet, create it with cash 10000
@@ -128,3 +128,24 @@
   command: "./office/publish.sh"
   priority: 2
   title: "Publish the public portfolio repo from the dev repo"
+
+# --- trading desk (Capital.com DEMO, virtual money). London hours, weekdays. ---
+- name: market-pulse
+  every: hourly
+  agent: market-researcher
+  priority: 2
+  hours: "08-16"
+  title: "Market pulse (DEMO desk)"
+  task: >
+    Market pulse: live quotes for the watchlist, flag notable moves, store one fact per notable move.
+    Then run the hourly signal scan logic by creating a task "Signal scan" for strategy-analyst only if at
+    least one instrument moved more than 1%.
+
+- name: positions-manage
+  every: hourly
+  agent: trader
+  priority: 3
+  hours: "08-16"
+  title: "Manage open DEMO positions"
+  task: >
+    Manage task: review open positions, trail stops per the rules, close only on a stored exit rule. Report briefly.

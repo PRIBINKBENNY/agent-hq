@@ -48,7 +48,7 @@ Run a single agent with `--agent job-scout "..."`. Force local with `--engine ol
 | job-hunt    | job-scout (LinkedIn search + fit score), application-tailor (CV + cover letter, truth-checked), interview-coach (prep packs, mocks) |
 | studio      | studio-lead, agent-builder, web-builder, app-developer, code-builder, tester (never fixes), debugger (never weakens tests), reviewer (never writes) |
 | brand-sales | linkedin-writer, content-writer (reels/shorts scripts), lead-finder (buyers for the productised offer), proposal-writer (pitches + quotes), networker (warm paths into target companies) |
-| trading     | market-researcher, strategy-analyst (backtests), risk-officer (can veto), portfolio-tracker. **Paper only, never real orders.** |
+| trading     | market-researcher (live quotes), strategy-analyst (backtests, signals), risk-officer (sizes and approves, can veto), trader (executes on the Capital.com **demo** account), portfolio-tracker. **Virtual money; the live endpoint is locked in code.** |
 | ops         | tracker (job + client pipelines), mail-assistant (email drafts to `workspace/outbox/`, .ics calendar files), fact-checker (QA gate: every outgoing text is verified against the brain before approval) |
 | pm          | project-manager (team leader: roadmap, daily sprint), release-manager (commits, changelog, pushes to Pribin's own GitHub), docs-writer, ml-researcher (weekly trends + project proposals) |
 
@@ -126,6 +126,21 @@ Reach it from outside the Mac through a free tunnel; every remote request needs 
 For a permanent private URL use Tailscale, or a named Cloudflare tunnel on your own domain.
 See `DEPLOY.md`, which also covers running the office on a free cloud VM so it keeps working
 when the Mac is off. While it runs on the Mac, the dashboard keeps the machine awake on mains power.
+
+## Trading desk (Capital.com demo)
+
+The trading office runs on a free Capital.com demo account: real markets, real prices, virtual money.
+Keys go in `.env` (`CAPITAL_API_KEY`, `CAPITAL_IDENTIFIER`, `CAPITAL_PASSWORD`). The demo endpoint is
+the default and the only one used unless `CAPITAL_LIVE=I_UNDERSTAND_REAL_MONEY` is set deliberately.
+
+During London hours on weekdays the desk runs by itself: an hourly market pulse (researcher), a signal
+scan when something moves (strategy-analyst), a risk review for every signal (risk-officer: max 10% of
+balance per position, max 6 positions, stop mandatory, sector limits), execution of APPROVED decisions
+only (trader, which refuses anything not backed by a risk-officer approval memory), hourly stop
+management, and a 17:30 summary. The same limits are enforced in code in `office/capital.py`, so no
+agent can exceed them whatever it is told.
+
+Nothing here is financial advice; the point is a measurable, auditable paper record.
 
 ## Operating it
 

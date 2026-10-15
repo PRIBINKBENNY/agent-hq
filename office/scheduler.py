@@ -92,6 +92,10 @@ def _due(job: dict, last_run: float | None, now: datetime) -> bool:
     at = job.get("at", "08:00")
     hh, mm = [int(x) for x in at.split(":")]
     if every == "hourly":
+        if job.get("hours"):                      # e.g. "08-16": only within these London hours, weekdays
+            lo, hi = [int(x) for x in str(job["hours"]).split("-")]
+            if now.weekday() >= 5 or not (lo <= now.hour <= hi):
+                return False
         return last_run is None or now.timestamp() - last_run >= 3600
     if every == "weekdays" and now.weekday() >= 5:
         return False

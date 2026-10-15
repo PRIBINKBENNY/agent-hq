@@ -715,3 +715,115 @@ def fact_check(path: str):
     return json.dumps({"file": path, "claims_checked": checked, "unverified": unverified[:25], "flags": flags,
                        "note": "Unverified = no concrete item in the sentence appears in the master CV or any brain memory. "
                                "Company names, greetings and plain phrasing are usually false positives; judge them."}, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------- Capital.com (demo account, enforced)
+def _cap():
+    import capital
+    if not capital.configured():
+        raise RuntimeError("Capital.com not configured: add CAPITAL_API_KEY, CAPITAL_IDENTIFIER, CAPITAL_PASSWORD to .env (free demo account)")
+    global _CAP
+    try:
+        return _CAP
+    except NameError:
+        _CAP = capital.Capital(); return _CAP
+
+
+@registry.register("capital_account", "Capital.com DEMO account: balance, available, P/L, currency, and open positions count.", {"type": "object", "properties": {}})
+def capital_account():
+    try:
+        c = _cap(); a = c.preferred_account(); b = a.get("balance", {}); n = len(c.positions())
+        return json.dumps({"mode": "LIVE" if __import__("capital").is_live() else "DEMO", "account": a.get("accountName"), "currency": a.get("currency"),
+                           "balance": b.get("balance"), "available": b.get("available"), "profit_loss": b.get("profitLoss"), "open_positions": n})
+    except Exception as e:
+        return f"capital error: {e}"
+
+
+@registry.register("capital_search", "Search Capital.com instruments (shares, indices, FX, commodities, crypto) by name, e.g. 'Vodafone', 'FTSE 100', 'EUR/USD'. Returns epics to use in other capital_* tools.", {
+    "type": "object", "properties": {"term": {"type": "string"}, "limit": {"type": "integer", "default": 8}}, "required": ["term"]})
+def capital_search(term: str, limit: int = 8):
+    try:
+        return json.dumps(_cap().search_markets(term, limit))
+    except Exception as e:
+        return f"capital error: {e}"
+
+
+@registry.register("capital_market", "Live quote and dealing rules for one epic: bid, offer, change %, high/low, market status, min size, min stop distance.", {
+    "type": "object", "properties": {"epic": {"type": "string"}}, "required": ["epic"]})
+def capital_market(epic: str):
+    try:
+        return json.dumps(_cap().market(epic))
+    except Exception as e:
+        return f"capital error: {e}"
+
+
+@registry.register("capital_prices", "Price history for an epic (mid prices). resolution: MINUTE_5 | MINUTE_15 | HOUR | HOUR_4 | DAY | WEEK. Up to 200 points.", {
+    "type": "object", "properties": {"epic": {"type": "string"}, "resolution": {"type": "string", "default": "HOUR"}, "max_points": {"type": "integer", "default": 48}}, "required": ["epic"]})
+def capital_prices(epic: str, resolution: str = "HOUR", max_points: int = 48):
+    try:
+        pts = _cap().prices(epic, resolution, min(200, int(max_points)))
+        closes = [p["close"] for p in pts if p.get("close")]
+        summary = {}
+        if len(closes) > 2:
+            import statistics
+            rets = [(b / a - 1) for a, b in zip(closes[:-1], closes[1:]) if a]
+            summary = {"first": closes[0], "last": closes[-1], "change_pct": round((closes[-1] / closes[0] - 1) * 100, 2),
+                       "high": max(closes), "low": min(closes), "volatility_pct_per_bar": round(statistics.pstdev(rets) * 100, 3) if rets else None}
+        return json.dumps({"epic": epic, "resolution": resolution, "points": len(pts), "summary": summary, "last_10": pts[-10:]})
+    except Exception as e:
+        return f"capital error: {e}"
+
+
+@registry.register("capital_positions", "Open positions on the Capital.com DEMO account with live P/L and stops.", {"type": "object", "properties": {}})
+def capital_positions():
+    try:
+        return json.dumps(_cap().positions())
+    except Exception as e:
+        return f"capital error: {e}"
+
+
+@registry.register("capital_open", "Open a position on the Capital.com DEMO account (virtual money). Requires the risk-officer's approval memory id. "
+                   "Hard limits in code: stop level mandatory, max 10% of available balance, max 6 positions.", {
+    "type": "object", "properties": {
+        "epic": {"type": "string"}, "direction": {"type": "string", "description": "BUY or SELL"}, "size": {"type": "number"},
+        "stop_level": {"type": "number"}, "profit_level": {"type": "number"},
+        "risk_approval_id": {"type": "integer", "description": "memory id of the risk-officer decision that APPROVED this trade"},
+        "reason": {"type": "string", "description": "one line: the signal / thesis"},
+    }, "required": ["epic", "direction", "size", "stop_level", "risk_approval_id", "reason"]})
+def capital_open(epic: str, direction: str, size: float, stop_level: float, risk_approval_id: int, reason: str, profit_level: float | None = None, _agent="unknown"):
+    try:
+        m = brain.get(int(risk_approval_id))
+    except KeyError:
+        return "refused: risk_approval_id does not exist"
+    if m.kind != "decision" or m.agent != "risk-officer" or "approve" not in m.content.lower() or "veto" in m.content.lower():
+        return "refused: that memory is not a risk-officer APPROVE decision"
+    if epic.split(".")[0].lower() not in m.content.lower() and epic.lower() not in m.content.lower():
+        return f"refused: the risk decision does not mention {epic}"
+    try:
+        r = _cap().open_position(epic, direction, size, stop_level, profit_level)
+    except Exception as e:
+        return f"capital error: {e}"
+    brain.remember(f"{r['mode']} trade {r.get('status')}: {direction} {size} {epic} at {r.get('level')} stop {stop_level}"
+                   f"{' target ' + str(profit_level) if profit_level else ''}. Reason: {reason}. dealId {r.get('dealId')} (risk #{risk_approval_id})",
+                   agent=_agent, kind="event", importance=4, tags=["trade", r["mode"].lower(), f"epic:{epic.lower()}"])
+    return json.dumps(r)
+
+
+@registry.register("capital_close", "Close an open DEMO position by dealId (e.g. stop reached, thesis invalid, risk-officer exit).", {
+    "type": "object", "properties": {"deal_id": {"type": "string"}, "reason": {"type": "string"}}, "required": ["deal_id", "reason"]})
+def capital_close(deal_id: str, reason: str, _agent="unknown"):
+    try:
+        r = _cap().close_position(deal_id)
+    except Exception as e:
+        return f"capital error: {e}"
+    brain.remember(f"{r['mode']} position closed {deal_id}: {r.get('status')}. Reason: {reason}", agent=_agent, kind="event", importance=3, tags=["trade", "close"])
+    return json.dumps(r)
+
+
+@registry.register("capital_update", "Move the stop or target of an open DEMO position (e.g. trail the stop to break-even).", {
+    "type": "object", "properties": {"deal_id": {"type": "string"}, "stop_level": {"type": "number"}, "profit_level": {"type": "number"}}, "required": ["deal_id"]})
+def capital_update(deal_id: str, stop_level: float | None = None, profit_level: float | None = None):
+    try:
+        return json.dumps(_cap().update_position(deal_id, stop_level, profit_level))
+    except Exception as e:
+        return f"capital error: {e}"
