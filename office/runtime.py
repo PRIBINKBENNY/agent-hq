@@ -195,6 +195,30 @@ def list_agents() -> list[Brief]:
 # --------------------------------------------------------------------------- #
 # Engines
 # --------------------------------------------------------------------------- #
+PROVIDER_DOWN_FILE = LOG_DIR / "provider_down.json"
+
+
+def provider_down() -> dict:
+    """{provider: until_ts} for providers that answered 401/402/403 (key invalid, credits gone). Shared across processes."""
+    try:
+        d = json.loads(PROVIDER_DOWN_FILE.read_text())
+        return {k: v for k, v in d.items() if v > time.time()}
+    except Exception:
+        return {}
+
+
+def mark_provider_down(provider: str, hours: float = 6, reason: str = ""):
+    d = provider_down(); d[provider] = time.time() + hours * 3600
+    try:
+        PROVIDER_DOWN_FILE.parent.mkdir(parents=True, exist_ok=True); PROVIDER_DOWN_FILE.write_text(json.dumps(d))
+    except Exception:
+        pass
+    try:
+        emit("fallback", "runtime", "runtime", model=provider, reason=f"{provider} parked for {hours}h: {reason[:120]}")
+    except Exception:
+        pass
+
+
 class RateLimited(Exception):
     pass
 
@@ -283,6 +307,8 @@ def _chat(url: str, headers: dict, payload: dict, timeout: float = 120, provider
         raise RateLimited(str(wait if wait is not None else 30.0))
     if r.status_code == 413:
         raise RateLimited("payload too large")
+    if r.status_code in (401, 402, 403) and provider:
+        mark_provider_down(provider, 6, f"{r.status_code} {r.text[:100]}")
     if r.status_code >= 400:
         raise EngineError(f"{r.status_code}: {r.text[:300]}")
     return r.json()
@@ -367,7 +393,7 @@ _CLAIMS = [
 
 def unbacked_claim(answer: str, calls: list[dict], allowed_tools: list[str]) -> Optional[str]:
     """Return a description of an action the answer claims but no tool call backs, if any."""
-    used = {c["tool"] for c in calls}
+    used = {c["tool"] for c in calls if not str(c.get("result_preview", "")).lstrip().lower().startswith(("error", "refused"))}
     for pat, tools, label in _CLAIMS:
         if not (tools & set(allowed_tools)):
             continue  # agent cannot do this action anyway; its wording is just prose
@@ -446,8 +472,9 @@ class Agent:
         """Best usable model: the preferred one if it is not cooling down, else the first remote model
         that is not cooling down; if every remote model is cooling down and the shortest wait is
         under 45s, sleep and reuse it; otherwise the local fallback."""
-        now = time.time()
-        usable = [c for c in chain if _COOLDOWN.get(c, 0) <= now]
+        now = time.time(); down = provider_down()
+        cool = lambda c: max(_COOLDOWN.get(c, 0), down.get(c[0], 0))
+        usable = [c for c in chain if cool(c) <= now]
         if prefer not in (None, "first") and prefer in usable:
             return prefer
         remote_usable = [c for c in usable if c[0] != "ollama"]
@@ -456,8 +483,8 @@ class Agent:
             # the strong pinned model is cooling: short wait beats a weaker model for a lead
             pinned = [c for c in chain if c[1] in pins]
             if pinned:
-                soonest = min(pinned, key=lambda c: _COOLDOWN.get(c, 0))
-                wait = _COOLDOWN.get(soonest, 0) - now
+                soonest = min(pinned, key=cool)
+                wait = cool(soonest) - now
                 if 0 < wait <= 60:
                     self._say(f"waiting {wait:.0f}s for pinned {soonest[0]}:{soonest[1]}")
                     time.sleep(wait + 0.5)
@@ -466,12 +493,15 @@ class Agent:
             return remote_usable[0]
         remote_all = [c for c in chain if c[0] != "ollama"]
         if remote_all:
-            soonest = min(remote_all, key=lambda c: _COOLDOWN.get(c, 0))
-            wait = _COOLDOWN.get(soonest, 0) - now
-            if wait <= 45:
+            soonest = min(remote_all, key=cool)
+            wait = cool(soonest) - now
+            limit = 180 if self.brief.tier == "lead" else 45
+            if wait <= limit:
                 self._say(f"all remote models cooling down, waiting {wait:.0f}s for {soonest[0]}:{soonest[1]}")
                 time.sleep(max(0.5, wait + 0.5))
                 return soonest
+        if self.brief.tier == "lead" and remote_all and os.environ.get("OFFICE_LEAD_LOCAL_FALLBACK", "0") != "1":
+            raise EngineError("no capable model available: every cloud provider is cooling down and lead agents do not run on the local 3B model. Retry later.")
         return usable[-1] if usable else chain[-1]
 
     def _say(self, msg: str):

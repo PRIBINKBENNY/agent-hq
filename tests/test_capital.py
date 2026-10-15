@@ -106,10 +106,15 @@ def test_capital_open_tool_requires_risk_approval(cap, monkeypatch, tmp_path):
     veto = b.remember("VETO: BUY VOD breaks the 10% rule", agent="risk-officer", kind="decision", tags=["risk", "vod"])
     ok = b.remember("APPROVE: BUY 5 VOD at 117.8 stop 112.0 target 125.0", agent="risk-officer", kind="decision", tags=["risk", "vod"])
     fake = b.remember("APPROVE: BUY 5 VOD", agent="trader", kind="decision")
-    assert tools.capital_open("VOD", "BUY", 5, 112, veto.id, "test").startswith("refused")
-    assert tools.capital_open("VOD", "BUY", 5, 112, fake.id, "test").startswith("refused")      # not from the risk officer
-    assert tools.capital_open("BP", "BUY", 5, 112, ok.id, "test").startswith("refused")         # decision is about VOD, not BP
-    r = json.loads(tools.capital_open("VOD", "BUY", 5, 112, ok.id, "MA crossover", _agent="trader"))
+    monkeypatch.setattr(tools, "JOURNAL_FILE", tmp_path / "j.jsonl"); monkeypatch.setattr(tools, "DESK_STATE", tmp_path / "d.json")
+    assert tools.capital_open("VOD", "BUY", 5, 112, veto.id, "test", profit_level=130).startswith("refused")
+    assert tools.capital_open("VOD", "BUY", 5, 112, fake.id, "test", profit_level=130).startswith("refused")      # not from the risk officer
+    assert tools.capital_open("BP", "BUY", 5, 112, ok.id, "test", profit_level=130).startswith("refused")         # decision is about VOD, not BP
+    assert "profit target" in tools.capital_open("VOD", "BUY", 5, 112, ok.id, "test")                             # playbook: target mandatory
+    assert "reward/risk" in tools.capital_open("VOD", "BUY", 5, 112, ok.id, "test", profit_level=120)             # RR 0.38 < 1.5
+    assert "risks" in tools.capital_open("VOD", "BUY", 50, 112, ok.id, "test", profit_level=130)                  # 50 x 5.8 = 290 > 1% of 10000
+    r = json.loads(tools.capital_open("VOD", "BUY", 5, 112, ok.id, "MA crossover", profit_level=130, strategy="vod-h1", _agent="trader"))
+    assert tools._journal()[-1]["event"] == "open" and tools._journal()[-1]["strategy"] == "vod-h1"
     assert r["status"] == "ACCEPTED" and r["mode"] == "DEMO"
     assert any("DEMO trade" in m.content for m in b.recent(limit=5))
     del tools._CAP

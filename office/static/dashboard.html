@@ -69,7 +69,9 @@
   .kv .k { color: var(--ink-2); } .kv .v { font-variant-numeric: tabular-nums; text-align: right; } .kv .t { color: var(--ink-3); text-align: right; }
   .kv .hit { color: var(--done); } .kv .miss { color: var(--tool); }
   .stage { position: relative; min-height: 0; min-width: 0; overflow: hidden; background: radial-gradient(1200px 700px at 50% 40%, #0f1630 0%, #080b14 70%); }
-  canvas { display: block; width: 100%; height: 100%; max-width: 100%; max-height: 100%; cursor: grab; }
+  #stage3d { position: absolute; inset: 0; } #stage3d canvas { display: block; cursor: grab; }
+  .treasury { position: absolute; top: 12px; left: 12px; background: rgba(8,11,20,.78); border: 1px solid #5a4a1a; border-radius: 12px; padding: 8px 12px; font-size: 12px; color: #ffe58a; display: none; backdrop-filter: blur(6px); }
+  .treasury b { font-size: 16px; display: block; } .treasury .lvl { color: var(--ink-2); font-size: 11px; }
   canvas.drag { cursor: grabbing; }
   .overlay { position: absolute; inset: 0; pointer-events: none; }
   .card { position: absolute; transform: translate(-50%, -100%); background: rgba(16,21,31,.92); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; display: flex; align-items: center; gap: 8px; white-space: nowrap; backdrop-filter: blur(4px); box-shadow: 0 6px 24px -8px #000; }
@@ -147,9 +149,9 @@
   </div>
   <div class="main">
     <div class="stage" id="stage">
-      <canvas id="c"></canvas>
-      <div class="overlay" id="overlay"></div>
-      <div class="hint" id="hint">Drag to pan · scroll to zoom · click an agent for its brief, runs and lessons</div>
+      <div id="stage3d"></div>
+      <div class="hint" id="hint">Drag to orbit · scroll to zoom · right-drag to pan · click an agent for its brief, runs and lessons</div>
+      <div class="treasury" id="treasury"></div>
       <div class="legend">
         <span><i style="background:var(--think)"></i>thinking</span><span><i style="background:var(--tool)"></i>tool</span>
         <span><i style="background:var(--deleg)"></i>delegating</span><span><i style="background:var(--done)"></i>done</span><span><i style="background:var(--err)"></i>fallback</span>
@@ -182,6 +184,8 @@
       </div>
       <div class="pane" data-pane="trading">
         <div class="panel"><h3>Capital.com <span class="sp" id="trade-mode"></span></h3><div id="trading"></div></div>
+        <div class="panel"><h3>Strategies <span class="sp" id="strat-sp"></span></h3><div class="list" id="strategies"></div></div>
+        <div class="panel"><h3>Journal <span class="sp" id="journal-sp"></span></h3><div id="journal"></div></div>
         <div class="panel"><h3>Signals and decisions</h3><div class="list" id="trade-recent"></div></div>
       </div>
       <div class="pane" data-pane="ops">
@@ -217,91 +221,59 @@ const OFFICE_ORDER = ["front-desk","job-hunt","pm","studio","brand-sales","tradi
 
 let roster = [], rooms = [], agents = {}, feedCount = 0;
 
-/* ============================== isometric world ============================== */
-const TW = 64, TH = 32, WALL_H = 86;
-const iso = (x, y, z = 0) => ({ x: (x - y) * TW / 2, y: (x + y) * TH / 2 - z });
-const cam = { x: 0, y: 0, z: 1 };
-const canvas = $("#c"), ctx = canvas.getContext("2d");
-const overlay = $("#overlay");
-let W = 0, H = 0, DPR = 1;
-
-function resize() {
-  const st = $("#stage");
-  W = st.clientWidth; H = st.clientHeight; DPR = Math.min(2, window.devicePixelRatio || 1);
-  canvas.style.width = W + "px"; canvas.style.height = H + "px";      // explicit CSS size so the pixel buffer never dictates layout
-  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
-}
-new ResizeObserver(() => { const st = $("#stage"); if (st.clientWidth !== W || st.clientHeight !== H) { resize(); fitCamera(); } }).observe($("#stage"));
-/* layout watchdog: if anything ever pushes the page wider/taller than the window, snap it back and say so */
-setInterval(() => {
-  const de = document.documentElement; const side = $(".side").getBoundingClientRect();
-  const broken = de.scrollWidth > de.clientWidth + 1 || de.scrollHeight > de.clientHeight + 1 || side.right > window.innerWidth + 1 || window.scrollX || window.scrollY;
-  if (broken) {
-    window.scrollTo(0, 0); $(".app").style.width = window.innerWidth + "px"; $(".app").style.height = window.innerHeight + "px"; resize(); fitCamera();
-    if (!window._layoutWarned) { window._layoutWarned = true; toast(`Layout corrected (page was ${de.scrollWidth}x${de.scrollHeight} in a ${de.clientWidth}x${de.clientHeight} window). Tell Pribin which browser if it recurs.`); console.warn("layout corrected", de.scrollWidth, de.scrollHeight, side.right, window.innerWidth, navigator.userAgent); }
-  }
-}, 2000);
-window.addEventListener("resize", () => { resize(); fitCamera(); });
-window.addEventListener("scroll", () => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); }, { passive: true });
-document.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && (e.key === "0")) setTimeout(() => { resize(); fitCamera(); }, 50); });
-
+/* ============================== 3D office bridge ============================== */
+const H3 = () => window.HQ3D;
 function buildRooms() {
-  const byOffice = {};
-  roster.forEach(a => (byOffice[a.office] ||= []).push(a));
-  const names = Object.keys(byOffice).sort((a, b) => (OFFICE_ORDER.indexOf(a) + 99) % 100 - (OFFICE_ORDER.indexOf(b) + 99) % 100);
-  const n = names.length;
-  const R = n <= 2 ? 300 : n <= 4 ? 360 : n <= 6 ? 430 : 500;
-  rooms = names.map((name, i) => {
-    const members = byOffice[name];
-    const cols = Math.min(3, Math.max(1, Math.ceil(Math.sqrt(members.length))));
-    const rows = Math.ceil(members.length / cols);
-    const w = cols * 2 + 1, d = rows * 2 + 1;              // tiles
-    const ang = -Math.PI / 2 + (i / n) * Math.PI * 2;      // ring around the brain, starting at top
-    const cx = Math.cos(ang) * R * 1.25, cy = Math.sin(ang) * R * 0.78;
-    const c = iso(w / 2, d / 2);                           // room centre offset in screen space
-    const pal = PALETTES[i % PALETTES.length];
-    const room = { name, members, cols, rows, w, d, ox: cx - c.x, oy: cy - c.y, pal, icon: OFFICE_ICON[name] || pal.ico };
-    members.forEach((m, k) => {
-      const col = k % cols, row = Math.floor(k / cols);
-      const dx = 1 + col * 2, dy = 1 + row * 2;            // desk tile
-      const desk = { x: dx + 0.5, y: dy + 0.5 };
-      const seat = { x: dx + 0.5, y: dy + 1.35 };          // chair in front (toward viewer)
-      agents[m.name] = Object.assign(agents[m.name] || {}, { name: m.name, room, desk, seat,
-        pos: agents[m.name]?.pos || worldToScreen(room, seat), home: worldToScreen(room, seat),
-        state: agents[m.name]?.state || "idle", bubble: agents[m.name]?.bubble || null, bubbleUntil: 0,
-        target: null, walking: false, since: agents[m.name]?.since || 0, model: agents[m.name]?.model || "", face: 1 });
-    });
-    room.door = worldToScreen(room, { x: w / 2, y: d + 0.6 }); // front edge, toward the brain
-    return room;
-  });
+  agents = {}; roster.forEach(a => { agents[a.name] = { name: a.name, office: a.office, state: "idle", since: 0 }; });
+  if (H3()) H3().setRoster(roster);
 }
-const worldToScreen = (room, p) => { const s = iso(p.x, p.y); return { x: room.ox + s.x, y: room.oy + s.y }; };
-const brainPos = () => ({ x: 0, y: 0 });
-
-function fitCamera() {
-  if (!rooms.length) { cam.x = 0; cam.y = 0; cam.z = 1; return; }
-  let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
-  rooms.forEach(r => {
-    const pts = [iso(0,0), iso(r.w,0), iso(0,r.d), iso(r.w,r.d)].map(p => ({ x: r.ox + p.x, y: r.oy + p.y }));
-    pts.forEach(p => { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y - WALL_H - 70); maxY = Math.max(maxY, p.y + 20); });
-  });
-  const pad = 40;
-  cam.z = Math.min((W - pad * 2) / (maxX - minX), (H - pad * 2) / (maxY - minY), 1.6);
-  cam.x = (minX + maxX) / 2; cam.y = (minY + maxY) / 2;
+function setState(a, st) { a.state = st; if (H3()) H3().setState(a.name, st); }
+function say(a, text, ms = 6000) { a.bubble = text; a.bubbleUntil = Date.now() + ms; if (H3()) H3().say(a.name, text, ms); }
+function goHome(a) { if (H3()) H3().goHome(a.name); }
+function brainPulse(a, toBrain, color) { if (H3()) H3().pulse(a.name, toBrain, color); }
+function showTreasury(tr) {
+  const el = $("#treasury"); if (!tr || tr.credits == null) { el.style.display = "none"; return; }
+  el.style.display = "block"; el.innerHTML = `TREASURY <b>${esc(Number(tr.credits).toFixed(2))} ${esc(tr.currency || "")}</b><span class="lvl">level ${tr.level} · ${tr.xp} xp · ${tr.wins} winning trade${tr.wins === 1 ? "" : "s"} · streak ${tr.streak}</span>`;
 }
-const toScreen = p => ({ x: (p.x - cam.x) * cam.z + W / 2, y: (p.y - cam.y) * cam.z + H / 2 });
 
-/* pan / zoom */
-let drag = null;
-canvas.addEventListener("mousedown", e => { drag = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y }; canvas.classList.add("drag"); });
-window.addEventListener("mousemove", e => { if (!drag) return; cam.x = drag.cx - (e.clientX - drag.x) / cam.z; cam.y = drag.cy - (e.clientY - drag.y) / cam.z; });
-window.addEventListener("mouseup", e => { const wasDrag = drag && (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 4); drag = null; canvas.classList.remove("drag"); if (!wasDrag && e.target === canvas) clickFloor(e); });
-function clickFloor(e) {
-  const r = canvas.getBoundingClientRect(); const sx = e.clientX - r.left, sy = e.clientY - r.top;
-  const wx = (sx - W / 2) / cam.z + cam.x, wy = (sy - H / 2) / cam.z + cam.y;
-  let best = null, bd = 28;
-  Object.values(agents).forEach(a => { const d = Math.hypot(a.pos.x - wx, a.pos.y - (wy + 22)); if (d < bd) { bd = d; best = a; } });
-  if (best) openAgent(best.name);
+function applyEvent(e, live) {
+  const a = agents[e.agent]; const now = Date.now();
+  let feed = "";
+  if (e.type === "reward") {
+    if (live && H3()) H3().reward(e); if (live) toast(`Profitable trade: +${Number(e.pnl).toFixed(2)} · treasury ${e.treasury}`); showTreasury(e.treasury_state || null);
+    feed = `<b>${esc(e.agent)}</b> 💰 profitable trade <span class="d">+${esc(Number(e.pnl).toFixed(2))} ${esc(e.currency || "")} · ${esc(e.strategy || "")} · treasury ${esc(e.treasury)} · level ${esc(e.level)}</span>`;
+  } else if (a) {
+    if (e.type === "start" || a.state === "idle" || a.state === "done" || a.state === "error") a.since = e.ts;
+    switch (e.type) {
+      case "start": setState(a, "think"); a.model = ""; say(a, "📋 " + e.task, 7000); if (live) goHome(a); feed = `<b>${esc(e.agent)}</b> started · <span class="d">${esc(e.task)}</span>`; break;
+      case "think": setState(a, "think"); a.model = e.model; if (!a.bubble || a.bubbleUntil < now) say(a, "💭 thinking…", 4000); feed = `<b>${esc(e.agent)}</b> thinking on <span class="d">${esc(e.model)}</span>`; break;
+      case "tool": {
+        setState(a, "tool"); const tl = e.tool;
+        const label = tl.startsWith("brain_") ? (tl === "brain_remember" ? "🧠 remembering…" : "🧠 recalling…")
+          : tl === "job_search" ? "🔎 searching LinkedIn…" : tl === "web_search" ? "🔍 searching the web…" : tl === "web_fetch" ? "🌐 reading a page…"
+          : tl === "write_file" ? "📝 writing…" : tl === "read_file" ? "📄 reading…" : tl === "request_approval" ? "✋ needs your OK" : tl.startsWith("capital_") ? "📈 " + tl.replace("capital_", "") : "🔧 " + tl;
+        say(a, label, 8000);
+        if (live && tl.startsWith("brain_") && H3()) { H3().goBrain(a.name); brainPulse(a, true, 0x9cc3ff); }
+        feed = `<b>${esc(e.agent)}</b> → <b>${esc(tl)}</b> <span class="d">${esc(e.args)}</span>`; break; }
+      case "tool_result":
+        if (e.tool.startsWith("brain_") && live) { brainPulse(a, false, 0xcfe3ff); goHome(a); }
+        if (e.tool === "delegate" && live) goHome(a);
+        setState(a, "think"); feed = `<span class="d">${esc(e.tool)} ${e.ok ? "returned" : "FAILED"}: ${esc(e.preview)}</span>`; break;
+      case "delegate": {
+        setState(a, "delegate"); say(a, "📨 task for " + e.to, 9000);
+        if (agents[e.to] && live && H3()) H3().goTo(a.name, e.to);
+        feed = `<b>${esc(e.agent)}</b> delegated to <b>${esc(e.to)}</b> · <span class="d">${esc(e.task)}</span>`; break; }
+      case "fallback": a.model = e.model; say(a, "⚠️ switching to " + String(e.model).split("/").pop(), 5000); feed = `<b>${esc(e.agent)}</b> fell back to <span class="d">${esc(e.model)} · ${esc(e.reason)}</span>`; break;
+      case "done": setState(a, "done"); a.doneAt = e.ts; say(a, "✅ done", 7000); if (live) goHome(a); setTimeout(() => { if (a.state === "done") { setState(a, "idle"); a.since = 0; } }, 9000);
+        feed = `<b>${esc(e.agent)}</b> done · ${e.turns} turns, ${e.tool_calls} tool calls · <span class="d">${esc(e.answer)}</span>`; break;
+      case "error": setState(a, "error"); say(a, "❌ error", 8000); setTimeout(() => { if (a.state === "error") setState(a, "idle"); }, 12000); feed = `<b>${esc(e.agent)}</b> error · <span class="d">${esc(e.detail)}</span>`; break;
+      default: feed = `<b>${esc(e.agent)}</b> ${esc(e.type)}`;
+    }
+  } else feed = `<b>${esc(e.agent)}</b> ${esc(e.type)}${e.reason ? ` <span class="d">${esc(e.reason)}</span>` : ""}`;
+  const el = document.createElement("div"); el.className = "ev"; el.style.setProperty("--c", COLOR[e.type] || (e.type === "reward" ? "#ffd23f" : COLOR.idle));
+  el.innerHTML = `<span class="t">${hhmm(e.ts)}</span><span class="b"></span><span class="m" style="padding-left:${e.depth * 10}px">${feed}</span>`;
+  const fd = $("#feed"); fd.prepend(el); while (fd.children.length > 400) fd.lastChild.remove();
+  feedCount++; $("#feed-count").textContent = feedCount + " events";
 }
 async function openAgent(name) {
   const a = await (await fetch("/api/agent?name=" + encodeURIComponent(name))).json();
@@ -312,243 +284,8 @@ async function openAgent(name) {
   $("#modal-body").textContent = `${a.description}\n\nTOOLS: ${a.tools.join(", ")}${a.delegates.length ? "\nDELEGATES TO: " + a.delegates.join(", ") : ""}\nTASKS: ${a.tasks.done} done, ${a.tasks.failed} failed\n\nLESSONS LEARNED:\n${lessons}\n\nRECENT RUNS:\n${runs || "none yet"}\n\nBRIEF:\n${a.system}`;
   $("#modal").classList.add("open");
 }
-canvas.addEventListener("wheel", e => { e.preventDefault(); const f = Math.exp(-e.deltaY * 0.0012); cam.z = Math.max(.35, Math.min(2.5, cam.z * f)); }, { passive: false });
-
-/* ============================== drawing ============================== */
-const stars = Array.from({ length: 160 }, () => ({ x: Math.random(), y: Math.random(), r: Math.random() * 1.3 + .3, p: Math.random() * 6 }));
-let pulses = []; // particles travelling room -> brain or brain -> room
-
-function drawDiamond(p, w, h, fill, stroke) {
-  ctx.beginPath(); ctx.moveTo(p.x, p.y - h / 2); ctx.lineTo(p.x + w / 2, p.y); ctx.lineTo(p.x, p.y + h / 2); ctx.lineTo(p.x - w / 2, p.y); ctx.closePath();
-  ctx.fillStyle = fill; ctx.fill(); if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.stroke(); }
-}
-function drawBox(room, x, y, w, d, h, top, left, right) {
-  // iso box with footprint w x d tiles at (x,y), height h px
-  const p = [iso(x, y, h), iso(x + w, y, h), iso(x + w, y + d, h), iso(x, y + d, h)].map(q => ({ x: room.ox + q.x, y: room.oy + q.y }));
-  const b = [iso(x + w, y + d, 0), iso(x, y + d, 0), iso(x + w, y, 0)].map(q => ({ x: room.ox + q.x, y: room.oy + q.y }));
-  ctx.fillStyle = left; ctx.beginPath(); ctx.moveTo(p[3].x, p[3].y); ctx.lineTo(p[2].x, p[2].y); ctx.lineTo(b[0].x, b[0].y); ctx.lineTo(b[1].x, b[1].y); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = right; ctx.beginPath(); ctx.moveTo(p[2].x, p[2].y); ctx.lineTo(p[1].x, p[1].y); ctx.lineTo(b[2].x, b[2].y); ctx.lineTo(b[0].x, b[0].y); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = top; ctx.beginPath(); p.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill();
-  return p;
-}
-
-function drawRoom(room, t) {
-  const { w, d, pal } = room;
-  // floor shadow / platform
-  const base = [iso(0, 0, -14), iso(w, 0, -14), iso(w, d, -14), iso(0, d, -14)].map(q => ({ x: room.ox + q.x, y: room.oy + q.y }));
-  ctx.fillStyle = "#0b1020"; ctx.beginPath(); base.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill();
-  // platform sides
-  drawBox(room, 0, 0, w, d, 0, "rgba(0,0,0,0)", "#121a33", "#0e1529");
-  // floor tiles
-  for (let x = 0; x < w; x++) for (let y = 0; y < d; y++) {
-    const c = iso(x + .5, y + .5); drawDiamond({ x: room.ox + c.x, y: room.oy + c.y }, TW, TH, (x + y) % 2 ? pal.floor : pal.floorAlt);
-  }
-  // back walls (left: x=0 edge, right: y=0 edge)
-  const L = [iso(0, 0, 0), iso(0, d, 0), iso(0, d, WALL_H), iso(0, 0, WALL_H)].map(q => ({ x: room.ox + q.x, y: room.oy + q.y }));
-  ctx.fillStyle = pal.wallL; ctx.beginPath(); L.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill();
-  const Rw = [iso(0, 0, 0), iso(w, 0, 0), iso(w, 0, WALL_H), iso(0, 0, WALL_H)].map(q => ({ x: room.ox + q.x, y: room.oy + q.y }));
-  ctx.fillStyle = pal.wall; ctx.beginPath(); Rw.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill();
-  // wall art: a dark screen with a tiny chart on the right wall, a window on the left wall
-  const sc = [iso(w * .35, 0, WALL_H * .72), iso(w * .75, 0, WALL_H * .72), iso(w * .75, 0, WALL_H * .3), iso(w * .35, 0, WALL_H * .3)].map(q => ({ x: room.ox + q.x, y: room.oy + q.y }));
-  ctx.fillStyle = "#0d1322"; ctx.beginPath(); sc.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = "#5bd1ff"; ctx.lineWidth = 1.5; ctx.beginPath();
-  for (let i = 0; i <= 8; i++) { const u = i / 8, q = iso(w * (.38 + .34 * u), 0, WALL_H * (.38 + .22 * Math.abs(Math.sin(t * .8 + i + room.ox))));
-    i ? ctx.lineTo(room.ox + q.x, room.oy + q.y) : ctx.moveTo(room.ox + q.x, room.oy + q.y); }
-  ctx.stroke();
-  // ceiling lamp
-  const lamp = iso(w / 2, d / 2, WALL_H + 22); ctx.fillStyle = "#fff6d5"; ctx.beginPath(); ctx.arc(room.ox + lamp.x, room.oy + lamp.y, 4, 0, 7); ctx.fill();
-  ctx.strokeStyle = "#394a6b"; ctx.beginPath(); ctx.moveTo(room.ox + lamp.x, room.oy + lamp.y - 4); ctx.lineTo(room.ox + lamp.x, room.oy + lamp.y - 30); ctx.stroke();
-  // plant in the front corner
-  const pl = iso(w - .5, d - .5, 0); drawPlant(room.ox + pl.x, room.oy + pl.y);
-}
-function drawPlant(x, y) {
-  ctx.fillStyle = "#6b4a2b"; ctx.beginPath(); ctx.ellipse(x, y, 7, 4, 0, 0, 7); ctx.fill();
-  ctx.fillStyle = "#2e9e5b"; [[-6,-10],[0,-14],[6,-10],[-3,-18],[3,-18]].forEach(([dx,dy]) => { ctx.beginPath(); ctx.ellipse(x + dx, y + dy, 5, 7, dx * .1, 0, 7); ctx.fill(); });
-}
-function drawDesk(room, a, t) {
-  const { desk } = a;
-  const active = a.state !== "idle";
-  const top = drawBox(room, desk.x - .8, desk.y - .45, 1.6, .9, 22, "#d8c7a9", "#8f7b5d", "#a68f6c");
-  // monitor on desk (back-left of desk top)
-  const m = iso(desk.x - .05, desk.y - .2, 22); const mx = room.ox + m.x, my = room.oy + m.y;
-  ctx.fillStyle = "#1a1f2b"; ctx.fillRect(mx - 11, my - 24, 22, 15);
-  ctx.fillStyle = active ? "#5bd1ff" : "#1f2a40"; ctx.fillRect(mx - 9, my - 22, 18, 11);
-  if (active) { ctx.fillStyle = "rgba(91,209,255,.25)"; ctx.beginPath(); ctx.ellipse(mx, my - 4, 22, 9, 0, 0, 7); ctx.fill();
-    ctx.fillStyle = "#0a2a3a"; for (let i = 0; i < 3; i++) ctx.fillRect(mx - 7, my - 20 + i * 3, 6 + ((t * 3 + i) % 3) * 3, 1.5); }
-  ctx.fillStyle = "#1a1f2b"; ctx.fillRect(mx - 2, my - 9, 4, 4);
-  // chair behind the seat point
-  const c = iso(a.seat.x, a.seat.y + .25, 0); ctx.fillStyle = "#2a3140"; ctx.beginPath(); ctx.ellipse(room.ox + c.x, room.oy + c.y, 9, 5, 0, 0, 7); ctx.fill();
-}
-function drawAgent(a, t) {
-  const p = a.pos, col = a.room.pal.floor;
-  const bob = a.walking ? Math.sin(t * 14) * 2 : 0;
-  const sit = !a.walking && a.state !== "idle" && dist(p, a.home) < 2 ? 3 : 0;
-  // shadow
-  ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.beginPath(); ctx.ellipse(p.x, p.y, 8, 4, 0, 0, 7); ctx.fill();
-  const y = p.y - 2 + sit - bob;
-  // legs
-  ctx.fillStyle = "#23283a"; const lg = a.walking ? Math.sin(t * 14) * 3 : 0;
-  ctx.fillRect(p.x - 5, y - 10 + lg * .5, 4, 8); ctx.fillRect(p.x + 1, y - 10 - lg * .5, 4, 8);
-  // body
-  ctx.fillStyle = col; roundRect(p.x - 7, y - 24, 14, 15, 4); ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,.18)"; roundRect(p.x - 7, y - 24, 14, 5, 4); ctx.fill();
-  // head
-  ctx.fillStyle = "#f2c9a0"; ctx.beginPath(); ctx.arc(p.x, y - 30, 7, 0, 7); ctx.fill();
-  ctx.fillStyle = a.hair || (a.hair = ["#2b1d14","#5a3a1e","#1b1b1b","#8c5a2b","#d9b46a"][Math.floor(Math.random()*5)]);
-  ctx.beginPath(); ctx.arc(p.x, y - 32, 7, Math.PI, 0); ctx.fill();
-  // eyes
-  ctx.fillStyle = "#222"; ctx.fillRect(p.x - 3 + a.face, y - 30, 1.5, 1.5); ctx.fillRect(p.x + 1 + a.face, y - 30, 1.5, 1.5);
-  // status ring
-  if (a.state !== "idle") { ctx.strokeStyle = COLOR[a.state] || COLOR.idle; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, y - 30, 10 + Math.sin(t * 4) * 1.2, 0, 7); ctx.stroke(); }
-  // name tag
-  ctx.font = "600 9px system-ui, sans-serif"; ctx.textAlign = "center";
-  const nm = a.name; const tw = ctx.measureText(nm).width + 8;
-  ctx.fillStyle = "rgba(8,11,20,.75)"; roundRect(p.x - tw / 2, y - 48, tw, 12, 4); ctx.fill();
-  ctx.fillStyle = "#dbe3f2"; ctx.fillText(nm, p.x, y - 39);
-  // speech bubble
-  if (a.bubble && a.bubbleUntil > Date.now()) {
-    ctx.font = "600 10px system-ui, sans-serif"; const bw = Math.min(190, ctx.measureText(a.bubble).width + 14);
-    ctx.fillStyle = "#f7f9ff"; roundRect(p.x - bw / 2, y - 70, bw, 18, 7); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(p.x - 4, y - 52); ctx.lineTo(p.x + 4, y - 52); ctx.lineTo(p.x, y - 48); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = "#101522"; ctx.fillText(ellipsis(a.bubble, 176), p.x, y - 57);
-  }
-}
-function ellipsis(s, maxW) { let out = s; while (ctx.measureText(out).width > maxW && out.length > 3) out = out.slice(0, -2) + "…"; return out; }
-function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
-const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-
-function drawBrain(t) {
-  const b = brainPos();
-  // light beam
-  const g = ctx.createLinearGradient(0, b.y - 260, 0, b.y);
-  g.addColorStop(0, "rgba(140,190,255,0)"); g.addColorStop(1, "rgba(140,190,255,.35)");
-  ctx.fillStyle = g; ctx.fillRect(b.x - 6, b.y - 260, 12, 260);
-  // rings
-  for (let i = 0; i < 4; i++) {
-    const rx = 70 + i * 34, ry = rx * .45;
-    ctx.strokeStyle = `rgba(120,170,255,${.45 - i * .08})`; ctx.lineWidth = 1.2;
-    ctx.beginPath(); ctx.ellipse(b.x, b.y, rx, ry, 0, 0, 7); ctx.stroke();
-    const ang = t * (.6 + i * .25) * (i % 2 ? -1 : 1);
-    ctx.fillStyle = "#cfe3ff"; ctx.beginPath(); ctx.arc(b.x + Math.cos(ang) * rx, b.y + Math.sin(ang) * ry, 2.2, 0, 7); ctx.fill();
-  }
-  // orb
-  const pulse = 1 + Math.sin(t * 2) * .05;
-  const rg = ctx.createRadialGradient(b.x, b.y - 10, 4, b.x, b.y - 10, 46 * pulse);
-  rg.addColorStop(0, "#ffffff"); rg.addColorStop(.25, "#bcd6ff"); rg.addColorStop(.6, "rgba(91,141,239,.55)"); rg.addColorStop(1, "rgba(91,141,239,0)");
-  ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(b.x, b.y - 10, 46 * pulse, 0, 7); ctx.fill();
-  ctx.strokeStyle = "rgba(200,225,255,.5)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(b.x, b.y - 10, 22, 0, 7); ctx.stroke();
-}
-function drawPaths(t) {
-  const b = brainPos();
-  rooms.forEach(r => {
-    ctx.strokeStyle = "rgba(120,160,255,.22)"; ctx.lineWidth = 3; ctx.setLineDash([6, 10]); ctx.lineDashOffset = -t * 30;
-    ctx.beginPath(); ctx.moveTo(r.door.x, r.door.y); ctx.lineTo(b.x, b.y + 8); ctx.stroke(); ctx.setLineDash([]);
-  });
-  pulses = pulses.filter(p => p.u <= 1);
-  pulses.forEach(p => { p.u += p.speed; const x = p.from.x + (p.to.x - p.from.x) * p.u, y = p.from.y + (p.to.y - p.from.y) * p.u;
-    ctx.fillStyle = p.color; ctx.shadowColor = p.color; ctx.shadowBlur = 12; ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 7); ctx.fill(); ctx.shadowBlur = 0; });
-}
-
-let _lastFrame = 0;
-function frame(now) {
-  if (document.hidden) { requestAnimationFrame(frame); return; }
-  const busy = Object.values(agents).some(a => a.state !== "idle" || a.walking) || pulses.length || drag;
-  const minGap = busy ? 0 : 1000 / 8;                     // idle floor: 8 fps is enough for twinkling stars
-  if (now - _lastFrame < minGap) { requestAnimationFrame(frame); return; }
-  _lastFrame = now;
-  const t = now / 1000;
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  ctx.clearRect(0, 0, W, H);
-  // stars
-  stars.forEach(s => { ctx.fillStyle = `rgba(200,215,255,${.25 + .45 * Math.abs(Math.sin(t * .7 + s.p))})`; ctx.beginPath(); ctx.arc(s.x * W, s.y * H, s.r, 0, 7); ctx.fill(); });
-  ctx.translate(W / 2, H / 2); ctx.scale(cam.z, cam.z); ctx.translate(-cam.x, -cam.y);
-
-  // movement
-  Object.values(agents).forEach(a => stepAgent(a));
-
-  drawPaths(t);
-  drawBrain(t);
-  // rooms back-to-front by screen y
-  const ordered = [...rooms].sort((a, b) => (a.oy + iso(a.w / 2, a.d / 2).y) - (b.oy + iso(b.w / 2, b.d / 2).y));
-  ordered.forEach(r => { drawRoom(r, t); r.members.forEach(m => drawDesk(r, agents[m.name], t)); });
-  Object.values(agents).sort((a, b) => a.pos.y - b.pos.y).forEach(a => drawAgent(a, t));
-
-  placeCards();
-  requestAnimationFrame(frame);
-}
-
-function stepAgent(a) {
-  if (!a.target) { a.walking = false; return; }
-  const d = dist(a.pos, a.target);
-  if (d < 1.5) { a.pos = { ...a.target }; a.target = null; a.walking = false; if (a.onArrive) { const f = a.onArrive; a.onArrive = null; f(); } return; }
-  const sp = 2.6; a.walking = true;
-  a.face = a.target.x < a.pos.x ? -1 : 1;
-  a.pos = { x: a.pos.x + (a.target.x - a.pos.x) / d * sp, y: a.pos.y + (a.target.y - a.pos.y) / d * sp };
-}
-
-/* floating cards over rooms + brain (HTML for crisp text) */
-function placeCards() {
-  if (!overlay.dataset.built) {
-    overlay.innerHTML = rooms.map(r => `<div class="card" id="card-${esc(r.name)}"><div class="ico" style="background:${r.pal.wall}">${r.icon}</div>
-      <div><div class="nm">${esc(r.name.replace("-", " "))}</div><div class="sub"><i></i><span class="txt"></span></div></div>
-      <div class="avs">${r.members.map(m => `<div class="av" style="background:${r.pal.wallL}" title="${esc(m.name)}">${initials(m.name)}</div>`).join("")}</div></div>`).join("")
-      + `<div class="card brain" id="card-brain"><div class="ico" style="background:#1e2b4d">🧠</div><div><div class="nm">THE BRAIN</div><div class="sub" id="brain-sub">shared memory</div></div></div>`;
-    overlay.dataset.built = "1";
-  }
-  rooms.forEach(r => {
-    const top = iso(0, 0, WALL_H + 36); const s = toScreen({ x: r.ox + top.x + iso(r.w / 2, 0).x, y: r.oy + top.y });
-    const el = document.getElementById("card-" + r.name); if (!el) return;
-    el.style.left = s.x + "px"; el.style.top = s.y + "px"; el.style.transform = `translate(-50%,-100%) scale(${Math.max(.75, Math.min(1.1, cam.z))})`;
-    const running = r.members.filter(m => agents[m.name].state !== "idle").length;
-    el.querySelector(".txt").textContent = `${r.members.length} agent${r.members.length > 1 ? "s" : ""} · ${running} running`;
-    el.querySelector("i").className = running ? "on" : "";
-  });
-  $("#t-active").textContent = Object.values(agents).filter(a => a.state !== "idle").length;
-  const b = toScreen({ x: 0, y: -150 }); const bc = document.getElementById("card-brain");
-  if (bc) { bc.style.left = b.x + "px"; bc.style.top = b.y + "px"; }
-}
-
-/* ============================== events -> animation ============================== */
-function brainPulse(a, toBrain, color) { pulses.push({ from: toBrain ? a.room.door : brainPos(), to: toBrain ? brainPos() : a.room.door, u: 0, speed: .02, color }); }
-function say(a, text, ms = 6000) { a.bubble = text; a.bubbleUntil = Date.now() + ms; }
-function goHome(a) { a.target = { ...a.home }; }
-
-function applyEvent(e, live) {
-  const a = agents[e.agent]; const now = Date.now();
-  let feed = "";
-  if (a) {
-    if (e.type === "start" || a.state === "idle" || a.state === "done" || a.state === "error") a.since = e.ts;
-    switch (e.type) {
-      case "start": a.state = "think"; a.model = ""; say(a, "📋 " + e.task, 7000); if (live) goHome(a); feed = `<b>${esc(e.agent)}</b> started · <span class="d">${esc(e.task)}</span>`; break;
-      case "think": a.state = "think"; a.model = e.model; if (!a.bubble || a.bubbleUntil < now) say(a, "💭 thinking…", 4000); feed = `<b>${esc(e.agent)}</b> thinking on <span class="d">${esc(e.model)}</span>`; break;
-      case "tool": {
-        a.state = "tool"; const tl = e.tool;
-        const label = tl.startsWith("brain_") ? (tl === "brain_remember" ? "🧠 remembering…" : "🧠 recalling…")
-          : tl === "job_search" ? "🔎 searching LinkedIn…" : tl === "web_search" ? "🔍 searching the web…" : tl === "web_fetch" ? "🌐 reading a page…"
-          : tl === "write_file" ? "📝 writing…" : tl === "read_file" ? "📄 reading…" : tl === "request_approval" ? "✋ needs your OK" : "🔧 " + tl;
-        say(a, label, 8000);
-        if (live && tl.startsWith("brain_")) { a.target = { x: brainPos().x + (Math.random() * 60 - 30), y: brainPos().y + 40 + Math.random() * 20 }; brainPulse(a, true, "#9cc3ff"); }
-        feed = `<b>${esc(e.agent)}</b> → <b>${esc(tl)}</b> <span class="d">${esc(e.args)}</span>`; break; }
-      case "tool_result":
-        if (e.tool.startsWith("brain_") && live) { brainPulse(a, false, "#cfe3ff"); goHome(a); }
-        if (e.tool === "delegate" && live) goHome(a);
-        a.state = "think"; feed = `<span class="d">${esc(e.tool)} ${e.ok ? "returned" : "FAILED"}: ${esc(e.preview)}</span>`; break;
-      case "delegate": {
-        a.state = "delegate"; say(a, "📨 task for " + e.to, 9000);
-        const to = agents[e.to]; if (to && live) { a.target = { x: to.room.door.x + (Math.random() * 30 - 15), y: to.room.door.y + 10 }; }
-        feed = `<b>${esc(e.agent)}</b> delegated to <b>${esc(e.to)}</b> · <span class="d">${esc(e.task)}</span>`; break; }
-      case "fallback": a.model = e.model; say(a, "⚠️ switching to " + e.model.split("/").pop(), 5000); feed = `<b>${esc(e.agent)}</b> fell back to <span class="d">${esc(e.model)} · ${esc(e.reason)}</span>`; break;
-      case "done": a.state = "done"; a.doneAt = e.ts; say(a, "✅ done", 7000); if (live) goHome(a); setTimeout(() => { if (a.state === "done") { a.state = "idle"; a.since = 0; } }, 9000);
-        feed = `<b>${esc(e.agent)}</b> done · ${e.turns} turns, ${e.tool_calls} tool calls · <span class="d">${esc(e.answer)}</span>`; break;
-      case "error": a.state = "error"; say(a, "❌ error", 8000); setTimeout(() => { if (a.state === "error") a.state = "idle"; }, 12000); feed = `<b>${esc(e.agent)}</b> error · <span class="d">${esc(e.detail)}</span>`; break;
-      default: feed = `<b>${esc(e.agent)}</b> ${esc(e.type)}`;
-    }
-  } else feed = `<b>${esc(e.agent)}</b> ${esc(e.type)}`;
-  const el = document.createElement("div"); el.className = "ev"; el.style.setProperty("--c", COLOR[e.type] || COLOR.idle);
-  el.innerHTML = `<span class="t">${hhmm(e.ts)}</span><span class="b"></span><span class="m" style="padding-left:${e.depth * 10}px">${feed}</span>`;
-  const fd = $("#feed"); fd.prepend(el); while (fd.children.length > 400) fd.lastChild.remove();
-  feedCount++; $("#feed-count").textContent = feedCount + " events";
-}
+window.addEventListener("scroll", () => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); }, { passive: true });
+setInterval(() => { const de = document.documentElement; if (de.scrollWidth > de.clientWidth + 1 || de.scrollHeight > de.clientHeight + 1 || window.scrollX || window.scrollY) { window.scrollTo(0, 0); $(".app").style.width = window.innerWidth + "px"; $(".app").style.height = window.innerHeight + "px"; if (H3()) H3().resize(); } }, 2000);
 
 /* ============================== sidebar: tabs, toasts, quick actions ============================== */
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => { document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t)); document.querySelectorAll(".pane").forEach(p => p.classList.toggle("on", p.dataset.pane === t.dataset.tab)); try { localStorage.setItem("hq-tab", t.dataset.tab); } catch (_) {} if (t.dataset.tab === "trading") refreshTrading(); if (t.dataset.tab === "work") refreshSchedule(); if (t.dataset.tab === "jobs") refreshJobs(); });
@@ -580,6 +317,12 @@ async function refreshTrading() {
   const pos = (t.positions || []).map(p => `<div class="pos"><div><b>${esc(p.name || p.epic)}</b> · ${esc(p.direction)} ${esc(p.size)} @ ${esc(p.level)}<div class="who" style="color:var(--ink-3);font-size:11px">stop ${esc(p.stop ?? "–")} · target ${esc(p.profit ?? "–")} · bid ${esc(p.bid)} / offer ${esc(p.offer)}</div></div><div class="pl ${(p.upl || 0) >= 0 ? "up" : "dn"}">${(p.upl || 0) >= 0 ? "+" : ""}${esc(p.upl ?? "–")}</div></div>`).join("");
   $("#trading").innerHTML = t.configured ? `<div class="kv"><span class="k">balance</span><span class="v">${esc(a.balance)} ${esc(a.currency || "")}</span><span class="t"></span><span class="k">available</span><span class="v">${esc(a.available)}</span><span class="t"></span><span class="k">P/L</span><span class="v ${(a.profit_loss || 0) >= 0 ? "hit" : "miss"}">${esc(a.profit_loss)}</span><span class="t"></span><span class="k">open positions</span><span class="v">${esc(a.open_positions ?? 0)}</span><span class="t"></span></div>${pos || `<div class="empty">No open positions.</div>`}${t.error ? `<div class="empty">${esc(t.error)}</div>` : ""}`
     : `<div class="empty">Add CAPITAL_API_KEY, CAPITAL_IDENTIFIER and CAPITAL_PASSWORD to .env (free demo account).</div>`;
+  const strats = t.strategies || []; $("#strat-sp").textContent = strats.length ? `${strats.filter(s => s.status === "approved").length} approved` : "";
+  $("#strategies").innerHTML = strats.length ? strats.map(s => `<div class="task"><div><div><span class="st ${s.status === "approved" ? "done" : s.status === "retired" ? "failed" : "queued"}">${esc(s.status)}</span>${esc(s.name)}</div><div class="who">${esc(s.strategy)} ${esc(JSON.stringify(s.params))} · ${esc(s.symbol)} ${esc(s.resolution)} · stop ${s.stop_pct}% target ${s.target_pct}%${s.time_stop_bars ? " · time-stop " + s.time_stop_bars : ""}</div><div class="who">OOS: ${s.oos.trades ?? "–"} trades · win ${s.oos.win_pct ?? "–"}% · PF ${s.oos.profit_factor ?? "–"} · DD ${s.oos.max_drawdown_pct ?? "–"}%${s.oos.stable ? " · stable" : ""}</div></div></div>`).join("") : `<div class="empty">No strategies yet. The trading-learner's strategy lab runs daily and only approves what passes walk-forward validation.</div>`;
+  const j = t.journal || {}; const o = j.overall || {}; const lim = j.limits || {};
+  $("#journal-sp").textContent = lim.can_trade === false ? "desk paused by rules" : "";
+  $("#journal").innerHTML = o.trades ? `<div class="kv"><span class="k">closed trades</span><span class="v">${o.trades}</span><span class="t">/ 40 to judge</span><span class="k">net</span><span class="v ${o.net >= 0 ? "hit" : "miss"}">${o.net}</span><span class="t"></span><span class="k">win %</span><span class="v">${o.win_pct}</span><span class="t"></span><span class="k">profit factor</span><span class="v ${o.profit_factor >= 1.3 ? "hit" : "miss"}">${o.profit_factor}</span><span class="t">target 1.3+</span><span class="k">avg R</span><span class="v">${o.avg_r}</span><span class="t"></span></div>` : `<div class="empty">No closed demo trades yet.</div>`;
+  $("#journal").innerHTML += `<div class="kv"><span class="k">trades today</span><span class="v">${lim.trades_today ?? 0}</span><span class="t">/ ${(lim.rules || {}).max_trades_per_day ?? 2}</span><span class="k">this week</span><span class="v">${lim.week_pct ?? "–"}%</span><span class="t">goal ${(lim.rules || {}).weekly_goal_pct ?? 3}%</span>${(lim.blocks || []).map(b => `<span class="k" style="grid-column:1/-1;color:var(--tool)">${esc(b)}</span>`).join("")}</div>`;
   const rec = [...(t.signals || []), ...(t.recent || [])].sort((x, y) => y.created_at - x.created_at).slice(0, 12);
   $("#trade-recent").innerHTML = rec.length ? rec.map(m => `<div class="mem"><span class="k">${esc(m.kind)}</span>${esc(m.content)}<div class="who">${esc(m.agent)} · ${esc(m.created)}</div></div>`).join("") : `<div class="empty">No signals or trades yet. The desk runs 08:00-16:00 London time on weekdays.</div>`;
 }
@@ -622,11 +365,11 @@ async function refreshState() {
   trace("json");
   const names = s.roster.map(a => a.name).join();
   if (names !== roster.map(a => a.name).join()) {
-    roster = s.roster; buildRooms(); overlay.dataset.built = ""; fitCamera();
+    roster = s.roster; buildRooms();
     $("#agent").innerHTML = roster.map(a => `<option value="${esc(a.name)}" ${a.name === "chief-of-staff" ? "selected" : ""}>${esc(a.name)}</option>`).join("");
   }
   trace("rooms"); $("#t-agents").textContent = roster.length; $("#t-runs").textContent = s.runs_today;
-  $("#t-mem").innerHTML = s.brain.total_memories + `<small>notes</small>`;
+  $("#t-mem").innerHTML = s.brain.total_memories + `<small>notes</small>`; if (H3()) H3().setBrain(s.brain.total_memories); showTreasury(s.treasury);
   $("#t-appr").textContent = s.approvals.length; $("#appr-count").textContent = s.approvals.length ? s.approvals.length + " pending" : ""; $("#tab-appr").textContent = s.approvals.length || "";
   if (window._lastAppr != null && s.approvals.length > window._lastAppr) toast("New approval waiting for you"); window._lastAppr = s.approvals.length;
   const dg = s.memories.find(m => m.tags.includes("digest")); $("#digest").textContent = dg ? dg.content : "No digest yet today (08:30).";
@@ -735,19 +478,28 @@ function connect() {
     Object.values(agents).forEach(a => {
       const stale = !a.since || now - a.since > 900;            // nothing from this agent for 15 min -> idle
       const finished = a.state === "done" && (!a.doneAt || now - a.doneAt > 9);
-      if (a.state !== "idle" && (stale || finished)) { a.state = "idle"; a.bubble = null; }
-      a.pos = { ...a.home }; a.target = null; });
+      if (a.state !== "idle" && (stale || finished)) { setState(a, "idle"); a.bubble = null; }
+      if (H3()) { H3().setState(a.name, a.state); H3().goHome(a.name); } });
     $("#conn").classList.remove("off");
   });
   es.addEventListener("ev", ev => { const e = JSON.parse(ev.data); applyEvent(e, true); if (e.type === "done" || e.type === "tool_result") refreshState(); if (e.type === "done" && e.depth === 0) refreshRuns(); });
   es.onerror = () => $("#conn").classList.add("off");
 }
 
-resize();
-refreshState().then(() => { fitCamera(); connect(); requestAnimationFrame(frame); refreshSchedule(); refreshTrading(); refreshJobs(); });
+function boot() {
+  HQ3D.init($("#stage3d"), { onAgentClick: openAgent });
+  if (roster.length) HQ3D.setRoster(roster);
+  refreshState().then(() => { connect(); refreshSchedule(); refreshTrading(); refreshJobs(); });
+}
+if (window.HQ3D) boot(); else window.addEventListener("hq3d-ready", boot, { once: true });
 setInterval(refreshJobs, 120000);
 setInterval(refreshSchedule, 60000); setInterval(refreshTrading, 120000);
 setInterval(refreshState, 8000); refreshRuns(); setInterval(refreshRuns, 20000); refreshStats(); setInterval(refreshStats, 60000);
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+  import * as HQ3D from "/static/office3d.js";
+  window.HQ3D = HQ3D; window.dispatchEvent(new Event("hq3d-ready"));
 </script>
 </body>
 </html>

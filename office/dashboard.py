@@ -96,6 +96,14 @@ def roster() -> list[dict]:
              "tools": b.tools, "delegates": b.delegates} for b in list_agents()]
 
 
+def _treasury_state() -> dict:
+    try:
+        from tools import treasury
+        t = treasury(); return {k: t[k] for k in ("credits", "currency", "xp", "level", "wins", "losses", "streak", "best_streak")}
+    except Exception:
+        return {}
+
+
 def state() -> dict:
     day_start = time.mktime(time.strptime(time.strftime("%Y-%m-%d"), "%Y-%m-%d"))
     events = read_tail(2000)
@@ -116,6 +124,7 @@ def state() -> dict:
         "scheduler_busy": scheduler.busy(),
         "running_tasks": scheduler.running_ids(), "max_parallel": scheduler.MAX_PARALLEL, "budget": scheduler.budget(),
         "paused": scheduler.paused(),
+        "treasury": _treasury_state(),
         "now": time.time(),
     }
 
@@ -187,6 +196,20 @@ async def api_linkedin_post(request: Request):
         return JSONResponse(json.loads(r))
     except Exception:
         return JSONResponse({"error": r}, status_code=400)
+
+
+async def static_file(request: Request):
+    from starlette.responses import FileResponse
+    name = Path(request.path_params["name"]).name
+    p = STATIC / name
+    if not p.exists() or p.suffix not in (".js", ".css", ".png", ".svg", ".woff2"):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(str(p), media_type={"js": "application/javascript", "css": "text/css", "png": "image/png", "svg": "image/svg+xml", "woff2": "font/woff2"}[p.suffix[1:]])
+
+
+async def api_treasury(_: Request):
+    from tools import treasury
+    return JSONResponse(treasury())
 
 
 async def api_vapid(_: Request):
@@ -448,6 +471,11 @@ def _trading() -> dict:
                     [m.to_dict() for m in brain.recent(limit=6, kind="decision") if "risk" in m.tags][:6]
     out["recent"].sort(key=lambda m: m["created_at"], reverse=True)
     out["signals"] = [m.to_dict() for m in brain.recent(limit=5, tags=["signal"])]
+    try:
+        out["strategies"] = json.loads(_reg.call("strategy_list", {}))
+        out["journal"] = json.loads(_reg.call("trade_journal", {"action": "stats"}))
+    except Exception as e:
+        out["strategies"] = []; out["journal"] = {"error": str(e)[:120]}
     return out
 
 
@@ -628,6 +656,8 @@ app = Starlette(middleware=[Middleware(AuthMiddleware)], routes=[
     Route("/sw.js", sw),
     Route("/icon.png", icon),
     Route("/api/vapid", api_vapid),
+    Route("/static/{name}", static_file),
+    Route("/api/treasury", api_treasury),
     Route("/linkedin/connect", linkedin_connect),
     Route("/linkedin/callback", linkedin_callback),
     Route("/api/linkedin/status", api_linkedin_status),

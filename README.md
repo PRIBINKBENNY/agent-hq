@@ -151,6 +151,35 @@ For a permanent private URL use Tailscale, or a named Cloudflare tunnel on your 
 See `DEPLOY.md`, which also covers running the office on a free cloud VM so it keeps working
 when the Mac is off. While it runs on the Mac, the dashboard keeps the machine awake on mains power.
 
+## The 3D office and the treasury
+
+The floor is a real-time 3D office (Three.js, free from a CDN): glass-walled rooms on a ring around the
+brain core, each agent seated at a desk with a glowing monitor, typing while it works, walking to the brain
+when it recalls or remembers, and crossing to a colleague's desk to delegate. Orbit, zoom and pan with the
+mouse; click an agent for its brief, runs and lessons. The trading office is the financial hub: every
+profitable demo trade credits the office treasury, earns experience, lifts the office level and fires a
+gold burst at the brain; losses cost credits but never experience, because losses are part of the business.
+The treasury, level and streak sit top-left on the floor and in the brain's memory.
+
+## Trading desk: learns, validates, then trades (Capital.com demo)
+
+The desk is built around a playbook distilled from a day-trading manual in `workspace/trading/library/`
+(the full text is in the brain under namespace `trading`; drop any PDF in that folder and the learner's
+`learn_document` tool reads it). The **trading-learner** agent studies it daily, and every evening runs a
+strategy lab: deterministic walk-forward tests (`office/strategy.py`: SMA crossover, channel breakout, MACD,
+RSI and Williams %R fades) on real hourly or daily bars, optimising on the past and scoring only on the
+unseen next segment. A strategy is approved for the demo desk only if the out-of-sample result passes the
+playbook's power principles (40+ trades, win rate >= 50%, profit factor >= 1.3, reward/risk >= 1.5,
+drawdown <= 20%, 4+ trades a week) and at least 60% of folds were profitable. The tool refuses otherwise.
+
+During London hours the strategy-analyst runs an hourly `signal_scan`, which applies only approved
+strategies to live bars; the risk-officer checks the playbook rules; the trader executes. The rules are
+enforced in code, not prompts: 1% of balance risked per trade, profit target mandatory, reward/risk >= 1.5,
+two new trades a day, stop at the 3% weekly goal, stop for the day at a 2% loss, time-stops on stale
+positions. Every open and close is journaled with its strategy and reason; the learner's weekly review
+compares realised results with expectations and retires what fails on the evidence, changing one thing
+at a time. The Trading tab shows strategies, the journal's performance report and today's limits.
+
 ## Trading desk (Capital.com demo)
 
 The trading office runs on a free Capital.com demo account: real markets, real prices, virtual money.

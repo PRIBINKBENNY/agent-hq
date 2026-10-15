@@ -51,6 +51,9 @@ def main():
         import scheduler as _sch
         pz = _sch.paused(); print(("  INFO OFFICE PAUSED: " + pz.get("reason", "")) if pz.get("paused") else "  OK   office running (not paused)")
         ok(bool(active_providers()), f"providers with keys: {', '.join(active_providers()) or 'none (Ollama only)'}")
+        from runtime import provider_down as _pd
+        for prov, until in _pd().items():
+            print(f"  WARN {prov} parked until {_t.strftime('%H:%M', _t.localtime(until))} (answered 401/402/403: key invalid or credits exhausted)")
         u = read_usage()
         for prov, d in u.items():
             day = d.get("x-ratelimit-remaining-tokens-day") or d.get("x-ratelimit-remaining-requests") or "?"

@@ -113,17 +113,6 @@
     with hidden model answers. If there are no weak spots yet, write a drill on model evaluation metrics.
 
     '
-- name: nightly-backtest
-  agent: strategy-analyst
-  every_hours: 24
-  priority: 2
-  hours: 18-23
-  weekdays: true
-  title: 'Strategy: backtest one idea'
-  task: 'Backtest ONE strategy idea on one watchlist instrument (rotate; check brain for what was tested) with capital_prices
-    DAY 200 points or market_data 1y. Save the script and results; store the metrics.
-
-    '
 - name: evening-wrap
   agent: chief-of-staff
   every_hours: 24
@@ -153,3 +142,27 @@
     git diff) for bugs, secrets, and README accuracy. Store the verdict; task_create fixes for the debugger if needed.
 
     '
+- name: strategy-lab
+  agent: trading-learner
+  every_hours: 24
+  priority: 3
+  hours: 17-23
+  title: 'Learner: strategy lab (walk-forward)'
+  task: 'Strategy lab: read the playbook, test 2-3 strategy families on 1-2 instruments with walk_forward, save
+    candidates, approve only what passes, update trading/plan.md.'
+- name: trading-study
+  agent: trading-learner
+  every_hours: 24
+  priority: 2
+  hours: 05-08
+  title: 'Learner: daily study'
+  task: 'Study: recall playbook topics relevant to this week''s journal, learn any new document in trading/library/,
+    store 5 concrete lessons.'
+- name: trading-weekly-review
+  agent: trading-learner
+  every_hours: 168
+  priority: 3
+  hours: 09-20
+  title: 'Learner: weekly trading review'
+  task: 'Weekly review: journal stats vs expectations per strategy; retire what failed on the evidence, change at
+    most one thing and re-validate, update trading/plan.md, notify Pribin.'

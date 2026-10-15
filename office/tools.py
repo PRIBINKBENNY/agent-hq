@@ -811,21 +811,45 @@ def capital_positions():
         "epic": {"type": "string"}, "direction": {"type": "string", "description": "BUY or SELL"}, "size": {"type": "number"},
         "stop_level": {"type": "number"}, "profit_level": {"type": "number"},
         "risk_approval_id": {"type": "integer", "description": "memory id of the risk-officer decision that APPROVED this trade"},
-        "reason": {"type": "string", "description": "one line: the signal / thesis"},
-    }, "required": ["epic", "direction", "size", "stop_level", "risk_approval_id", "reason"]})
-def capital_open(epic: str, direction: str, size: float, stop_level: float, risk_approval_id: int, reason: str, profit_level: float | None = None, _agent="unknown"):
+        "reason": {"type": "string", "description": "one line: the signal / thesis"}, "strategy": {"type": "string", "description": "approved strategy name from signal_scan"},
+    }, "required": ["epic", "direction", "size", "stop_level", "profit_level", "risk_approval_id", "reason"]})
+def capital_open(epic: str, direction: str, size: float, stop_level: float, risk_approval_id: int, reason: str, profit_level: float | None = None,
+                 strategy: str = "", _agent="unknown"):
     try:
         m = brain.get(int(risk_approval_id))
     except KeyError:
         return "refused: risk_approval_id does not exist"
+    if not profit_level:
+        return "refused: playbook rule - every trade needs a profit target (profit_level)"
+    lim = desk_limits()
+    if not lim["can_trade"]:
+        return "refused by desk limits: " + "; ".join(lim["blocks"])
     if m.kind != "decision" or m.agent != "risk-officer" or "approve" not in m.content.lower() or "veto" in m.content.lower():
         return "refused: that memory is not a risk-officer APPROVE decision"
     if epic.split(".")[0].lower() not in m.content.lower() and epic.lower() not in m.content.lower():
         return f"refused: the risk decision does not mention {epic}"
     try:
-        r = _cap().open_position(epic, direction, size, stop_level, profit_level)
+        c = _cap(); mkt = c.market(epic); px = float(mkt.get("offer" if direction.upper() == "BUY" else "bid") or 0)
+        acc = c.preferred_account(); available = float((acc.get("balance") or {}).get("available") or 0)
     except Exception as e:
         return f"capital error: {e}"
+    if px:
+        risk_per_unit = abs(px - float(stop_level)); reward_per_unit = abs(float(profit_level) - px)
+        if risk_per_unit and reward_per_unit / risk_per_unit < DESK_RULES["min_rr"]:
+            return f"refused: reward/risk {reward_per_unit / risk_per_unit:.2f} < {DESK_RULES['min_rr']} (entry {px}, stop {stop_level}, target {profit_level})"
+        if available and risk_per_unit * float(size) > available * DESK_RULES["risk_pct_per_trade"] / 100 * 1.05:
+            max_size = round(available * DESK_RULES["risk_pct_per_trade"] / 100 / risk_per_unit, 2)
+            return f"refused: this risks {risk_per_unit * float(size):.2f} = {100 * risk_per_unit * float(size) / available:.2f}% of available; playbook max is {DESK_RULES['risk_pct_per_trade']}% (size <= {max_size})"
+    try:
+        r = c.open_position(epic, direction, size, stop_level, profit_level)
+    except Exception as e:
+        return f"capital error: {e}"
+    st = _desk_state(); import datetime as _dt
+    wk = _dt.date.today().isocalendar()[:2]
+    if st.get("week") != list(wk):
+        st = {"week": list(wk), "week_start_balance": available}; DESK_STATE.parent.mkdir(parents=True, exist_ok=True); DESK_STATE.write_text(json.dumps(st))
+    _journal_write({"event": "open", "epic": epic, "direction": direction.upper(), "size": float(size), "entry": r.get("level") or px, "stop": float(stop_level),
+                    "target": float(profit_level), "strategy": strategy, "reason": reason[:200], "dealId": r.get("dealId"), "status": r.get("status"), "agent": _agent})
     brain.remember(f"{r['mode']} trade {r.get('status')}: {direction} {size} {epic} at {r.get('level')} stop {stop_level}"
                    f"{' target ' + str(profit_level) if profit_level else ''}. Reason: {reason}. dealId {r.get('dealId')} (risk #{risk_approval_id})",
                    agent=_agent, kind="event", importance=4, tags=["trade", r["mode"].lower(), f"epic:{epic.lower()}"])
@@ -836,9 +860,18 @@ def capital_open(epic: str, direction: str, size: float, stop_level: float, risk
     "type": "object", "properties": {"deal_id": {"type": "string"}, "reason": {"type": "string"}}, "required": ["deal_id", "reason"]})
 def capital_close(deal_id: str, reason: str, _agent="unknown"):
     try:
-        r = _cap().close_position(deal_id)
+        c = _cap(); pos = next((p for p in c.positions() if p.get("dealId") == deal_id), None)
+        r = c.close_position(deal_id)
     except Exception as e:
         return f"capital error: {e}"
+    if pos:
+        opened = next((j for j in reversed(_journal()) if j.get("event") == "open" and j.get("dealId") == deal_id), {})
+        risk = abs(float(opened.get("entry") or pos.get("level") or 0) - float(opened.get("stop") or 0)) * float(pos.get("size") or 0)
+        _journal_write({"event": "close", "epic": pos.get("epic"), "direction": pos.get("direction"), "size": pos.get("size"), "entry": pos.get("level"),
+                        "pnl": pos.get("upl"), "r": round(float(pos.get("upl") or 0) / risk, 2) if risk else None, "strategy": opened.get("strategy"), "reason": reason[:200],
+                        "dealId": deal_id, "status": r.get("status"), "agent": _agent})
+        if pos.get("upl") is not None:
+            r["reward"] = record_trade_outcome(float(pos["upl"]), round(float(pos["upl"]) / risk, 2) if risk else None, opened.get("strategy") or "", pos.get("epic") or "", _agent, pos.get("currency") or "GBP")
     brain.remember(f"{r['mode']} position closed {deal_id}: {r.get('status')}. Reason: {reason}", agent=_agent, kind="event", importance=3, tags=["trade", "close"])
     return json.dumps(r)
 
@@ -1143,3 +1176,342 @@ def job_status(job_id: int, status: str, note: str = "", _agent="unknown"):
     meta = {**(m.meta or {}), "status": status, "status_note": note, "status_at": time.strftime("%Y-%m-%d %H:%M")}
     brain.update(m.id, agent=_agent, meta=meta, add_tags=[f"status:{status}"])
     return f"job #{m.id} -> {status}"
+
+
+# ---------------------------------------------------------------- trading desk: learning, backtesting, journal, desk limits
+STRATEGIES_DIR = WORKSPACE / "trading" / "strategies"
+LAB_CACHE = WORKSPACE / "trading" / "lab-cache.json"
+
+
+def _lab_cache(key: str | None = None, value: dict | None = None):
+    try:
+        d = json.loads(LAB_CACHE.read_text())
+    except Exception:
+        d = {}
+    if key and value is not None:
+        d[key] = value; LAB_CACHE.parent.mkdir(parents=True, exist_ok=True); LAB_CACHE.write_text(json.dumps(d))
+    return d.get(key) if key else d
+JOURNAL_FILE = WORKSPACE / "trading" / "journal.jsonl"
+DESK_STATE = WORKSPACE / "trading" / "desk_state.json"
+LIBRARY_DIR = WORKSPACE / "trading" / "library"
+DESK_RULES = {"risk_pct_per_trade": 1.0, "min_rr": 1.5, "max_trades_per_day": 2, "weekly_goal_pct": 3.0, "max_daily_loss_pct": 2.0}
+
+
+def _bars(symbol: str, resolution: str = "HOUR", max_points: int = 1000) -> list[dict]:
+    """Bars from Capital.com (epic, e.g. GOLD, VODL) or Yahoo (ticker with . or ^ or =, e.g. VOD.L, ^FTSE, GC=F).
+    resolution: MINUTE_15 | HOUR | HOUR_4 | DAY."""
+    if any(ch in symbol for ch in ".^=") and len(symbol) > 2:
+        import yfinance as yf
+        interval = {"MINUTE_5": "5m", "MINUTE_15": "15m", "MINUTE_30": "30m", "HOUR": "60m", "HOUR_4": "60m", "DAY": "1d", "WEEK": "1wk"}.get(resolution, "60m")
+        period = {"5m": "60d", "15m": "60d", "30m": "60d", "60m": "730d", "1d": "5y", "1wk": "10y"}[interval]
+        df = yf.Ticker(symbol).history(period=period, interval=interval, auto_adjust=True)
+        bars = [{"t": idx.strftime("%Y-%m-%dT%H:%M:%S"), "open": float(r["Open"]), "high": float(r["High"]), "low": float(r["Low"]), "close": float(r["Close"])}
+                for idx, r in df.iterrows() if r["Close"] == r["Close"]]
+        return bars[-max_points:]
+    pts = _cap().prices(symbol, resolution, min(1000, int(max_points)))
+    return [{"t": p["t"], "open": p["open"], "high": p["high"], "low": p["low"], "close": p["close"]} for p in pts if p.get("close") and p.get("open")]
+
+
+@registry.register("backtest_strategy", "Backtest ONE rule-based strategy on real bars. strategy: sma_cross | breakout | macd | rsi_fade | williams. "
+                   "symbol: Capital epic (GOLD, VODL, US500) or Yahoo ticker (VOD.L, ^FTSE, GC=F). Returns the playbook performance report "
+                   "(trades, win %, avg win/loss in R, profit factor, expectancy, drawdown, trades/week) and the power-principles check.", {
+    "type": "object", "properties": {
+        "symbol": {"type": "string"}, "strategy": {"type": "string"}, "params": {"type": "object", "description": "e.g. {\"fast\":10,\"slow\":20}"},
+        "resolution": {"type": "string", "default": "HOUR"}, "max_points": {"type": "integer", "default": 1000},
+        "stop_pct": {"type": "number", "default": 1.0}, "target_pct": {"type": "number", "default": 2.0},
+        "time_stop_bars": {"type": "integer", "default": 0, "description": "exit after N bars if neither stop nor target hit (playbook: 3x timeframe)"},
+    }, "required": ["symbol", "strategy"]})
+def backtest_strategy(symbol: str, strategy: str, params: dict | None = None, resolution: str = "HOUR", max_points: int = 1000,
+                      stop_pct: float = 1.0, target_pct: float = 2.0, time_stop_bars: int = 0):
+    import strategy as S
+    if strategy not in S.STRATEGIES:
+        return f"unknown strategy; choose from {list(S.STRATEGIES)}"
+    try:
+        bars = _bars(symbol, resolution, max_points)
+    except Exception as e:
+        return f"data error: {e}"
+    if len(bars) < 60:
+        return f"only {len(bars)} bars for {symbol} {resolution}; need 60+"
+    rep = S.backtest(bars, strategy, params or {}, stop_pct, target_pct, int(time_stop_bars))
+    rep["symbol"] = symbol; rep["resolution"] = resolution; rep["principles"] = S.principles_check(rep); rep["kind"] = S.STRATEGIES[strategy]["kind"]
+    return json.dumps(rep)
+
+
+@registry.register("walk_forward", "Walk-forward test of a strategy family on real bars: optimise parameters on the past, test on the next segment, "
+                   "repeat. Returns the combined OUT-OF-SAMPLE report, per-fold results, recommended parameters, stability and the principles check. "
+                   "This is the test that guards against curve-fitting; prefer it over backtest_strategy for approval decisions.", {
+    "type": "object", "properties": {
+        "symbol": {"type": "string"}, "strategy": {"type": "string"}, "resolution": {"type": "string", "default": "HOUR"},
+        "max_points": {"type": "integer", "default": 1000}, "segments": {"type": "integer", "default": 4},
+        "stop_pct": {"type": "number", "default": 1.0}, "target_pct": {"type": "number", "default": 2.0}, "time_stop_bars": {"type": "integer", "default": 0},
+    }, "required": ["symbol", "strategy"]})
+def walk_forward(symbol: str, strategy: str, resolution: str = "HOUR", max_points: int = 1000, segments: int = 4,
+                 stop_pct: float = 1.0, target_pct: float = 2.0, time_stop_bars: int = 0):
+    import strategy as S
+    if strategy not in S.STRATEGIES:
+        return f"unknown strategy; choose from {list(S.STRATEGIES)}"
+    try:
+        bars = _bars(symbol, resolution, max_points)
+    except Exception as e:
+        return f"data error: {e}"
+    rep = S.walk_forward(bars, strategy, None, int(segments), stop_pct, target_pct, int(time_stop_bars))
+    rep["symbol"] = symbol; rep["resolution"] = resolution; rep["kind"] = S.STRATEGIES[strategy]["kind"]
+    rep["params"] = rep.get("recommended_params") or {}; rep["time_stop_bars"] = int(time_stop_bars)
+    rep.pop("trade_list", None)
+    if "trades" in rep:
+        _lab_cache(f"{symbol}|{strategy}|{resolution}", rep)
+        rep["save_hint"] = f"to save: strategy_save(name=..., symbol='{symbol}', strategy='{strategy}', status='approved' or 'candidate'); params and exits are taken from this result automatically"
+    return json.dumps(rep)
+
+
+def _strategies() -> list[dict]:
+    STRATEGIES_DIR.mkdir(parents=True, exist_ok=True)
+    out = []
+    for f in sorted(STRATEGIES_DIR.glob("*.json")):
+        try:
+            out.append(json.loads(f.read_text()))
+        except Exception:
+            pass
+    return out
+
+
+@registry.register("strategy_save", "Save a strategy as candidate / approved / retired. Give name, symbol, strategy and status; params, stop, target and "
+                   "time-stop default to the most recent walk_forward result for that symbol+strategy, so you do not need to retype the report. "
+                   "Approval is refused unless that walk-forward passed the power principles and was stable. epic = the Capital.com instrument to "
+                   "trade when the symbol is a Yahoo ticker used for history (e.g. symbol GC=F -> epic GOLD).", {
+    "type": "object", "properties": {
+        "name": {"type": "string", "description": "short slug, e.g. gold-h1-sma"}, "symbol": {"type": "string"}, "strategy": {"type": "string"},
+        "status": {"type": "string", "description": "candidate | approved | retired"}, "epic": {"type": "string", "description": "Capital.com epic to trade (default: symbol)"},
+        "params": {"type": "object"}, "resolution": {"type": "string", "default": "HOUR"}, "stop_pct": {"type": "number"}, "target_pct": {"type": "number"},
+        "time_stop_bars": {"type": "integer"}, "notes": {"type": "string"},
+    }, "required": ["name", "symbol", "strategy", "status"]})
+def strategy_save(name: str, symbol: str, strategy: str, status: str, epic: str = "", params: dict | None = None, resolution: str = "HOUR",
+                  stop_pct: float | None = None, target_pct: float | None = None, time_stop_bars: int | None = None, notes: str = "", report: dict | None = None, _agent="unknown"):
+    import re as _re, strategy as S
+    slug = _re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    if strategy not in S.STRATEGIES:
+        return f"refused: unknown strategy (choose from {list(S.STRATEGIES)})"
+    if status not in ("candidate", "approved", "retired"):
+        return "refused: status must be candidate | approved | retired"
+    cached = report if (report and "trades" in report) else _lab_cache(f"{symbol}|{strategy}|{resolution}")
+    if status == "retired":
+        existing = next((x for x in _strategies() if x["name"] == slug), None)
+        if existing:
+            existing["status"] = "retired"; existing["notes"] = (existing.get("notes", "") + " | retired: " + notes)[:600]; existing["retired_at"] = time.strftime("%Y-%m-%d %H:%M")
+            (STRATEGIES_DIR / f"{slug}.json").write_text(json.dumps(existing, indent=1))
+            brain.remember(f"Strategy {slug} RETIRED: {notes[:200]}", agent=_agent, kind="decision", importance=3, tags=["strategy", "retired"])
+            return f"strategy {slug} retired"
+    if not cached:
+        return f"refused: no walk_forward result cached for {symbol} {strategy} {resolution}; run walk_forward first"
+    def num(v, d):
+        try:
+            return float(v) if v is not None else d
+        except (TypeError, ValueError):
+            return d
+    params = {k: (int(v) if str(v).lstrip("-").isdigit() else num(v, v)) for k, v in (params or cached.get("recommended_params") or {}).items()}
+    stop_pct = num(stop_pct, cached.get("stop_pct", 1.0)); target_pct = num(target_pct, cached.get("target_pct", 2.0))
+    time_stop_bars = int(num(time_stop_bars, cached.get("time_stop_bars", 0)))
+    if target_pct / max(stop_pct, 1e-9) < DESK_RULES["min_rr"]:
+        return f"refused: reward/risk {target_pct / stop_pct:.2f} is below the desk minimum {DESK_RULES['min_rr']}"
+    if status == "approved":
+        chk = S.principles_check(cached)
+        if not chk["passed"] or not cached.get("stable", False):
+            return f"refused: cannot approve. Failed: {chk['failed'] + ([] if cached.get('stable') else ['walk-forward not stable (< 60% of folds profitable)'])}. Save it as candidate instead."
+    STRATEGIES_DIR.mkdir(parents=True, exist_ok=True)
+    rec = {"name": slug, "symbol": symbol, "epic": (epic or symbol).upper() if not any(ch in (epic or symbol) for ch in ".^=") else (epic or symbol), "strategy": strategy,
+           "kind": S.STRATEGIES[strategy]["kind"], "params": params, "resolution": resolution, "stop_pct": stop_pct, "target_pct": target_pct, "time_stop_bars": time_stop_bars,
+           "status": status, "report": {k: v for k, v in cached.items() if k not in ("trade_list", "folds", "save_hint")}, "folds": cached.get("folds"), "notes": notes,
+           "saved_by": _agent, "saved_at": time.strftime("%Y-%m-%d %H:%M")}
+    (STRATEGIES_DIR / f"{slug}.json").write_text(json.dumps(rec, indent=1))
+    brain.remember(f"Strategy {slug} [{status}]: {strategy} {params} on {symbol} {resolution} (trade {rec['epic']}), stop {stop_pct}% target {target_pct}% time-stop {time_stop_bars}. "
+                   f"OOS: {cached.get('trades')} trades, win {cached.get('win_pct')}%, PF {cached.get('profit_factor')}, DD {cached.get('max_drawdown_pct')}%, stable {cached.get('stable')}. {notes[:160]}",
+                   agent=_agent, kind="decision", importance=4 if status == "approved" else 2, tags=["strategy", status, f"epic:{rec['epic'].lower()}"])
+    return f"strategy {slug} saved as {status}: {strategy} {params} on {symbol} {resolution}, trades {rec['epic']}, stop {stop_pct}% target {target_pct}% time-stop {time_stop_bars}"
+
+
+@registry.register("strategy_list", "List saved strategies (candidate / approved / retired) with their out-of-sample numbers.", {"type": "object", "properties": {}})
+def strategy_list():
+    return json.dumps([{k: s.get(k) for k in ("name", "status", "symbol", "epic", "strategy", "kind", "params", "resolution", "stop_pct", "target_pct", "time_stop_bars", "saved_at")}
+                       | {"oos": {k: s.get("report", {}).get(k) for k in ("trades", "win_pct", "profit_factor", "max_drawdown_pct", "stable")}} for s in _strategies()])
+
+
+def _desk_state() -> dict:
+    try:
+        return json.loads(DESK_STATE.read_text())
+    except Exception:
+        return {}
+
+
+def _journal(limit: int = 500) -> list[dict]:
+    if not JOURNAL_FILE.exists():
+        return []
+    rows = []
+    for ln in JOURNAL_FILE.read_text().splitlines()[-limit:]:
+        try:
+            rows.append(json.loads(ln))
+        except Exception:
+            pass
+    return rows
+
+
+def _journal_write(row: dict):
+    JOURNAL_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(JOURNAL_FILE, "a") as f:
+        f.write(json.dumps({"ts": time.strftime("%Y-%m-%d %H:%M:%S"), **row}) + "\n")
+
+
+def desk_limits(available: float | None = None) -> dict:
+    """The playbook's discipline rules, computed from the journal: trades today, week P/L vs goal, day loss vs limit."""
+    rows = _journal(); today = time.strftime("%Y-%m-%d")
+    import datetime as _dt
+    monday = (_dt.date.today() - _dt.timedelta(days=_dt.date.today().weekday())).isoformat()
+    opened_today = sum(1 for r in rows if r.get("event") == "open" and r["ts"].startswith(today))
+    closed = [r for r in rows if r.get("event") == "close" and r.get("pnl") is not None]
+    week_pnl = sum(r["pnl"] for r in closed if r["ts"][:10] >= monday); day_pnl = sum(r["pnl"] for r in closed if r["ts"].startswith(today))
+    st = _desk_state(); base = st.get("week_start_balance") or available or 0
+    week_pct = round(100 * week_pnl / base, 2) if base else None; day_pct = round(100 * day_pnl / base, 2) if base else None
+    blocks = []
+    if opened_today >= DESK_RULES["max_trades_per_day"]:
+        blocks.append(f"already {opened_today} trades today (max {DESK_RULES['max_trades_per_day']})")
+    if week_pct is not None and week_pct >= DESK_RULES["weekly_goal_pct"]:
+        blocks.append(f"weekly goal reached ({week_pct}% >= {DESK_RULES['weekly_goal_pct']}%): stop trading until Monday")
+    if day_pct is not None and day_pct <= -DESK_RULES["max_daily_loss_pct"]:
+        blocks.append(f"daily loss limit hit ({day_pct}%): no more trades today")
+    return {"trades_today": opened_today, "week_pnl": round(week_pnl, 2), "week_pct": week_pct, "day_pnl": round(day_pnl, 2), "day_pct": day_pct,
+            "week_start_balance": base, "rules": DESK_RULES, "can_trade": not blocks, "blocks": blocks}
+
+
+@registry.register("trade_journal", "The desk's trade journal. action=stats: the playbook performance report from closed demo trades (net, win %, avg win/loss, "
+                   "profit factor, RR, by strategy) plus today's/this week's limits. action=list: the last N entries.", {
+    "type": "object", "properties": {"action": {"type": "string", "default": "stats"}, "limit": {"type": "integer", "default": 20}}})
+def trade_journal(action: str = "stats", limit: int = 20):
+    rows = _journal()
+    if action == "list":
+        return json.dumps(rows[-int(limit):])
+    closed = [r for r in rows if r.get("event") == "close" and r.get("pnl") is not None]
+    def stats(rs):
+        if not rs:
+            return {"trades": 0}
+        w = [r for r in rs if r["pnl"] > 0]; l = [r for r in rs if r["pnl"] <= 0]; gp = sum(r["pnl"] for r in w); gl = -sum(r["pnl"] for r in l)
+        return {"trades": len(rs), "net": round(gp - gl, 2), "win_pct": round(100 * len(w) / len(rs), 1), "avg_win": round(gp / len(w), 2) if w else 0,
+                "avg_loss": round(-gl / len(l), 2) if l else 0, "profit_factor": round(gp / gl, 2) if gl else (9.99 if gp else 0), "avg_r": round(sum(r.get("r", 0) for r in rs) / len(rs), 2)}
+    by = {}
+    for r in closed:
+        by.setdefault(r.get("strategy") or "manual", []).append(r)
+    return json.dumps({"overall": stats(closed), "by_strategy": {k: stats(v) for k, v in by.items()}, "open_entries": sum(1 for r in rows if r.get("event") == "open"),
+                       "limits": desk_limits(), "minimum_trades_before_judging": 40})
+
+
+@registry.register("signal_scan", "Deterministic scan: applies every APPROVED strategy to live bars and returns trade proposals (entry, stop, target, size "
+                   "for 1% risk, RR, reason) only when a strategy fired on the last closed bar. Also reports the desk limits. No model judgement involved.", {
+    "type": "object", "properties": {"only": {"type": "string", "description": "optional strategy name to scan"}}})
+def signal_scan(only: str = ""):
+    import strategy as S
+    approved = [s for s in _strategies() if s["status"] == "approved" and (not only or s["name"] == only)]
+    if not approved:
+        return json.dumps({"proposals": [], "note": "no approved strategies yet; the trading-learner must approve one via walk-forward first", "limits": desk_limits()})
+    try:
+        acc = _cap().preferred_account(); available = float((acc.get("balance") or {}).get("available") or 0)
+    except Exception:
+        available = 0.0
+    lim = desk_limits(available); out = []
+    for s in approved:
+        try:
+            bars = _bars(s["symbol"], s["resolution"], 300)
+            sig = S.latest_signal(bars, s["strategy"], s["params"]); last = bars[-1]
+            if sig == 0:
+                out.append({"strategy": s["name"], "symbol": s["symbol"], "epic": s.get("epic") or s["symbol"], "signal": "none", "last_close": last["close"], "bar": last["t"]}); continue
+            d = "BUY" if sig > 0 else "SELL"; entry = last["close"]
+            stop = round(entry * (1 - sig * s["stop_pct"] / 100), 5); target = round(entry * (1 + sig * s["target_pct"] / 100), 5)
+            risk_amt = available * DESK_RULES["risk_pct_per_trade"] / 100; size = round(risk_amt / max(abs(entry - stop), 1e-9), 2) if available else None
+            out.append({"strategy": s["name"], "symbol": s["symbol"], "epic": s.get("epic") or s["symbol"], "signal": d, "entry": entry, "stop": stop, "target": target, "rr": round(s["target_pct"] / s["stop_pct"], 2),
+                        "size_for_1pct_risk": size, "time_stop_bars": s["time_stop_bars"], "bar": last["t"], "reason": f"{s['strategy']} {s['params']} fired {d} on {s['resolution']} close {entry}"})
+        except Exception as e:
+            out.append({"strategy": s["name"], "error": str(e)[:160]})
+    return json.dumps({"proposals": [o for o in out if o.get("signal") not in (None, "none")], "scanned": out, "limits": lim, "available": available})
+
+
+@registry.register("learn_document", "Read a PDF or text file from trading/library/ and store its content in the brain as study notes (namespace 'trading', "
+                   "tag trading-knowledge) so brain_recall(query, namespace='trading') can find it later. Returns how many notes were stored.", {
+    "type": "object", "properties": {"filename": {"type": "string"}, "max_chunks": {"type": "integer", "default": 150}}, "required": ["filename"]})
+def learn_document(filename: str, max_chunks: int = 150, _agent="unknown"):
+    import re as _re
+    p = (LIBRARY_DIR / Path(filename).name)
+    if not p.exists():
+        return f"not found in trading/library/: {filename}. Available: {[f.name for f in LIBRARY_DIR.glob('*') if f.is_file()]}"
+    if p.suffix.lower() == ".pdf":
+        from pypdf import PdfReader
+        text = "\n".join((pg.extract_text() or "") for pg in PdfReader(str(p)).pages)
+    else:
+        text = p.read_text(errors="ignore")
+    text = _re.sub(r"[ \t]+", " ", text); paras = [x.strip() for x in _re.split(r"\n\s*\n|\n(?=[A-Z][^\n]{0,60}\n)", text) if len(x.strip()) > 80]
+    chunks, cur = [], ""
+    for para in paras:
+        if len(cur) + len(para) > 1100 and cur:
+            chunks.append(cur); cur = ""
+        cur = (cur + "\n" + para).strip()
+    if cur:
+        chunks.append(cur)
+    slug = _re.sub(r"[^a-z0-9]+", "-", p.stem.lower()).strip("-")[:40]; stored = 0
+    existing = {m.content[:200] for m in brain.recent(limit=1000, namespace="trading")}
+    for i, ch in enumerate(chunks[:int(max_chunks)]):
+        body = f"[{p.stem} §{i + 1}] {ch}"
+        if body[:200] in existing:
+            continue
+        brain.remember(body[:1500], agent=_agent, kind="note", importance=2, tags=["trading-knowledge", f"doc:{slug}"], source=str(p.name), namespace="trading")
+        stored += 1
+    return f"{p.name}: {len(chunks)} chunks found, {stored} new notes stored in namespace 'trading' (tag doc:{slug})"
+
+
+# ---------------------------------------------------------------- the financial hub: every profitable trade rewards the office
+TREASURY_FILE = WORKSPACE / "trading" / "treasury.json"
+
+
+def treasury() -> dict:
+    try:
+        d = json.loads(TREASURY_FILE.read_text())
+    except Exception:
+        d = {}
+    base = {"credits": 0.0, "currency": "GBP", "xp": 0, "level": 1, "wins": 0, "losses": 0, "streak": 0, "best_streak": 0, "history": []}
+    return {**base, **d}
+
+
+def _level(xp: int) -> int:
+    return int(max(1, (xp / 100) ** 0.5 + 1))
+
+
+def record_trade_outcome(pnl: float, r: float | None, strategy: str, epic: str, agent: str = "trader", currency: str = "GBP") -> dict:
+    """Called on every closed demo trade. Profit credits the treasury and earns XP (the office levels up);
+    a loss costs credits but no XP: losses are part of the business, only breaking the streak."""
+    t = treasury(); t["currency"] = currency
+    t["credits"] = round(t["credits"] + float(pnl), 2)
+    if pnl > 0:
+        gained = int(100 + 50 * max(0.0, float(r or 0)))
+        t["xp"] += gained; t["wins"] += 1; t["streak"] += 1; t["best_streak"] = max(t["best_streak"], t["streak"])
+    else:
+        gained = 0; t["losses"] += 1; t["streak"] = 0
+    old_level = t["level"]; t["level"] = _level(t["xp"])
+    t["history"] = (t["history"] + [{"ts": time.strftime("%Y-%m-%d %H:%M"), "pnl": round(float(pnl), 2), "r": r, "strategy": strategy, "epic": epic, "xp": gained}])[-200:]
+    TREASURY_FILE.parent.mkdir(parents=True, exist_ok=True); TREASURY_FILE.write_text(json.dumps(t, indent=1))
+    state = {k: t[k] for k in ("credits", "currency", "xp", "level", "wins", "losses", "streak", "best_streak")}
+    if pnl > 0:
+        try:
+            from events import emit as _emit
+            _emit("reward", agent, "treasury", pnl=round(float(pnl), 2), r=r, strategy=strategy, epic=epic, currency=currency, xp=gained,
+                  treasury=t["credits"], level=t["level"], level_up=t["level"] > old_level, treasury_state=state)
+        except Exception:
+            pass
+        brain.remember(f"Profitable DEMO trade rewarded the office: +{pnl:.2f} {currency} on {epic} ({strategy}), +{gained} xp, treasury {t['credits']:.2f}, level {t['level']}, streak {t['streak']}.",
+                       agent=agent, kind="event", importance=3, tags=["reward", "trade", f"epic:{(epic or '').lower()}"])
+        if t["level"] > old_level:
+            brain.remember(f"The office reached level {t['level']} on trading rewards ({t['xp']} xp, {t['wins']} winning trades).", agent=agent, kind="event", importance=4, tags=["reward", "level-up"])
+            try:
+                registry.call("notify", {"title": f"Office level {t['level']}", "message": f"Trading rewards: {t['wins']} winning trades, treasury {t['credits']:.2f} {currency}."})
+            except Exception:
+                pass
+    return state
+
+
+@registry.register("treasury_status", "The office treasury fed by profitable demo trades: credits, xp, level, wins/losses, streak, recent rewards.", {"type": "object", "properties": {}})
+def treasury_status():
+    t = treasury(); return json.dumps({**{k: t[k] for k in ("credits", "currency", "xp", "level", "wins", "losses", "streak", "best_streak")}, "recent": t["history"][-5:]})

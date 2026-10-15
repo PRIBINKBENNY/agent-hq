@@ -133,11 +133,8 @@
   priority: 2
   hours: 08-16
   title: Market pulse (DEMO desk)
-  task: 'Market pulse: live quotes for the watchlist, flag notable moves, store one fact per notable move. Then
-    run the hourly signal scan logic by creating a task "Signal scan" for strategy-analyst only if at least one
-    instrument moved more than 1%.
-
-    '
+  task: 'Market pulse: live quotes for the watchlist, flag notable moves, store one fact per notable move. Keep
+    it to 10 lines.'
 - name: positions-manage
   every: hourly
   agent: trader
@@ -164,3 +161,11 @@
   priority: 3
   title: 'COO: weekly deep review'
   task: 'Weekly deep review: rank agents by value per token, propose at most 3 brief changes, write workspace/ops/weekly-review.md.'
+- name: signal-scan
+  every: hourly
+  agent: strategy-analyst
+  priority: 3
+  hours: 08-16
+  title: Signal scan (approved strategies)
+  task: 'Signal scan: call signal_scan once; for each proposal create a Risk review task with every field; if none,
+    say so in one line.'

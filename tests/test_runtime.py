@@ -1,3 +1,4 @@
+import pytest
 import json
 import sys
 import time
@@ -40,19 +41,31 @@ def test_all_briefs_load_and_reference_real_tools_and_delegates():
 
 
 def test_pick_respects_cooldown_and_prefers_groq(monkeypatch):
-    _COOLDOWN.clear()
-    brief = Brief("t", "o", "lead", [], [], "sys")
-    a = Agent(brief, ToolRegistry(), engine="auto")
-    chain = [("groq", "big"), ("groq", "small"), ("ollama", "local")]
+    import runtime as rt
+    rt._COOLDOWN.clear(); monkeypatch.setattr(rt, "provider_down", lambda: {})
+    chain = [("cerebras", "fast"), ("groq", "big"), ("ollama", "local")]
+    a = Agent(Brief("w", "o", "worker", [], [], "s"), ToolRegistry(), engine="auto", verbose=False)
+    assert a._pick(chain) == ("cerebras", "fast")
+    rt._COOLDOWN[("cerebras", "fast")] = time.time() + 100
     assert a._pick(chain) == ("groq", "big")
-    _COOLDOWN[("groq", "big")] = time.time() + 100
-    assert a._pick(chain) == ("groq", "small")
-    _COOLDOWN[("groq", "small")] = time.time() + 100
-    assert a._pick(chain) == ("ollama", "local")            # both cooling > 45s -> local
-    _COOLDOWN[("groq", "small")] = time.time() + 0.2
-    monkeypatch.setattr(time, "sleep", lambda s: None)
-    assert a._pick(chain) == ("groq", "small")              # short wait -> reuse groq
-    _COOLDOWN.clear()
+    rt._COOLDOWN[("groq", "big")] = time.time() + 100
+    assert a._pick(chain) == ("ollama", "local")                       # worker: local fallback when the wait is long
+    lead = Agent(Brief("l", "o", "lead", [], [], "s"), ToolRegistry(), engine="auto", verbose=False)
+    rt._COOLDOWN[("cerebras", "fast")] = time.time() + 1000; rt._COOLDOWN[("groq", "big")] = time.time() + 1000
+    with pytest.raises(rt.EngineError, match="no capable model"):     # lead: never the 3B model
+        lead._pick(chain)
+    rt._COOLDOWN.clear()
+
+
+def test_provider_down_file_parks_a_provider(tmp_path, monkeypatch):
+    import runtime as rt
+    monkeypatch.setattr(rt, "PROVIDER_DOWN_FILE", tmp_path / "down.json"); rt._COOLDOWN.clear()
+    assert rt.provider_down() == {}
+    rt.mark_provider_down("cerebras", 1, "402 payment required")
+    assert "cerebras" in rt.provider_down()
+    a = Agent(Brief("w", "o", "worker", [], [], "s"), ToolRegistry(), engine="auto", verbose=False)
+    assert a._pick([("cerebras", "fast"), ("groq", "big"), ("ollama", "local")]) == ("groq", "big")
+
 
 
 def test_agent_loop_with_fake_engine(monkeypatch, tmp_path):
@@ -290,3 +303,11 @@ def test_lessons_injected_into_prompt(monkeypatch, tmp_path):
     monkeypatch.setattr(st, "Embedder", NoEmbed)
     a = Agent(Brief("job-scout", "job-hunt", "worker", [], [], "You scout."), ToolRegistry(), engine="ollama", verbose=False)
     assert "use days=30" in a._system_prompt()
+
+
+def test_errored_tool_calls_do_not_back_claims():
+    from runtime import unbacked_claim
+    calls = [{"tool": "write_file", "args": {}, "result_preview": "ERROR: TypeError: missing argument"}]
+    assert unbacked_claim("I saved the file to notes.md", calls, ["write_file"]) is not None
+    calls = [{"tool": "write_file", "args": {}, "result_preview": "wrote notes.md"}]
+    assert unbacked_claim("I saved the file to notes.md", calls, ["write_file"]) is None
