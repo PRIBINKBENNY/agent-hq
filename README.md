@@ -153,6 +153,17 @@ agent can exceed them whatever it is told.
 
 Nothing here is financial advice; the point is a measurable, auditable paper record.
 
+## LinkedIn posting
+
+The linkedin-writer drafts; nothing is published until you approve. Once you approve a draft on the
+dashboard or phone, either press **Post** on the variant you want, or let the Chief of Staff's follow-up
+task publish the recommended one. Posting uses LinkedIn's free self-serve API (personal profile only;
+company pages need LinkedIn review). One-time setup, about ten minutes: create an app at
+linkedin.com/developers, add the products "Share on LinkedIn" and "Sign In with LinkedIn using OpenID
+Connect", add `http://localhost:8787/linkedin/callback` as a redirect URL, put the client id and secret
+in `.env`, restart, open `/linkedin/connect`. The token lasts 60 days; the phone app shows the days left.
+Hard limits in code: 3,000 characters, 5 posts a day, QA-failed drafts refused.
+
 ## Operating it
 
 ```bash

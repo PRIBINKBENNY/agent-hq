@@ -576,8 +576,10 @@ async function refreshState() {
   $("#approvals").innerHTML = s.approvals.length ? s.approvals.map(a => { const paths = (a.content.match(/(?:workspace\/)?([\w./-]+\/[\w.-]+\.(?:md|txt|py|html|json|pdf))/g) || []).map(p => p.replace(/^workspace\//, ""));
       const qa = a.tags.includes("qa-pass") ? `<span class="st done" style="margin-right:6px">QA pass</span>` : a.tags.includes("qa-fail") ? `<span class="st failed" style="margin-right:6px">QA fail</span>` : a.tags.includes("qa-queued") ? `<span class="st queued" style="margin-right:6px">QA pending</span>` : "";
       const isApp = a.tags.includes("application") || /cv|cover letter|application/i.test(a.content);
+      const isPost = /linkedin/i.test(a.content) && !a.tags.includes("posted");
+      const postBtns = isPost ? paths.filter(p => p.includes("posts/")).map(p => `<button class="ok" onclick="postLinkedIn(${a.id},'${esc(p)}')">Post ${esc(p.split("/").pop().replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(".md", ""))}</button>`).join("") : "";
       return `<div class="appr"><div>${qa}${esc(a.content.replace(/^(QA: \w+ - )?PENDING APPROVAL from /, "From "))}</div>
-      <div class="btns"><button class="ok" onclick="decide(${a.id},'approved')">Approve</button>${isApp ? `<button class="ok" onclick="applied(${a.id})">I applied</button>` : ""}<button class="no" onclick="decide(${a.id},'rejected')">Reject</button>${[...new Set(paths)].map(p => `<button class="view" onclick="viewFile('${esc(p)}')">view ${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
+      <div class="btns"><button class="ok" onclick="decide(${a.id},'approved')">Approve</button>${isApp ? `<button class="ok" onclick="applied(${a.id})">I applied</button>` : ""}${postBtns}<button class="no" onclick="decide(${a.id},'rejected')">Reject</button>${[...new Set(paths)].map(p => `<button class="view" onclick="viewFile('${esc(p)}')">view ${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
     : `<div class="empty">Nothing waiting. Agents park applications, emails and posts here.</div>`;
   renderTasks(s.tasks || []);
   $("#memories").innerHTML = s.memories.length ? s.memories.map(m => `<div class="mem"><span class="k">${esc(m.kind)}</span>${esc(m.content)}<div class="who">${esc(m.agent)} · ${esc(m.created)}${m.tags.length ? " · " + esc(m.tags.join(", ")) : ""}</div></div>`).join("")
@@ -622,6 +624,11 @@ async function viewFile(path) {
   $("#modal").classList.add("open");
 }
 async function applied(id) { await fetch("/api/applied", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) }); refreshState(); refreshStats(); }
+async function postLinkedIn(id, path) {
+  if (!confirm("Publish this variant to your LinkedIn profile now?")) return;
+  const r = await (await fetch("/api/linkedin/post", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, path }) })).json();
+  toast(r.posted ? "Posted to LinkedIn" : (r.error || "failed")); if (r.url && r.posted) window.open(r.url, "_blank"); refreshState();
+}
 async function decide(id, decision) { await fetch("/api/approve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, decision }) }); refreshState(); }
 $("#go").onclick = async () => {
   const task = $("#task").value.trim(); if (!task) return; $("#go").disabled = true;

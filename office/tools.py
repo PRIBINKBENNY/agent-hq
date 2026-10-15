@@ -865,3 +865,36 @@ def usage_report(hours: int = 24):
     rows = [{"agent": a, "runs": n[a], "tokens": tok[a], "avg_tokens": tok[a] // max(1, n[a]), "avg_seconds": round(secs[a] / max(1, n[a]))} for a in tok]
     rows.sort(key=lambda r: -r["tokens"])
     return json.dumps({"hours": hours, "total_tokens": sum(tok.values()), "runs": sum(n.values()), "by_provider": dict(prov), "by_agent": rows[:12]})
+
+
+# ---------------------------------------------------------------- LinkedIn (publishes ONLY what Pribin approved)
+@registry.register("linkedin_post", "Publish an APPROVED LinkedIn post to Pribin's profile. Needs the approval memory id (must carry the "
+                   "'approved' tag, set by Pribin on the dashboard) and the workspace path of the chosen variant. Refuses anything else.", {
+    "type": "object", "properties": {"approval_id": {"type": "integer"}, "path": {"type": "string", "description": "e.g. posts/linkedin/2026-10-14-...-1.md"}},
+    "required": ["approval_id", "path"]})
+def linkedin_post(approval_id: int, path: str, _agent="unknown"):
+    import linkedin
+    try:
+        m = brain.get(int(approval_id))
+    except KeyError:
+        return "refused: approval id not found"
+    if m.kind != "approval" or "approved" not in m.tags:
+        return "refused: that approval has not been approved by Pribin"
+    if "qa-fail" in m.tags:
+        return "refused: QA failed on this draft"
+    p = _safe(path)
+    if not p.exists() or "/posts/" not in str(p):
+        return f"refused: {path} is not a post draft"
+    text = p.read_text()
+    # strip markdown headings / separators the writers add around the post body
+    body = "\n".join(l for l in text.splitlines() if not l.startswith("#") and l.strip() not in ("---", "***")).strip()
+    if "linkedin" not in m.content.lower() and "post" not in m.content.lower():
+        return "refused: that approval is not about a post"
+    try:
+        r = linkedin.post_text(body)
+    except Exception as e:
+        return f"linkedin error: {e}"
+    brain.remember(f"Posted to LinkedIn: {path} ({len(body)} chars). {r['url']}", agent=_agent, kind="event", importance=4,
+                   tags=["linkedin", "posted", "status:posted"])
+    brain.update(m.id, agent=_agent, add_tags=["posted"])
+    return json.dumps(r)

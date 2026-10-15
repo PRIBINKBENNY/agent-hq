@@ -42,7 +42,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
     """Trusted from this Mac; from anywhere else (tunnel, LAN, phone) a token cookie or Bearer header is required."""
     async def dispatch(self, request, call_next):
         path = request.url.path
-        if path in ("/login", "/manifest.json", "/sw.js", "/icon.png", "/api/vapid") or path.startswith("/static/"):
+        if path in ("/login", "/manifest.json", "/sw.js", "/icon.png", "/api/vapid", "/linkedin/callback") or path.startswith("/static/"):
             return await call_next(request)
         client = request.client.host if request.client else ""
         via_tunnel = any(h in request.headers for h in ("cf-connecting-ip", "x-forwarded-for", "tailscale-user-login"))
@@ -83,6 +83,7 @@ from tools import WORKSPACE  # noqa: E402
 from store import BrainStore  # noqa: E402
 import scheduler  # noqa: E402
 import push  # noqa: E402
+import linkedin  # noqa: E402
 
 PORT = int(os.environ.get("DASHBOARD_PORT", "8787"))
 HTML_PATH = ROOT / "office" / "static" / "dashboard.html"
@@ -140,6 +141,51 @@ async def sw(_: Request):
 async def icon(_: Request):
     from starlette.responses import FileResponse
     return FileResponse(str(STATIC / "icon.png"), media_type="image/png")
+
+
+def _base(request: Request) -> str:
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "localhost:8787"
+    scheme = "https" if request.headers.get("x-forwarded-proto") == "https" or request.url.scheme == "https" or "trycloudflare" in host else "http"
+    return f"{scheme}://{host}"
+
+
+async def linkedin_connect(request: Request):
+    if not linkedin.configured():
+        return HTMLResponse("<p style='font-family:system-ui;padding:20px'>Add LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET to .env, restart, then open this page again. "
+                            "Setup notes are in office/linkedin.py.</p>")
+    return RedirectResponse(linkedin.auth_url(_base(request)))
+
+
+async def linkedin_callback(request: Request):
+    code = request.query_params.get("code"); state = request.query_params.get("state")
+    err = request.query_params.get("error_description") or request.query_params.get("error")
+    if err or not code:
+        return HTMLResponse(f"<p style='font-family:system-ui;padding:20px'>LinkedIn said: {err or 'no code'}</p>", status_code=400)
+    try:
+        st = await asyncio.to_thread(linkedin.exchange_code, code, state, _base(request))
+    except Exception as e:
+        return HTMLResponse(f"<p style='font-family:system-ui;padding:20px'>Connection failed: {e}</p>", status_code=400)
+    return HTMLResponse(f"<p style='font-family:system-ui;padding:20px'>Connected as <b>{st.get('name')}</b>. Token valid {st.get('days_left')} days. "
+                        f"<a href='/m'>Back to the app</a></p>")
+
+
+async def api_linkedin_status(_: Request):
+    return JSONResponse(linkedin.status())
+
+
+async def api_linkedin_post(request: Request):
+    """The 'Post to LinkedIn' button: Pribin posts an approved draft himself from the dashboard or phone."""
+    body = await request.json()
+    from tools import registry as _reg
+    mid = int(body.get("id")); path = body.get("path") or ""
+    m = brain.get(mid)
+    if "approved" not in m.tags:   # pressing the button is the approval
+        brain.update(mid, agent="pribin", content=m.content.replace("PENDING APPROVAL", "APPROVED", 1), tags=[t for t in m.tags if t != "pending"] + ["approved"])
+    r = await asyncio.to_thread(_reg.call, "linkedin_post", {"approval_id": mid, "path": path}, "pribin")
+    try:
+        return JSONResponse(json.loads(r))
+    except Exception:
+        return JSONResponse({"error": r}, status_code=400)
 
 
 async def api_vapid(_: Request):
@@ -223,7 +269,8 @@ async def api_approve(request: Request):
         follow = brain.task_create(f"Approved #{mid}: next step", 
             f"Pribin APPROVED this item: {new}\n\nDo the natural next step and nothing external: e.g. for an application, "
             f"have tracker log it as 'applied' and mail-assistant prepare a follow-up draft dated 7 days out; for a proposal, "
-            f"have tracker log it as 'proposed'; for a post, have tracker note the publish date. Report what you did.",
+            f"have tracker log it as 'proposed'; for a LinkedIn post, publish the recommended variant with linkedin_post "
+            f"(approval id {mid}) and then have tracker note the publish date. Report what you did.",
             owner="chief-of-staff", created_by="pribin", priority=4, source="approval")
     return JSONResponse({"ok": True, "follow_up_task": follow["id"] if follow else None})
 
@@ -471,6 +518,10 @@ app = Starlette(middleware=[Middleware(AuthMiddleware)], routes=[
     Route("/sw.js", sw),
     Route("/icon.png", icon),
     Route("/api/vapid", api_vapid),
+    Route("/linkedin/connect", linkedin_connect),
+    Route("/linkedin/callback", linkedin_callback),
+    Route("/api/linkedin/status", api_linkedin_status),
+    Route("/api/linkedin/post", api_linkedin_post, methods=["POST"]),
     Route("/api/push/subscribe", api_push_subscribe, methods=["POST"]),
     Route("/api/push/test", api_push_test, methods=["POST"]),
     Route("/", index),

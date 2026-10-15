@@ -57,7 +57,7 @@
 <section><h3>Task board <span class="sp" id="task-sp"></span></h3><div id="tasks"></div></section>
 <section><h3>Scorecard · this week</h3><div id="scorecard"></div></section>
 <section class="feed"><h3>Live feed <span class="sp" id="feed-sp"></span></h3><div id="feed"></div></section>
-<section><h3>Phone</h3><div class="row"><button id="push">Enable notifications</button><button onclick="location.href='/'">Open the office floor</button></div>
+<section><h3>Phone</h3><div class="row"><button id="push">Enable notifications</button><button onclick="location.href='/linkedin/connect'" id="li-btn">Connect LinkedIn</button></div>
   <div class="empty" id="push-status">Add this page to your Home Screen (Share → Add to Home Screen) to get an app icon and push notifications.</div></section>
 
 <div class="cmd"><input id="task" placeholder="Give the office a command…"><button id="mic">🎤</button><button id="go">Run</button></div>
@@ -80,8 +80,10 @@ async function refresh() {
     const paths = [...new Set((a.content.match(/(?:workspace\/)?([\w./-]+\/[\w.-]+\.(?:md|pdf))/g) || []).map(p => p.replace(/^workspace\//, "")))];
     const qa = a.tags.includes("qa-pass") ? `<span class="st pass">QA pass</span>` : a.tags.includes("qa-fail") ? `<span class="st fail">QA fail</span>` : a.tags.includes("qa-queued") ? `<span class="st queued">QA pending</span>` : "";
     const isApp = a.tags.includes("application") || /cv|cover letter|application/i.test(a.content);
+    const isPost = /linkedin/i.test(a.content) && !a.tags.includes("posted");
+    const postBtns = isPost ? paths.filter(p => p.includes("posts/")).map(p => `<button class="ok" onclick="postLinkedIn(${a.id},'${esc(p)}')">Post ${esc(p.split("/").pop().replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(".md", ""))}</button>`).join("") : "";
     return `<div class="item">${qa}${esc(a.content.replace(/^(QA: \w+ - )?PENDING APPROVAL from /, "From "))}
-      <div class="btns"><button class="ok" onclick="act('/api/approve',{id:${a.id},decision:'approved'},'Approved')">Approve</button>${isApp ? `<button class="ok" onclick="act('/api/applied',{id:${a.id}},'Marked applied')">I applied</button>` : ""}<button class="no" onclick="act('/api/approve',{id:${a.id},decision:'rejected'},'Rejected')">Reject</button>${paths.map(p => `<button class="view" onclick="view('${esc(p)}')">${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
+      <div class="btns"><button class="ok" onclick="act('/api/approve',{id:${a.id},decision:'approved'},'Approved')">Approve</button>${isApp ? `<button class="ok" onclick="act('/api/applied',{id:${a.id}},'Marked applied')">I applied</button>` : ""}${postBtns}<button class="no" onclick="act('/api/approve',{id:${a.id},decision:'rejected'},'Rejected')">Reject</button>${paths.map(p => `<button class="view" onclick="view('${esc(p)}')">${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
     : `<div class="empty">Nothing waiting.</div>`;
   const open = s.tasks.filter(t => ["queued","running","blocked"].includes(t.status)); $("#task-sp").textContent = open.length ? open.length + " open" : "";
   $("#tasks").innerHTML = s.tasks.length ? s.tasks.slice(0, 12).map(t => `<div class="item"><span class="st ${esc(t.status)}">${esc(t.status)}</span>${esc(t.title)}<div class="meta">${esc(t.owner)} · ${esc(t.created)}${t.result ? " · " + esc(String(t.result).slice(0, 120)) : ""}</div></div>`).join("") : `<div class="empty">No tasks.</div>`;
@@ -92,6 +94,7 @@ async function refreshStats() {
   const rows = ["applications_tailored","applications_marked_applied","contacts_logged","proposals_drafted","posts_approved","mock_interviews","commits_on_github"];
   $("#scorecard").innerHTML = `<div class="kv">${rows.map(k => { const v = c[k] ?? "–", tg = t[k]; const cls = tg ? (Number(v) >= Number(tg) ? "hit" : "miss") : ""; return `<span class="k">${esc(k.replace(/_/g," "))}</span><span class="v ${cls}">${esc(v)}</span><span class="t">${tg ? "/ " + esc(tg) : ""}</span>`; }).join("")}</div>`;
 }
+async function postLinkedIn(id, path) { if (!confirm("Publish this variant to LinkedIn now?")) return; const r = await api("/api/linkedin/post", { id, path }); toast(r.posted ? "Posted to LinkedIn" : (r.error || "failed")); refresh(); }
 async function act(url, body, msg) { const r = await api(url, body); toast(r.error || msg); refresh(); }
 async function view(p) { if (p.endsWith(".pdf")) { window.open("/api/file?path=" + encodeURIComponent(p)); return; } const r = await api("/api/file?path=" + encodeURIComponent(p)); const d = document.createElement("section"); d.innerHTML = `<h3>${esc(p)} <span class="sp" onclick="this.closest('section').remove()">close</span></h3><div class="pre">${esc(r.content || r.error)}</div>`; $("#approvals").closest("section").after(d); d.scrollIntoView({ behavior: "smooth" }); }
 $("#go").onclick = async () => { const task = $("#task").value.trim(); if (!task) return; const r = await api("/api/run", { task, agent: "chief-of-staff", engine: "auto" }); toast(r.started ? "Run started" : r.queued ? `Queued as task #${r.task_id}` : (r.error || "failed")); $("#task").value = ""; refresh(); };
@@ -127,6 +130,7 @@ async function enablePush() {
 $("#push").onclick = enablePush;
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
+fetch("/api/linkedin/status").then(r => r.json()).then(st => { const b = $("#li-btn"); if (!st.configured) b.textContent = "LinkedIn: add app keys"; else if (st.connected) b.textContent = `LinkedIn: ${st.name} (${st.days_left}d)`; else b.textContent = "Connect LinkedIn"; }).catch(() => {});
 refresh(); refreshStats(); connect(); setInterval(refresh, 15000); setInterval(refreshStats, 60000);
 </script>
 </body>
