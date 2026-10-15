@@ -73,6 +73,16 @@
   .legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; }
 
   .side { display: flex; flex-direction: column; gap: 10px; padding: 10px; border-left: 1px solid var(--line); min-height: 0; overflow: auto; background: var(--panel); }
+  .tabs { display: flex; gap: 4px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 4px; position: sticky; top: 0; z-index: 3; }
+  .tab { flex: 1; background: none; border: 0; color: var(--ink-3); padding: 7px 4px; border-radius: 7px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .tab.on { background: var(--panel); color: var(--ink); } .tab .badge { background: var(--tool); color: #111; border-radius: 999px; padding: 0 6px; font-size: 10px; margin-left: 3px; } .tab .badge:empty { display: none; }
+  .pane { display: none; flex-direction: column; gap: 10px; } .pane.on { display: flex; }
+  .list.tall { max-height: 58vh; }
+  .quick { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; }
+  .quick button { background: var(--panel); border: 1px solid var(--line); color: var(--ink-2); padding: 6px 9px; border-radius: 8px; font-size: 11.5px; cursor: pointer; } .quick button:hover { color: var(--ink); border-color: var(--accent); }
+  .pos { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12px; } .pos .pl { font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; } .pos .up { color: var(--done); } .pos .dn { color: var(--err); }
+  .md { padding: 14px; overflow: auto; color: var(--ink-2); font-size: 13px; line-height: 1.5; } .md h1, .md h2, .md h3 { color: var(--ink); margin: 12px 0 6px; } .md h1 { font-size: 18px; } .md h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--line); padding-bottom: 3px; } .md ul { padding-left: 18px; } .md li { margin: 2px 0; } .md code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
+  .toast { position: fixed; right: 16px; bottom: 16px; background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); padding: 10px 14px; border-radius: 10px; font-size: 12.5px; display: none; z-index: 60; max-width: 360px; box-shadow: 0 10px 30px -10px #000; }
   .panel { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; min-height: 0; }
   .panel h3 { margin: 0; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--ink-2); border-bottom: 1px solid var(--line); display: flex; align-items: center; }
   .panel h3 .sp { margin-left: auto; font-weight: 400; color: var(--ink-3); text-transform: none; letter-spacing: 0; }
@@ -96,7 +106,9 @@
 </style>
 </head>
 <body>
-<div class="modal" id="modal"><div class="box"><h3><span id="modal-title"></span><button onclick="$('#modal').classList.remove('open')">close</button></h3><pre id="modal-body"></pre></div></div>
+<div class="modal" id="modal"><div class="box"><h3><span id="modal-title"></span><button onclick="$('#modal').classList.remove('open')">close</button></h3><pre id="modal-body"></pre><div class="md" id="modal-md" style="display:none"></div></div></div>
+<div class="toast" id="toast"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <div class="app">
   <div class="top">
     <div class="brand"><span class="dot" id="conn"></span> AGENT HQ</div>
@@ -127,16 +139,35 @@
       </div>
     </div>
     <div class="side">
-      <div class="panel"><h3>Live feed <span class="sp" id="feed-count"></span></h3><div class="feed" id="feed"></div></div>
-      <div class="panel"><h3>Approvals waiting for you <span class="sp" id="appr-count"></span></h3><div class="list" id="approvals"></div></div>
-      <div class="panel"><h3>Task board <span class="sp" id="task-sp"></span></h3><div class="list" id="tasks"></div></div>
-      <div class="panel"><h3>Scorecard · this week <span class="sp" id="score-sp"></span></h3><div class="list" id="scorecard"></div></div>
-      <div class="panel"><h3>Ops · 7 days <span class="sp" id="ops-sp"></span></h3><div class="list" id="ops"></div></div>
-      <div class="panel"><h3>Run history <span class="sp">click to expand</span></h3><div class="list" id="runs"></div></div>
-      <div class="panel"><h3>The brain · latest <span class="sp" id="brain-sp"></span></h3><div class="list" id="memories"></div>
-        <div class="memadd"><input id="memtext" placeholder="Tell the team something"><button id="memgo">Remember</button></div></div>
+      <div class="tabs">
+        <button class="tab on" data-tab="work">Work</button><button class="tab" data-tab="approvals">Approvals <span class="badge" id="tab-appr"></span></button>
+        <button class="tab" data-tab="brain">Brain</button><button class="tab" data-tab="trading">Trading</button><button class="tab" data-tab="ops">Ops</button>
+      </div>
+      <div class="pane on" data-pane="work">
+        <div class="panel"><h3>Quick actions</h3><div class="quick" id="quick"></div></div>
+        <div class="panel"><h3>Live feed <span class="sp" id="feed-count"></span></h3><div class="feed" id="feed"></div></div>
+        <div class="panel"><h3>Task board <span class="sp" id="task-sp"></span></h3><div class="list" id="tasks"></div></div>
+        <div class="panel"><h3>Coming up <span class="sp" id="sched-sp"></span></h3><div class="list" id="schedule"></div></div>
+      </div>
+      <div class="pane" data-pane="approvals">
+        <div class="panel"><h3>Approvals waiting for you <span class="sp" id="appr-count"></span></h3><div class="list tall" id="approvals"></div></div>
+        <div class="panel"><h3>Today</h3><div class="mem" id="digest" style="white-space:pre-wrap"></div></div>
+      </div>
+      <div class="pane" data-pane="brain">
+        <div class="panel"><h3>Search the brain</h3><div class="memadd"><input id="bq" placeholder="e.g. what jobs did we find at Trainline"><button id="bgo">Search</button></div><div class="list tall" id="bresults"></div></div>
+        <div class="panel"><h3>Latest memories <span class="sp" id="brain-sp"></span></h3><div class="list" id="memories"></div>
+          <div class="memadd"><input id="memtext" placeholder="Tell the team something"><button id="memgo">Remember</button></div></div>
+      </div>
+      <div class="pane" data-pane="trading">
+        <div class="panel"><h3>Capital.com <span class="sp" id="trade-mode"></span></h3><div id="trading"></div></div>
+        <div class="panel"><h3>Signals and decisions</h3><div class="list" id="trade-recent"></div></div>
+      </div>
+      <div class="pane" data-pane="ops">
+        <div class="panel"><h3>Scorecard · this week <span class="sp" id="score-sp"></span></h3><div class="list" id="scorecard"></div></div>
+        <div class="panel"><h3>Ops · 7 days <span class="sp" id="ops-sp"></span></h3><div class="list" id="ops"></div></div>
+        <div class="panel"><h3>Run history <span class="sp">click to expand</span></h3><div class="list" id="runs"></div></div>
+      </div>
     </div>
-  </div>
 </div>
 
 <script>
@@ -239,6 +270,7 @@ function clickFloor(e) {
 }
 async function openAgent(name) {
   const a = await (await fetch("/api/agent?name=" + encodeURIComponent(name))).json();
+  $("#modal-body").style.display = "block"; $("#modal-md").style.display = "none";
   const runs = (a.runs || []).map(r => `• ${r.ts} · ${(r.model || "").split("/").pop()} · ${(r.tool_calls || []).length} tools\n  ${String(r.task).slice(0, 110)}\n  → ${String(r.answer).slice(0, 220).replace(/\n/g, " ")}`).join("\n");
   const lessons = (a.lessons || []).map(l => "• " + l.replace(/^Lesson \([^)]*\):\s*/, "")).join("\n") || "none yet";
   $("#modal-title").textContent = `${a.name} · ${a.office} · ${a.tier}${a.model ? " · " + a.model.split(",")[0] : ""}`;
@@ -382,7 +414,13 @@ function drawPaths(t) {
     ctx.fillStyle = p.color; ctx.shadowColor = p.color; ctx.shadowBlur = 12; ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 7); ctx.fill(); ctx.shadowBlur = 0; });
 }
 
+let _lastFrame = 0;
 function frame(now) {
+  if (document.hidden) { requestAnimationFrame(frame); return; }
+  const busy = Object.values(agents).some(a => a.state !== "idle" || a.walking) || pulses.length || drag;
+  const minGap = busy ? 0 : 1000 / 8;                     // idle floor: 8 fps is enough for twinkling stars
+  if (now - _lastFrame < minGap) { requestAnimationFrame(frame); return; }
+  _lastFrame = now;
   const t = now / 1000;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.clearRect(0, 0, W, H);
@@ -477,6 +515,46 @@ function applyEvent(e, live) {
   feedCount++; $("#feed-count").textContent = feedCount + " events";
 }
 
+/* ============================== sidebar: tabs, toasts, quick actions ============================== */
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => { document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t)); document.querySelectorAll(".pane").forEach(p => p.classList.toggle("on", p.dataset.pane === t.dataset.tab)); try { localStorage.setItem("hq-tab", t.dataset.tab); } catch (_) {} if (t.dataset.tab === "trading") refreshTrading(); if (t.dataset.tab === "work") refreshSchedule(); });
+try { const saved = localStorage.getItem("hq-tab"); if (saved) document.querySelector(`.tab[data-tab="${saved}"]`)?.click(); } catch (_) {}
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 3500); }
+const QUICK = [
+  ["Find jobs today", "job-scout", "Find new junior/graduate ML, AI and computer vision roles in London posted in the last 2 days. Skip ones already in the brain. Top 5, ranked."],
+  ["Tailor CV for…", "application-tailor", "Tailor my CV and write a cover letter for the <company> <role> posting (it is in the brain). Use job_details once, run cv_truth_check, export PDFs, request approval."],
+  ["Run today's sprint", "project-manager", "Run today's sprint from workspace/roadmap.md: one finished, tested, reviewed, committed and pushed milestone. Report what shipped."],
+  ["Morning digest", "chief-of-staff", "Write the morning digest: new jobs, open tasks, pending approvals, yesterday's sprint, the one most useful thing to do today. Max 12 lines."],
+  ["Interview drill", "interview-coach", "Daily drill: one ML fundamentals question and one project deep-dive question for today, with hidden model answers. Notify me when ready."],
+  ["Warm paths", "networker", "For the 3 newest jobs in the brain with fit >= 4, find up to 3 relevant people each and draft connection notes. Request approval per company."],
+  ["Market pulse", "market-researcher", "Market pulse: live quotes for the watchlist, flag notable moves, store one fact per notable move."],
+  ["Weekly review", "chief-of-staff", "Run the scorecard for the last 7 days, compare with the targets in workspace/plan-90-days.md, and name one change for this week."],
+  ["Brain gardening", "chief-of-staff", "Tidy the shared brain: delete stale job postings older than 30 days and exact duplicates, merge near-duplicates, raise importance of facts other agents keep recalling."],
+];
+$("#quick").innerHTML = QUICK.map(([l, a, t], i) => `<button data-i="${i}">${esc(l)}</button>`).join("");
+$("#quick").onclick = e => { const b = e.target.closest("button"); if (!b) return; const [, agent, task] = QUICK[+b.dataset.i]; $("#task").value = task; $("#agent").value = agent; $("#task").focus(); if (!task.includes("<")) $("#go").click(); };
+
+async function refreshSchedule() {
+  const s = await (await fetch("/api/schedule")).json();
+  $("#sched-sp").textContent = s.busy ? "scheduler busy" : "";
+  $("#schedule").innerHTML = s.jobs.slice(0, 8).map(j => `<div class="task"><div><div>${esc(j.title)}</div><div class="who">${esc(j.agent)} · ${esc(j.every)}${j.last ? " · last " + esc(j.last) : ""}</div></div><div><span class="st queued">${esc(j.next)}</span></div></div>`).join("") || `<div class="empty">No scheduled jobs.</div>`;
+}
+async function refreshTrading() {
+  const t = await (await fetch("/api/trading")).json();
+  $("#trade-mode").textContent = t.configured ? t.mode + " account" : "not configured";
+  const a = t.account || {};
+  const pos = (t.positions || []).map(p => `<div class="pos"><div><b>${esc(p.name || p.epic)}</b> · ${esc(p.direction)} ${esc(p.size)} @ ${esc(p.level)}<div class="who" style="color:var(--ink-3);font-size:11px">stop ${esc(p.stop ?? "–")} · target ${esc(p.profit ?? "–")} · bid ${esc(p.bid)} / offer ${esc(p.offer)}</div></div><div class="pl ${(p.upl || 0) >= 0 ? "up" : "dn"}">${(p.upl || 0) >= 0 ? "+" : ""}${esc(p.upl ?? "–")}</div></div>`).join("");
+  $("#trading").innerHTML = t.configured ? `<div class="kv"><span class="k">balance</span><span class="v">${esc(a.balance)} ${esc(a.currency || "")}</span><span class="t"></span><span class="k">available</span><span class="v">${esc(a.available)}</span><span class="t"></span><span class="k">P/L</span><span class="v ${(a.profit_loss || 0) >= 0 ? "hit" : "miss"}">${esc(a.profit_loss)}</span><span class="t"></span><span class="k">open positions</span><span class="v">${esc(a.open_positions ?? 0)}</span><span class="t"></span></div>${pos || `<div class="empty">No open positions.</div>`}${t.error ? `<div class="empty">${esc(t.error)}</div>` : ""}`
+    : `<div class="empty">Add CAPITAL_API_KEY, CAPITAL_IDENTIFIER and CAPITAL_PASSWORD to .env (free demo account).</div>`;
+  const rec = [...(t.signals || []), ...(t.recent || [])].sort((x, y) => y.created_at - x.created_at).slice(0, 12);
+  $("#trade-recent").innerHTML = rec.length ? rec.map(m => `<div class="mem"><span class="k">${esc(m.kind)}</span>${esc(m.content)}<div class="who">${esc(m.agent)} · ${esc(m.created)}</div></div>`).join("") : `<div class="empty">No signals or trades yet. The desk runs 08:00-16:00 London time on weekdays.</div>`;
+}
+async function brainSearch() {
+  const q = $("#bq").value.trim(); if (!q) return;
+  const r = await (await fetch("/api/brain/search?q=" + encodeURIComponent(q))).json();
+  $("#bresults").innerHTML = r.results.length ? r.results.map(m => `<div class="mem"><span class="k">${esc(m.kind)}</span>${esc(m.content)}<div class="who">${esc(m.agent)} · ${esc(m.created)}${m.tags.length ? " · " + esc(m.tags.join(", ")) : ""}${m.score ? " · score " + m.score : ""}</div></div>`).join("") : `<div class="empty">Nothing found.</div>`;
+}
+$("#bgo").onclick = brainSearch; $("#bq").addEventListener("keydown", e => { if (e.key === "Enter") brainSearch(); });
+
 /* ============================== server I/O ============================== */
 const trace = m => { const h = document.getElementById("hint"); if (h && h.textContent.startsWith("Drag")) h.dataset.t = (h.dataset.t || "") + m + " "; };
 async function refreshState() {
@@ -488,7 +566,9 @@ async function refreshState() {
   }
   trace("rooms"); $("#t-agents").textContent = roster.length; $("#t-runs").textContent = s.runs_today;
   $("#t-mem").innerHTML = s.brain.total_memories + `<small>notes</small>`;
-  $("#t-appr").textContent = s.approvals.length; $("#appr-count").textContent = s.approvals.length ? s.approvals.length + " pending" : "";
+  $("#t-appr").textContent = s.approvals.length; $("#appr-count").textContent = s.approvals.length ? s.approvals.length + " pending" : ""; $("#tab-appr").textContent = s.approvals.length || "";
+  if (window._lastAppr != null && s.approvals.length > window._lastAppr) toast("New approval waiting for you"); window._lastAppr = s.approvals.length;
+  const dg = s.memories.find(m => m.tags.includes("digest")); $("#digest").textContent = dg ? dg.content : "No digest yet today (08:30).";
   const u = s.engine.usage || {}; const budget = s.engine.providers.map(p => { const x = u[p] || {}; const rem = x["x-ratelimit-remaining-tokens-minute"] || x["x-ratelimit-remaining-tokens"]; return rem ? `${p} ${Math.round(rem/1000)}k/min` : p; });
   $("#t-engine").innerHTML = s.engine.providers.length ? esc(s.engine.providers.join(" → ") + " → ollama") + `<div class="usage">${esc(budget.join(" · "))}</div>` : "ollama · " + esc(s.engine.ollama);
   $("#brain-sp").textContent = `${s.brain.db_size_mb} MB`;
@@ -535,7 +615,11 @@ async function refreshRuns() {
 async function viewFile(path) {
   if (path.endsWith(".pdf")) { window.open("/api/file?path=" + encodeURIComponent(path), "_blank"); return; }
   const r = await (await fetch("/api/file?path=" + encodeURIComponent(path))).json();
-  $("#modal-title").textContent = path; $("#modal-body").textContent = r.content || r.error || ""; $("#modal").classList.add("open");
+  $("#modal-title").textContent = path;
+  const isMd = path.endsWith(".md") && window.marked;
+  $("#modal-body").style.display = isMd ? "none" : "block"; $("#modal-md").style.display = isMd ? "block" : "none";
+  if (isMd) $("#modal-md").innerHTML = marked.parse(r.content || r.error || ""); else $("#modal-body").textContent = r.content || r.error || "";
+  $("#modal").classList.add("open");
 }
 async function applied(id) { await fetch("/api/applied", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) }); refreshState(); refreshStats(); }
 async function decide(id, decision) { await fetch("/api/approve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, decision }) }); refreshState(); }
@@ -582,7 +666,8 @@ function connect() {
 }
 
 resize();
-refreshState().then(() => { fitCamera(); connect(); requestAnimationFrame(frame); });
+refreshState().then(() => { fitCamera(); connect(); requestAnimationFrame(frame); refreshSchedule(); refreshTrading(); });
+setInterval(refreshSchedule, 60000); setInterval(refreshTrading, 120000);
 setInterval(refreshState, 8000); refreshRuns(); setInterval(refreshRuns, 20000); refreshStats(); setInterval(refreshStats, 60000);
 </script>
 </body>

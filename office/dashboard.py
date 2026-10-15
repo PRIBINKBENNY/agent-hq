@@ -354,6 +354,83 @@ async def api_agent(request: Request):
                          "tasks": {"done": sum(t["status"] == "done" for t in tasks), "failed": sum(t["status"] == "failed" for t in tasks)}})
 
 
+_trading_cache: dict = {"ts": 0, "data": None}
+
+
+def _trading() -> dict:
+    from tools import registry as _reg
+    import capital
+    out = {"configured": capital.configured(), "mode": "LIVE" if capital.is_live() else "DEMO", "account": None, "positions": [], "recent": []}
+    if out["configured"]:
+        try:
+            out["account"] = json.loads(_reg.call("capital_account", {}))
+            pos = _reg.call("capital_positions", {})
+            out["positions"] = json.loads(pos) if pos.startswith("[") else []
+        except Exception as e:
+            out["error"] = str(e)[:160]
+    out["recent"] = [m.to_dict() for m in brain.recent(limit=8, tags=["trade"])] + \
+                    [m.to_dict() for m in brain.recent(limit=6, kind="decision") if "risk" in m.tags][:6]
+    out["recent"].sort(key=lambda m: m["created_at"], reverse=True)
+    out["signals"] = [m.to_dict() for m in brain.recent(limit=5, tags=["signal"])]
+    return out
+
+
+async def api_trading(_: Request):
+    if _trading_cache["data"] is not None and time.time() - _trading_cache["ts"] < 60:
+        return JSONResponse(_trading_cache["data"])
+    data = await asyncio.to_thread(_trading)
+    _trading_cache.update(ts=time.time(), data=data)
+    return JSONResponse(data)
+
+
+async def api_schedule(_: Request):
+    """Upcoming scheduled jobs with their next expected time."""
+    import yaml
+    from datetime import datetime, timedelta
+    jobs = yaml.safe_load(scheduler.SCHEDULE_FILE.read_text()) or []
+    st = scheduler._load_state(); now = datetime.now(); out = []
+    for j in jobs:
+        if not j.get("enabled", True):
+            continue
+        every = j.get("every", "daily"); last = st.get(j["name"])
+        if every == "hourly":
+            nxt = (datetime.fromtimestamp(last) + timedelta(hours=1)) if last else now
+            if j.get("hours"):
+                lo, hi = [int(x) for x in str(j["hours"]).split("-")]
+                if nxt.hour > hi or nxt.weekday() >= 5:
+                    d = nxt + timedelta(days=1)
+                    while d.weekday() >= 5:
+                        d += timedelta(days=1)
+                    nxt = d.replace(hour=lo, minute=0, second=0)
+                elif nxt.hour < lo:
+                    nxt = nxt.replace(hour=lo, minute=0, second=0)
+        else:
+            hh, mm = [int(x) for x in j.get("at", "08:00").split(":")]
+            cand = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            ran_today = last and datetime.fromtimestamp(last).date() == now.date()
+            if cand <= now or ran_today:
+                cand += timedelta(days=1)
+            if every == "weekdays":
+                while cand.weekday() >= 5:
+                    cand += timedelta(days=1)
+            if every == "weekly":
+                want = scheduler.DAYS.index(j.get("day", "sunday").lower())
+                while cand.weekday() != want:
+                    cand += timedelta(days=1)
+            nxt = cand
+        out.append({"name": j["name"], "title": j.get("title", j["name"]), "agent": j.get("agent", "command"), "every": every,
+                    "next": nxt.strftime("%a %H:%M"), "next_ts": nxt.timestamp(), "last": datetime.fromtimestamp(last).strftime("%a %H:%M") if last else None})
+    out.sort(key=lambda x: x["next_ts"])
+    return JSONResponse({"jobs": out, "busy": scheduler.busy()})
+
+
+async def api_brain_search(request: Request):
+    q = request.query_params.get("q", "").strip()
+    kind = request.query_params.get("kind") or None
+    res = await asyncio.to_thread(brain.recall, q, 12, "*", None, kind)
+    return JSONResponse({"results": [m.to_dict() for m in res]})
+
+
 async def api_file(request: Request):
     """Read a workspace file for previews (approvals, task results)."""
     path = request.query_params.get("path", "")
@@ -404,6 +481,9 @@ app = Starlette(middleware=[Middleware(AuthMiddleware)], routes=[
     Route("/api/runs", api_runs),
     Route("/api/file", api_file),
     Route("/api/agent", api_agent),
+    Route("/api/trading", api_trading),
+    Route("/api/schedule", api_schedule),
+    Route("/api/brain/search", api_brain_search),
     Route("/api/stats", api_stats),
 ], lifespan=_lifespan)
 
