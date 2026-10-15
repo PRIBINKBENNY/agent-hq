@@ -71,3 +71,27 @@ def test_recall_with_no_results_releases_write_lock(tmp_path):
     b = BrainStore(db, embedder=NoEmbed())
     m = b.remember("written by a second connection")     # would raise 'database is locked' before the fix
     assert m.id == 1
+
+
+def test_concurrent_reads_from_threads_are_safe(tmp_path):
+    """Regression: a shared connection across threads returned rows from the wrong query."""
+    import threading
+    s = BrainStore(tmp_path / "t.db", embedder=NoEmbed())
+    for i in range(40):
+        s.remember(f"memory number {i} about topic {i % 5}", kind="note" if i % 2 else "fact", tags=[f"t{i % 5}"])
+        s.task_create(f"task {i}", "d", owner=f"agent{i % 3}")
+    errors = []
+    def reader(n):
+        try:
+            for _ in range(60):
+                for m in s.recent(limit=30, kind="fact"):
+                    assert m.kind == "fact" and isinstance(m.id, int)
+                for t in s.task_list(limit=50):
+                    assert "title" in t and t["title"].startswith("task")
+                s.recall("topic 3", limit=5)
+                s.stats()
+        except Exception as e:
+            errors.append(repr(e))
+    threads = [threading.Thread(target=reader, args=(i,)) for i in range(8)]
+    [t.start() for t in threads]; [t.join() for t in threads]
+    assert errors == []

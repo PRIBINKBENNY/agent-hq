@@ -566,7 +566,10 @@ $("#bgo").onclick = brainSearch; $("#bq").addEventListener("keydown", e => { if 
 /* ============================== server I/O ============================== */
 const trace = m => { const h = document.getElementById("hint"); if (h && h.textContent.startsWith("Drag")) h.dataset.t = (h.dataset.t || "") + m + " "; };
 async function refreshState() {
-  trace("fetch"); const s = await (await fetch("/api/state")).json(); trace("json");
+  trace("fetch"); let s;
+  try { const r = await fetch("/api/state"); if (!r.ok) throw new Error("server " + r.status); s = await r.json(); $("#conn").classList.remove("off"); }
+  catch (e) { $("#conn").classList.add("off"); $("#hint").textContent = "Server error on /api/state: " + e.message + " (check office/logs/launchd.err.log)"; return; }
+  trace("json");
   const names = s.roster.map(a => a.name).join();
   if (names !== roster.map(a => a.name).join()) {
     roster = s.roster; buildRooms(); overlay.dataset.built = ""; fitCamera();

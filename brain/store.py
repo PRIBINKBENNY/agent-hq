@@ -183,10 +183,20 @@ class BrainStore:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False, timeout=15)
-        self.conn.row_factory = sqlite3.Row
+        self._local = threading.local()
         self.conn.executescript(SCHEMA)
         self.embedder = embedder or Embedder()
+
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """One SQLite connection per thread. Sharing one across threads interleaves cursors and
+        returns rows from the wrong query (seen as tuple/None errors in the dashboard)."""
+        c = getattr(self._local, "conn", None)
+        if c is None:
+            c = sqlite3.connect(str(self.db_path), timeout=15)
+            c.row_factory = sqlite3.Row
+            self._local.conn = c
+        return c
 
     # ------------------------------------------------------------------ utils
     @staticmethod

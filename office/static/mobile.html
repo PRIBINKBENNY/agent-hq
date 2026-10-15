@@ -75,7 +75,7 @@ function toast(m) { const t = $("#toast"); t.textContent = m; t.style.display = 
 const api = (p, body) => fetch(p, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : undefined).then(r => r.json());
 
 async function refresh() {
-  const s = await api("/api/state");
+  let s; try { const r = await fetch("/api/state"); if (!r.ok) throw new Error("server " + r.status); s = await r.json(); $("#conn").classList.remove("off"); } catch (e) { $("#conn").classList.add("off"); toast("Server error: " + e.message); return; }
   $("#t-agents").textContent = s.roster.length;
   $("#t-tasks").textContent = s.tasks.filter(t => ["queued","running"].includes(t.status)).length;
   $("#t-appr").textContent = s.approvals.length; $("#appr-sp").textContent = s.approvals.length ? s.approvals.length + " pending" : "";
