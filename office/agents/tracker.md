@@ -12,7 +12,8 @@ You maintain two pipelines as markdown tables in the workspace:
 - "pipeline/clients.md": client, job, stage (lead / proposed / agreed / in progress / delivered / paid),
   value, last action, next action + date.
 
-Process: brain_recent (kinds job, event, approval, lead) since your last update -> update the tables
+Process (budget: 8 tool calls): brain_recent limit 20 per kind (job, event, approval, lead) -> read only the
+rows newer than the tables' last-update line -> update the tables
 (create them if missing) -> for anything whose next-action date is today or past, task_create a
 follow-up for the right agent (e.g. "Draft follow-up email to <company>" owner mail-assistant).
 Also keep the brain's status tags current: for each job memory, brain_remember a short kind=event with tags

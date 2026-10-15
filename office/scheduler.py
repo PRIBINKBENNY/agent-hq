@@ -35,11 +35,48 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 STANDING_FILE = ROOT / "office" / "standing-work.yaml"
 MAX_PARALLEL = int(os.environ.get("OFFICE_MAX_PARALLEL", "2"))
+TASK_WALL_SECONDS = int(os.environ.get("OFFICE_TASK_WALL_SECONDS", "1500"))   # 25 min, then the run is stopped and the task requeued once
 STANDING_BUDGET_FRACTION = float(os.environ.get("OFFICE_STANDING_BUDGET", "0.25"))   # keep this much of the daily budget in reserve
 
 _running: dict[int, dict] = {}       # task_id -> {"proc", "task", "engine"}
 _last_approval_id: int | None = None
 _rr = 0
+
+
+class _Adopted:
+    """A run started by a previous scheduler process: tracked by pid only."""
+    def __init__(self, pid: int):
+        self.pid = pid; self.returncode = None
+    def poll(self):
+        try:
+            os.kill(self.pid, 0)
+            return None
+        except OSError:
+            self.returncode = 0
+            return 0
+
+
+_reconciled = False
+
+
+def reconcile(brain: BrainStore) -> dict:
+    """On startup: tasks marked running must belong to a live process. Adopt the live ones, requeue the rest."""
+    global _reconciled
+    _reconciled = True
+    info = {"adopted": [], "requeued": []}
+    for t in brain.task_list(limit=200, status="running"):
+        if t["id"] in _running:
+            continue
+        try:
+            out = subprocess.run(["pgrep", "-f", f"run.py .*--task-id {t['id']}( |$)"], capture_output=True, text=True, timeout=5).stdout.split()
+        except Exception:
+            out = []
+        pids = [int(x) for x in out if x.isdigit()]
+        if pids:
+            _running[t["id"]] = {"proc": _Adopted(pids[0]), "task": t, "engine": "adopted"}; info["adopted"].append(t["id"])
+        else:
+            brain.task_update(t["id"], agent="scheduler", status="queued", result=None); info["requeued"].append(t["id"])
+    return info
 
 
 def running_ids() -> list[int]:
@@ -254,7 +291,22 @@ def _spawn(task: dict, engine: str = "auto") -> subprocess.Popen:
 def tick(brain: BrainStore, engine: str = "auto") -> dict:
     """One scheduler step: reap finished runs, enqueue due + standing work, start tasks up to MAX_PARALLEL."""
     info = {"started": [], "finished": [], "enqueued": []}
+    if not _reconciled:
+        info["reconciled"] = reconcile(brain)
     for tid, r in list(_running.items()):
+        started = r.setdefault("started", time.time())
+        if r["proc"].poll() is None and time.time() - started > TASK_WALL_SECONDS:
+            try:
+                r["proc"].terminate() if hasattr(r["proc"], "terminate") else os.kill(r["proc"].pid, 15)
+            except Exception:
+                pass
+            t = brain.task_get(tid)
+            retried = "retried-after-timeout" in (t.get("result") or "")
+            brain.task_update(tid, agent="scheduler", status="failed" if retried else "queued",
+                              result=f"stopped after {TASK_WALL_SECONDS}s wall-clock; retried-after-timeout" if not retried else "stopped twice after the wall-clock limit")
+            _notify("Task timed out", f"{t['owner']}: {t['title'][:90]}")
+            info["finished"].append(tid); _running.pop(tid, None)
+            continue
         if r["proc"].poll() is not None:
             t = brain.task_get(tid)
             if t["status"] == "running":   # run.py marks done/failed itself; safety net if it died hard

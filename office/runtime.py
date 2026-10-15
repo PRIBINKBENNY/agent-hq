@@ -137,7 +137,8 @@ WORKER_MODELS = PROVIDERS["groq"]["worker"]
 MAX_TURNS = int(os.environ.get("OFFICE_MAX_TURNS", "20"))
 READ_TOOLS = {"read_file", "list_files", "brain_recall", "brain_recent", "brain_query", "job_details", "web_fetch", "fact_check",
               "cv_truth_check", "market_data", "task_list", "github_status", "job_search", "web_search"}
-TOOL_RESULT_CAP = int(os.environ.get("OFFICE_TOOL_RESULT_CAP", "3500"))
+TOOL_RESULT_CAP = int(os.environ.get("OFFICE_TOOL_RESULT_CAP", "3000"))
+RUN_TOKEN_BUDGET = int(os.environ.get("OFFICE_RUN_TOKEN_BUDGET", "60000"))   # soft cap per run: wrap up + continue
 _COOLDOWN: dict[tuple[str, str], float] = {}   # (engine, model) -> unix ts when usable again
 
 
@@ -365,7 +366,7 @@ def unbacked_claim(answer: str, calls: list[dict], allowed_tools: list[str]) -> 
     return None
 
 
-def trim_context(messages: list[dict], keep_full: int = 2, stub_chars: int = 350) -> list[dict]:
+def trim_context(messages: list[dict], keep_full: int = 2, stub_chars: int = 260) -> list[dict]:
     """Copy of messages where all but the last `keep_full` tool results are shortened.
     Keeps per-minute token use small on free tiers; the agent already acted on the old results."""
     tool_idx = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
@@ -489,7 +490,7 @@ class Agent:
     def _lessons(self) -> str:
         """The agent's own most recent reflection lessons, so experience changes behaviour."""
         try:
-            ms = _store().recall("", limit=3, tags=["reflection", self.brief.name], kind="lesson")
+            ms = _store().recall("", limit=3, tags=["reflection", self.brief.name], kind="lesson", namespace="reflection")
             if not ms:
                 return ""
             return "\nLessons from your own recent runs (apply them):\n" + "\n".join(f"- {m.content.split(':', 1)[-1].strip()[:220]}" for m in ms) + "\n"
@@ -565,6 +566,10 @@ class Agent:
             tok_in += int(u.get("prompt_tokens") or 0); tok_out += int(u.get("completion_tokens") or 0)
             msg = resp["choices"][0]["message"]
             content = (msg.get("content") or "").strip()
+            if tok_in + tok_out > RUN_TOKEN_BUDGET and (msg.get("tool_calls") or []):
+                self._say(f"token budget {RUN_TOKEN_BUDGET} exceeded after {turn} turns; wrapping up")
+                self._emit("fallback", model=f"{engine}:{model}", reason="token budget reached, handing off")
+                break
             content = re.sub(r"<think>.*?</think>", "", content, flags=re.S).strip()  # qwen thinking tags
             tool_calls = msg.get("tool_calls") or []
 
@@ -721,7 +726,7 @@ class Agent:
             lesson = (resp["choices"][0]["message"].get("content") or "").strip()
             if lesson and not lesson.upper().startswith("NONE") and len(lesson) < 400:
                 _store().remember(f"Lesson ({self.brief.name}): {lesson}", agent=self.brief.name, kind="lesson", importance=2,
-                                      tags=["reflection", self.brief.name], ttl_seconds=60 * 86400)
+                                      tags=["reflection", self.brief.name], ttl_seconds=60 * 86400, namespace="reflection")
                 self._emit("tool", tool="reflect", args=lesson[:160])
         except Exception:
             pass

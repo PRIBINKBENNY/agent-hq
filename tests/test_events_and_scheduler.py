@@ -136,3 +136,20 @@ def test_tick_runs_up_to_max_parallel(tmp_path, monkeypatch):
     info = scheduler.tick(b)
     assert info["finished"] == [spawned[0]] and len(info["started"]) == 1 and len(scheduler.running_ids()) == 2
     scheduler._running.clear()
+
+
+def test_reconcile_adopts_live_runs_and_requeues_dead_ones(tmp_path, monkeypatch):
+    import os
+    b = _brain(tmp_path); scheduler._running.clear()
+    live = b.task_create("live", "x", owner="job-scout"); dead = b.task_create("dead", "x", owner="tracker")
+    for t in (live, dead):
+        b.task_update(t["id"], status="running")
+    me = os.getpid()
+    def fake_pgrep(cmd, **kw):
+        class R: stdout = str(me) + "\n" if f"--task-id {live['id']}" in cmd[-1] else ""
+        return R()
+    monkeypatch.setattr(scheduler.subprocess, "run", fake_pgrep)
+    info = scheduler.reconcile(b)
+    assert info["adopted"] == [live["id"]] and info["requeued"] == [dead["id"]]
+    assert b.task_get(dead["id"])["status"] == "queued" and scheduler.running_ids() == [live["id"]]
+    scheduler._running.clear(); scheduler._reconciled = False

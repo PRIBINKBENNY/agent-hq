@@ -286,7 +286,7 @@ def test_lessons_injected_into_prompt(monkeypatch, tmp_path):
     class NoEmbed(st.Embedder):
         def __init__(self): self.model_name = "none"; self.available = False; self._model = None
     b = st.BrainStore(db, embedder=NoEmbed())
-    b.remember("Lesson (job-scout): use days=30 when days=7 returns nothing", agent="job-scout", kind="lesson", tags=["reflection", "job-scout"])
+    b.remember("Lesson (job-scout): use days=30 when days=7 returns nothing", agent="job-scout", kind="lesson", tags=["reflection", "job-scout"], namespace="reflection")
     monkeypatch.setattr(st, "Embedder", NoEmbed)
     a = Agent(Brief("job-scout", "job-hunt", "worker", [], [], "You scout."), ToolRegistry(), engine="ollama", verbose=False)
     assert "use days=30" in a._system_prompt()
