@@ -89,7 +89,7 @@ export function init(el, options = {}) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15; renderer.outputColorSpace = THREE.SRGBColorSpace;
   el.appendChild(renderer.domElement);
   scene = new THREE.Scene(); scene.background = new THREE.Color(0x090c16); scene.fog = new THREE.Fog(0x090c16, 170, 330);
-  camera = new THREE.PerspectiveCamera(38, 1, 0.5, 700); camera.position.set(0, 58, 88);
+  camera = new THREE.PerspectiveCamera(38, 1, 0.5, 700); camera.position.set(0, 66, 98);
   controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true; controls.dampingFactor = 0.07;
   controls.maxPolarAngle = Math.PI / 2.3; controls.minPolarAngle = 0.3; controls.minDistance = 20; controls.maxDistance = 200; controls.target.set(0, 1, -2);
   raycaster = new THREE.Raycaster(); mouse = new THREE.Vector2();
@@ -125,7 +125,7 @@ export function resize() {
   renderer.setSize(w, h, false); renderer.domElement.style.width = w + "px"; renderer.domElement.style.height = h + "px";
   camera.aspect = w / h; camera.updateProjectionMatrix(); composer.setSize(w, h); bloom.resolution.set(w, h);
 }
-export function floorView(on) { setTimeout(resize, 30); if (on) { camera.position.set(0, 52, 80); controls.target.set(0, 1, -2); } }
+export function floorView(on) { setTimeout(resize, 30); if (on) { camera.position.set(0, 62, 92); controls.target.set(0, 1, -4); } }
 
 function pick(e) {
   const r = renderer.domElement.getBoundingClientRect();
