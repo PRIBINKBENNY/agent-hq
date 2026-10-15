@@ -129,15 +129,21 @@ def state() -> dict:
     }
 
 
+def _nocache(resp):
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"; resp.headers["Pragma"] = "no-cache"; return resp
+
+
 async def index(_: Request):
-    return HTMLResponse(HTML_PATH.read_text())
+    html = HTML_PATH.read_text()
+    v = str(int((STATIC / "office3d.js").stat().st_mtime)) if (STATIC / "office3d.js").exists() else "0"
+    return _nocache(HTMLResponse(html.replace("/static/office3d.js", f"/static/office3d.js?v={v}")))
 
 
 STATIC = ROOT / "office" / "static"
 
 
 async def mobile(_: Request):
-    return HTMLResponse((STATIC / "mobile.html").read_text())
+    return _nocache(HTMLResponse((STATIC / "mobile.html").read_text()))
 
 
 async def manifest(_: Request):
@@ -204,7 +210,7 @@ async def static_file(request: Request):
     p = STATIC / name
     if not p.exists() or p.suffix not in (".js", ".css", ".png", ".svg", ".woff2"):
         return JSONResponse({"error": "not found"}, status_code=404)
-    return FileResponse(str(p), media_type={"js": "application/javascript", "css": "text/css", "png": "image/png", "svg": "image/svg+xml", "woff2": "font/woff2"}[p.suffix[1:]])
+    return _nocache(FileResponse(str(p), media_type={"js": "application/javascript", "css": "text/css", "png": "image/png", "svg": "image/svg+xml", "woff2": "font/woff2"}[p.suffix[1:]]))
 
 
 async def api_treasury(_: Request):
