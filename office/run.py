@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from runtime import Agent, load_brief, list_agents, OLLAMA_MODEL  # noqa: E402
+from runtime import Agent, load_brief, list_agents  # noqa: E402
 from tools import registry, brain  # noqa: E402
 
 
@@ -45,7 +45,7 @@ def main():
         return
     if a.doctor:
         import json as _json, os, subprocess, shutil, time as _t
-        from runtime import active_providers, read_usage
+        from runtime import active_providers, read_usage, OLLAMA_MODEL as _local_model
         ok = lambda c, msg: print(("  OK   " if c else "  FAIL ") + msg)
         print("Agent HQ doctor")
         import scheduler as _sch
@@ -70,7 +70,7 @@ def main():
             ok(httpx.get("http://127.0.0.1:8787/api/state", timeout=5).status_code == 200, "dashboard answering on :8787")
         except Exception:
             ok(False, "dashboard not answering on :8787")
-        ok(shutil.which("ollama") is not None, f"ollama installed: local floor {OLLAMA_MODEL}, no cap; lead fallback "
+        ok(shutil.which("ollama") is not None, f"ollama installed: local floor {_local_model}, no cap; lead fallback "
            + ("ON after a 10-min cloud wait" if os.environ.get("OFFICE_LEAD_LOCAL_FALLBACK") == "1" else "off (workers only)"))
         st = brain.stats(); ok(st["total_memories"] > 0, f"brain: {st['total_memories']} memories, semantic={st['semantic_search']}, {st['db_size_mb']} MB")
         pend = [m for m in brain.recent(limit=50, kind="approval") if "pending" in m.tags]
