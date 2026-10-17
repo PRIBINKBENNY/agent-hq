@@ -327,3 +327,17 @@ def test_capacity_failures_retry_hourly_forever_instead_of_dying(tmp_path, monke
     r = b.task_get(tid)
     assert r["status"] == "queued" and int(r["result"].rsplit("retry_after:", 1)[1]) > time.time() + 3000   # hourly now, never abandoned
     scheduler._running.clear()
+
+
+def test_tasks_waiting_for_cooldown_do_not_count_as_a_full_queue(tmp_path, monkeypatch):
+    import json, time
+    b = _brain(tmp_path)
+    sf = tmp_path / "standing.yaml"; sf.write_text("- name: a\n  agent: tracker\n  every_hours: 6\n  task: x\n")
+    monkeypatch.setattr(scheduler, "STANDING_FILE", sf); monkeypatch.setattr(scheduler, "STATE_FILE", tmp_path / "st.json")
+    monkeypatch.setattr(scheduler, "TUNING_FILE", tmp_path / "t.json"); monkeypatch.setattr(scheduler, "MAX_PARALLEL", 2)
+    monkeypatch.setattr(scheduler, "standing_allowed", lambda: True); monkeypatch.setattr(scheduler, "running_ids", lambda: [])
+    now = time.time()
+    for i in range(3):   # three tasks parked until a provider cools down: the office is idle in practice
+        t = b.task_create(f"parked {i}", "x", owner="coo"); b.task_update(t["id"], result=f"no capable model | retry_after:{int(now) + 900}")
+    scheduler._save_state({"standing:a": now - 3 * 3600})          # not due (6h), but idle -> early start allowed
+    assert scheduler.enqueue_standing_work(b) == ["a"]

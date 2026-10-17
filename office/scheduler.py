@@ -189,13 +189,18 @@ def enqueue_standing_work(brain: BrainStore) -> list[str]:
     if not STANDING_FILE.exists() or not standing_allowed():
         return []
     queued = [t for t in brain.task_list(limit=100, status="queued")]
-    if len(queued) >= MAX_PARALLEL:
+    now_ts = time.time()
+    def waiting(t: dict) -> bool:                       # parked until a provider's cooldown ends: not startable work
+        stamps = re.findall(r"retry_after:(\d+)", t.get("result") or "")
+        return bool(stamps) and float(stamps[-1]) > now_ts
+    startable = [t for t in queued if not waiting(t)]
+    if len(startable) >= MAX_PARALLEL:
         return []
     items = yaml.safe_load(STANDING_FILE.read_text()) or []
     st = _load_state(); now = datetime.now(); ts = now.timestamp(); cands = []
     if not standing_rate_ok(st, ts):
         _save_state(st); return []
-    idle = not queued and not running_ids()
+    idle = not startable and not running_ids()
     for it in items:
         if not it.get("enabled", True):
             continue
@@ -219,7 +224,7 @@ def enqueue_standing_work(brain: BrainStore) -> list[str]:
         _save_state(st); return []
     cands.sort(key=lambda c: -c[0])
     out = []
-    for _, it in cands[:MAX_PARALLEL - len(queued)]:
+    for _, it in cands[:MAX_PARALLEL - len(startable)]:
         if not standing_rate_ok(st, ts):
             break
         brain.task_create(it.get("title", it["name"]), it["task"], owner=it["agent"], created_by="scheduler",
