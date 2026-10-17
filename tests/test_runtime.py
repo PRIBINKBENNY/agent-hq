@@ -401,3 +401,29 @@ def test_zai_provider_is_wired_before_openrouter():
     assert z["key_env"] == "ZAI_API_KEY" and z["url"].startswith("https://api.z.ai/api/paas/v4/") and all("flash" in m for m in z["lead"] + z["worker"])
     assert runtime.PROVIDER_ORDER.index("zai") < runtime.PROVIDER_ORDER.index("openrouter")
     assert "gemini-2.5-pro" not in runtime.PROVIDERS["gemini"]["lead"]
+
+
+def test_keyless_provider_is_opt_in_and_sends_no_auth_header(monkeypatch):
+    import runtime as rt
+    monkeypatch.delenv("KILO_API_KEY", raising=False); monkeypatch.delenv("KILO_ENABLED", raising=False)
+    assert rt.provider_key("kilo") == "" and "kilo" not in rt.active_providers()
+    monkeypatch.setenv("KILO_ENABLED", "1")
+    assert rt.provider_key("kilo") == rt.ANONYMOUS and "kilo" in rt.active_providers() and rt.auth_headers("kilo") == {}
+    monkeypatch.setenv("KILO_API_KEY", "k123")
+    assert rt.auth_headers("kilo") == {"Authorization": "Bearer k123"}
+    seen = {}
+    monkeypatch.delenv("KILO_API_KEY", raising=False)
+    monkeypatch.setattr(rt, "_chat", lambda url, headers, payload, provider=None, model=None: seen.update(url=url, headers=headers, model=payload["model"]) or {"choices": []})
+    rt._call_model([{"role": "user", "content": "hi"}], [], "nvidia/nemotron-3.5-lightning:free", "kilo")
+    assert seen["headers"] == {} and seen["url"].startswith("https://api.kilo.ai/api/gateway/v1/") and seen["model"].endswith(":free")
+    with pytest.raises(rt.EngineError, match="only ':free'"):
+        rt._call_model([{"role": "user", "content": "hi"}], [], "openai/gpt-5", "kilo")
+
+
+def test_ollama_cloud_wired_and_sambanova_retired():
+    import runtime as rt
+    assert "sambanova" not in rt.PROVIDERS and "sambanova" not in rt.PROVIDER_ORDER
+    oc = rt.PROVIDERS["ollamacloud"]
+    assert oc["url"] == "https://ollama.com/v1/chat/completions" and oc["key_env"] == "OLLAMA_CLOUD_API_KEY" and "gpt-oss:120b" in oc["lead"]
+    assert rt.PROVIDER_ORDER.index("ollamacloud") < rt.PROVIDER_ORDER.index("kilo") < rt.PROVIDER_ORDER.index("openrouter")
+    assert rt.PROVIDERS["router"]["lead"] == [] and rt.PROVIDERS["router"]["url"].endswith("/v1/chat/completions")

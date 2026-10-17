@@ -79,12 +79,29 @@ PROVIDERS: dict[str, dict] = {
         "lead": _env_list("NVIDIA_LEAD_MODELS", "meta/llama-3.3-70b-instruct,nvidia/llama-3.3-nemotron-super-49b-v1,qwen/qwen3-235b-a22b"),
         "worker": _env_list("NVIDIA_WORKER_MODELS", "meta/llama-3.1-8b-instruct,meta/llama-3.3-70b-instruct"),
     },
-    # free sign-up, no card: SambaNova Cloud (fast Llama / DeepSeek)
-    "sambanova": {
-        "url": "https://api.sambanova.ai/v1/chat/completions", "models_url": "https://api.sambanova.ai/v1/models",
-        "key_env": "SAMBANOVA_API_KEY",
-        "lead": _env_list("SAMBANOVA_LEAD_MODELS", "Meta-Llama-3.3-70B-Instruct,DeepSeek-V3-0324"),
-        "worker": _env_list("SAMBANOVA_WORKER_MODELS", "Meta-Llama-3.1-8B-Instruct,Meta-Llama-3.3-70B-Instruct"),
+    # free ollama.com account, no card: Ollama Cloud serves big open models (gpt-oss 120B, GLM, Kimi) with
+    # unpublished session/weekly limits; one request at a time on the free plan
+    "ollamacloud": {
+        "url": "https://ollama.com/v1/chat/completions", "models_url": "https://ollama.com/v1/models",
+        "key_env": "OLLAMA_CLOUD_API_KEY",
+        "lead": _env_list("OLLAMA_CLOUD_LEAD_MODELS", "gpt-oss:120b,glm-5.3-flash,kimi-k2.6"),
+        "worker": _env_list("OLLAMA_CLOUD_WORKER_MODELS", "gpt-oss:20b,glm-5.3-flash"),
+    },
+    # no key at all: Kilo Gateway's ":free" routes answer anonymously (about 200 requests/hour per IP, tool calling works).
+    # Opt-in with KILO_ENABLED=1 because Kilo logs anonymous prompts and outputs for training.
+    "kilo": {
+        "url": "https://api.kilo.ai/api/gateway/v1/chat/completions", "models_url": "https://api.kilo.ai/api/gateway/v1/models",
+        "key_env": "KILO_API_KEY", "keyless_env": "KILO_ENABLED", "free_only": True,
+        "lead": _env_list("KILO_LEAD_MODELS", "nvidia/nemotron-3-super-120b-a12b:free,nvidia/nemotron-3-ultra-550b-a55b:free,kilo-auto/free"),
+        "worker": _env_list("KILO_WORKER_MODELS", "nvidia/nemotron-3.5-lightning:free,nvidia/nemotron-3-super-120b-a12b:free"),
+    },
+    # optional: a self-hosted FreeLLMAPI router (github.com/tashfeenahmed/freellmapi) that fans out to 30+ free tiers
+    # behind one /v1; set FREELLMAPI_KEY plus ROUTER_LEAD_MODELS / ROUTER_WORKER_MODELS to the model ids it lists
+    "router": {
+        "url": (os.environ.get("FREELLMAPI_URL") or "http://localhost:3000/v1").rstrip("/") + "/chat/completions",
+        "models_url": (os.environ.get("FREELLMAPI_URL") or "http://localhost:3000/v1").rstrip("/") + "/models",
+        "key_env": "FREELLMAPI_KEY",
+        "lead": _env_list("ROUTER_LEAD_MODELS", ""), "worker": _env_list("ROUTER_WORKER_MODELS", ""),
     },
     # free sign-up (email), no card: Z.ai's GLM "Flash" models are priced at $0 (about 1 request/s, ~1,000/day; tool calling)
     "zai": {
@@ -110,7 +127,7 @@ PROVIDERS: dict[str, dict] = {
         "worker": _env_list("CLOUDFLARE_WORKER_MODELS", "@cf/meta/llama-3.1-8b-instruct-fast,@cf/meta/llama-3.3-70b-instruct-fp8-fast"),
     },
 }
-PROVIDER_ORDER = _env_list("PROVIDER_ORDER", "cerebras,groq,gemini,mistral,nvidia,sambanova,zai,openrouter,cloudflare")
+PROVIDER_ORDER = _env_list("PROVIDER_ORDER", "cerebras,groq,gemini,mistral,nvidia,zai,ollamacloud,kilo,openrouter,cloudflare,router")
 
 
 _STORE = None
@@ -126,9 +143,22 @@ def _store():
     return _STORE
 
 
+ANONYMOUS = "anonymous"      # sentinel key for providers that answer without one (opted in via their keyless_env flag)
+
+
 def provider_key(name: str) -> str:
     p = PROVIDERS.get(name)
-    return (os.environ.get(p["key_env"]) or "").strip() if p else ""
+    if not p:
+        return ""
+    key = (os.environ.get(p["key_env"]) or "").strip()
+    if not key and p.get("keyless_env") and (os.environ.get(p["keyless_env"]) or "").strip().lower() in ("1", "true", "yes", "on"):
+        return ANONYMOUS
+    return key
+
+
+def auth_headers(name: str) -> dict:
+    key = provider_key(name)
+    return {} if key in ("", ANONYMOUS) else {"Authorization": f"Bearer {key}"}
 
 
 def active_providers() -> list[str]:
@@ -144,7 +174,7 @@ def available_models(name: str) -> Optional[set[str]]:
         return _MODELS_CACHE[name]
     p = PROVIDERS[name]; out = None
     try:
-        r = httpx.get(p["models_url"], headers={"Authorization": f"Bearer {provider_key(name)}"}, timeout=15)
+        r = httpx.get(p["models_url"], headers=auth_headers(name), timeout=15)
         if r.status_code == 200:
             data = r.json().get("data", [])
             out = {str(m.get("id", "")).removeprefix("models/") for m in data}
@@ -447,11 +477,12 @@ def _call_model(messages: list[dict], tools: list[dict], model: str, engine: str
     extras = {}
     if "gpt-oss" in model and engine in ("groq", "cerebras"):
         extras["reasoning_effort"] = "medium" if tier == "lead" else "low"
+    headers = auth_headers(engine)
     try:
-        return _chat(p["url"], {"Authorization": f"Bearer {key}"}, {**payload, **extras}, provider=engine, model=model)
+        return _chat(p["url"], headers, {**payload, **extras}, provider=engine, model=model)
     except EngineError as e:
         if extras and str(e).startswith("400"):   # provider rejected an optional param: retry plain
-            return _chat(p["url"], {"Authorization": f"Bearer {key}"}, payload, provider=engine, model=model)
+            return _chat(p["url"], headers, payload, provider=engine, model=model)
         raise
 
 

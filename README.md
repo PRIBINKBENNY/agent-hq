@@ -254,7 +254,7 @@ in `.env`, restart. From then on:
 ./office/publish.sh                          # refresh the public portfolio repo from this one (also runs Fridays)
 ```
 
-- **Free providers**: the pool knows Cerebras (now card-required), Groq, Gemini, Mistral, NVIDIA, SambaNova, Z.ai (GLM Flash at $0, about 1,000 requests/day), OpenRouter (":free" models, 50 requests/day) and Cloudflare Workers
+- **Free providers**: the pool knows Cerebras (now card-required), Groq, Gemini, Mistral, NVIDIA, Z.ai (GLM Flash at $0, about 1,000 requests/day), Ollama Cloud (free account, big open models), Kilo Gateway (no key at all, about 200 requests/hour, opt-in with `KILO_ENABLED=1` because it logs prompts for training), OpenRouter (":free" models, 50 requests/day), Cloudflare Workers, and optionally a self-hosted [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) router as one more upstream. SambaNova's free tier is gone and was removed
   AI, all with free tiers that need no card at the time of writing, plus local Ollama. Paste a key into `.env`
   and the provider joins the rotation; `run.py --providers` pings each one.
 - **Budget pacing**: the runtime reads each provider's rate-limit headers (per minute and per day) and
