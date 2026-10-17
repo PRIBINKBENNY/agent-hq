@@ -314,6 +314,17 @@ Check the pool any time:
 .venv/bin/python office/run.py --providers
 ```
 
+### The only model with no cap is the one on your own Mac
+
+Every hosted free tier is metered. The one genuinely uncapped engine is Ollama on this machine, so the
+office uses it as the floor, not the ceiling: workers fall back to it as soon as every cloud model is
+cooling down, and with `OFFICE_LEAD_LOCAL_FALLBACK=1` lead agents do too, after waiting up to ten minutes
+(`OFFICE_LEAD_WAIT_MAX`) for a cloud window. `OLLAMA_MODEL` picks the model; on an 8 GB M1, Qwen3 4B
+(`qwen3:4b`, about 6 tokens/s, grounded answers, real tool calls) is the best quality that fits, and
+Qwen2.5 3B or Llama 3.2 3B are faster but shallower. Expect a ten-turn run to take ten to fifteen minutes
+locally and only one local run at a time; the dashboard labels every run with the model that produced it,
+and nothing outgoing bypasses the approval gates whichever model wrote it.
+
 ### Free-tier realities and the guards built for them
 
 - **~8,000 tokens per minute per model** is the binding Groq limit, not the request count. The runtime
