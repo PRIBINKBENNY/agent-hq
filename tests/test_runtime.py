@@ -323,6 +323,7 @@ def test_cloud_available_and_local_ok(tmp_path, monkeypatch):
     rt.persist_cooldown("groq", "small", time.time() + 10)           # too short to persist: ignored
     assert rt.cloud_available()[0] is False
     rt._COOLDOWN.clear()
+    monkeypatch.setenv("OFFICE_LEAD_WAIT_MAX", "60")                     # leads wait up to 10 min in production; not in a test
     chain = [("groq", "big"), ("groq", "small"), ("ollama", "local")]
     lead = Agent(Brief("l", "o", "lead", [], [], "s"), ToolRegistry(), engine="auto", verbose=False)
     with pytest.raises(rt.EngineError):

@@ -15,4 +15,6 @@ def _isolate_side_effects(tmp_path, monkeypatch):
     monkeypatch.setenv("OFFICE_REFLECT", "0")
     import scheduler
     monkeypatch.setattr(scheduler, "TUNNEL_LOG", tmp_path / "tunnel.log")   # never look at (or restart) the real tunnel from a test
+    import runtime
+    monkeypatch.setattr(runtime, "LOG_DIR", tmp_path / "logs"); (tmp_path / "logs").mkdir(exist_ok=True)   # run logs stay out of office/logs
     yield

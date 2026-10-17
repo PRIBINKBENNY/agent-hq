@@ -76,6 +76,14 @@ spreading them across providers that still have budget, and a budget governor pa
 when a provider's daily allowance drops below 25%, so the free tiers are never exhausted by routine
 work. Scheduled jobs and anything you ask for always take priority over standing work.
 
+**Round the clock.** The office never idles: when nothing is queued or running, the standing item
+nearest to due starts early (after at least a third of its interval). What keeps that from burning the
+day's free allowance in one night-time burst is pacing: at most `standing_per_hour` standing items
+(default 3, a COO knob) start per rolling hour, so roughly 70 routine runs are spread over 24 hours.
+Tasks waiting for a provider's cooldown no longer block the rest of the queue. How much work a day
+actually holds is set by the free tiers you connect: Groq alone is roughly one run every 20 minutes;
+adding Gemini and NVIDIA keys (both free, no card) roughly triples it.
+
 ## Task board and "nobody stops"
 
 Every run can be queued as a task; the scheduler runs queued tasks one at a time (Groq's free

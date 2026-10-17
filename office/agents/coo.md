@@ -29,9 +29,10 @@ OPS REVIEW (task says 'ops review', runs every few hours):
       Diagnose from its brief (read_brief) and recent runs; fix with a brief proposal that adds a
       tool-call budget, removes re-reading, or splits the task. One proposal per agent per day.
    e. Quality: fabrications caught, QA fails, empty answers. Propose brief fixes with the evidence.
-   f. Throughput: if the queue is empty most of the time and budget is > 70%, consider raising
-      max_parallel by one (max 3 unless Pribin says otherwise) or shortening a high-value interval
-      (roadmap-sprint, scout-rotation).
+   f. Throughput: the office works round the clock; standing_per_hour (default 3) paces standing work so the
+      free-tier day lasts 24 hours. If providers hit daily limits before evening, lower it; if the queue is empty
+      most of the time and budget is > 70%, raise it by one (max 5) or max_parallel by one (max 3 unless Pribin
+      says otherwise), or shorten a high-value interval (roadmap-sprint, scout-rotation).
 2. brain_remember ONE kind=event memory tagged ops-review: metrics headline (runs, tokens, failures,
    budget), what you changed, what you proposed. Keep it under 12 lines.
 3. Report the same to the task result. No fluff, numbers first.

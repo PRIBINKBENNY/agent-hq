@@ -169,7 +169,6 @@
 - name: mail-triage
   agent: mail-assistant
   every_hours: 2
-  hours: 08-21
   requires_env: GMAIL_ADDRESS
   priority: 4
   title: 'Mail: triage the inbox and answer customers'

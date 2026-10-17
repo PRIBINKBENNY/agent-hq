@@ -261,3 +261,69 @@ def test_tunnel_watch_restarts_a_dead_quick_tunnel_and_announces_the_new_url(tmp
     assert info["url"] == "https://new-name.trycloudflare.com" and pushed == ["https://new-name.trycloudflare.com/m"] and notes
     assert json.loads(st_file.read_text())["tunnel_url"] == "https://new-name.trycloudflare.com"
     assert scheduler.tunnel_watch(force=True) == {}                                   # unchanged: quiet
+
+
+def test_waiting_task_does_not_block_the_rest_of_the_queue(tmp_path, monkeypatch):
+    import json, time
+    b = _brain(tmp_path); scheduler._reconciled = True; scheduler._running.clear(); scheduler._last_sweep = time.time()
+    monkeypatch.setenv("OFFICE_MAX_PARALLEL", "2"); monkeypatch.setattr(scheduler, "MAX_PARALLEL", 2)
+    for name in ("STANDING_FILE", "SCHEDULE_FILE"): monkeypatch.setattr(scheduler, name, tmp_path / f"{name}.yaml")
+    monkeypatch.setattr(scheduler, "STATE_FILE", tmp_path / "st.json"); monkeypatch.setattr(scheduler, "budget", lambda: {})
+    monkeypatch.setattr(scheduler, "_notify", lambda *a: None); monkeypatch.setattr(scheduler, "housekeeping", lambda: {})
+    monkeypatch.setattr(scheduler, "check_approvals", lambda brain: 0)
+    class FakeProc:
+        returncode = None
+        def poll(self): return None
+    started = []; monkeypatch.setattr(scheduler, "_spawn", lambda task, eng: started.append(task["id"]) or FakeProc())
+    waiting = b.task_create("waiting for cooldown", "x", owner="coo", priority=5)
+    b.task_update(waiting["id"], result=f"EngineError: no capable model | retry_after:{int(time.time()) + 900}")
+    ready = b.task_create("ready", "x", owner="tracker", priority=1)
+    info = scheduler.tick(b)
+    assert started == [ready["id"]] and b.task_get(waiting["id"])["status"] == "queued"
+    scheduler._running.clear()
+
+
+def test_round_the_clock_filler_and_hourly_pacing(tmp_path, monkeypatch):
+    import json, time
+    b = _brain(tmp_path)
+    sf = tmp_path / "standing.yaml"
+    sf.write_text("- name: a\n  agent: tracker\n  every_hours: 6\n  task: x\n- name: b\n  agent: networker\n  every_hours: 12\n  task: y\n- name: w\n  agent: coo\n  every_hours: 168\n  task: z\n")
+    tf = tmp_path / "tuning.json"; tf.write_text(json.dumps({"standing_per_hour": 2}))
+    monkeypatch.setattr(scheduler, "STANDING_FILE", sf); monkeypatch.setattr(scheduler, "STATE_FILE", tmp_path / "st.json")
+    monkeypatch.setattr(scheduler, "TUNING_FILE", tf); monkeypatch.setattr(scheduler, "MAX_PARALLEL", 2)
+    monkeypatch.setattr(scheduler, "standing_allowed", lambda: True); monkeypatch.setattr(scheduler, "running_ids", lambda: [])
+    now = time.time()
+    # nothing is due (all ran 2.5h ago) but the office is idle: the item nearest to due starts early (a: 2.5/6 > 1/3), b and w do not
+    scheduler._save_state({"standing:a": now - 2.5 * 3600, "standing:b": now - 2.5 * 3600, "standing:w": now - 100 * 3600})
+    assert scheduler.enqueue_standing_work(b) == ["a"]
+    # queue is no longer empty -> no further early starts; make it empty again and b is still too fresh (2.5/12 < 1/3)
+    for t in b.task_list(status="queued"): b.task_update(t["id"], status="done")
+    assert scheduler.enqueue_standing_work(b) == []
+    # pacing: with two starts in the last hour the cap (2) is reached even for overdue work
+    st = scheduler._load_state(); st["standing:b"] = now - 20 * 3600; st["standing_starts"] = [now - 600, now - 300]; scheduler._save_state(st)
+    assert scheduler.enqueue_standing_work(b) == []
+    st = scheduler._load_state(); st["standing_starts"] = [now - 3700, now - 300]; scheduler._save_state(st)   # one aged out
+    assert scheduler.enqueue_standing_work(b) == ["b"]
+    assert len(scheduler._load_state()["standing_starts"]) == 2
+
+
+def test_capacity_failures_retry_hourly_forever_instead_of_dying(tmp_path, monkeypatch):
+    import time
+    b = _brain(tmp_path); scheduler._reconciled = True; scheduler._running.clear(); scheduler._last_sweep = time.time()
+    monkeypatch.setenv("OFFICE_MAX_PARALLEL", "1"); monkeypatch.setattr(scheduler, "MAX_PARALLEL", 1)
+    for name in ("STANDING_FILE", "SCHEDULE_FILE"): monkeypatch.setattr(scheduler, name, tmp_path / f"{name}.yaml")
+    monkeypatch.setattr(scheduler, "STATE_FILE", tmp_path / "st.json"); monkeypatch.setattr(scheduler, "budget", lambda: {})
+    monkeypatch.setattr(scheduler, "_notify", lambda *a: None); monkeypatch.setattr(scheduler, "housekeeping", lambda: {})
+    monkeypatch.setattr(scheduler, "check_approvals", lambda brain: 0)
+    class P:
+        returncode = None
+        def poll(self): return self.returncode
+    monkeypatch.setattr(scheduler, "_spawn", lambda task, eng: P())
+    t = b.task_create("coo review", "x", owner="coo")
+    tid = scheduler.tick(b)["started"][0]
+    scheduler._running[tid]["proc"].returncode = 1
+    b.task_update(tid, status="failed", result="EngineError: no capable model available" + " | retry_after:1" * 3)   # already retried 3 times
+    scheduler.tick(b)
+    r = b.task_get(tid)
+    assert r["status"] == "queued" and int(r["result"].rsplit("retry_after:", 1)[1]) > time.time() + 3000   # hourly now, never abandoned
+    scheduler._running.clear()

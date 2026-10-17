@@ -174,8 +174,18 @@ def standing_allowed() -> bool:
     return not b or any(v["ok"] for v in b.values())
 
 
+def standing_rate_ok(st: dict, now_ts: float) -> bool:
+    """Round-the-clock pacing: at most `standing_per_hour` standing items are started per rolling hour, so the day's
+    free-tier allowance is spread across 24 hours instead of being burnt in a 3 a.m. burst (then nothing by noon)."""
+    cap = int(_knob("standing_per_hour", 3))
+    recent = [t for t in st.get("standing_starts", []) if now_ts - t < 3600]
+    st["standing_starts"] = recent
+    return len(recent) < cap
+
+
 def enqueue_standing_work(brain: BrainStore) -> list[str]:
-    """Keep every office busy: when the queue is short, add the standing item that has waited longest."""
+    """Keep every office busy, round the clock: when the queue is short, add the standing item that has waited longest.
+    If nothing is due and nobody is working, start the item closest to due anyway (idle filler), within the hourly pace."""
     if not STANDING_FILE.exists() or not standing_allowed():
         return []
     queued = [t for t in brain.task_list(limit=100, status="queued")]
@@ -183,6 +193,9 @@ def enqueue_standing_work(brain: BrainStore) -> list[str]:
         return []
     items = yaml.safe_load(STANDING_FILE.read_text()) or []
     st = _load_state(); now = datetime.now(); ts = now.timestamp(); cands = []
+    if not standing_rate_ok(st, ts):
+        _save_state(st); return []
+    idle = not queued and not running_ids()
     for it in items:
         if not it.get("enabled", True):
             continue
@@ -195,17 +208,23 @@ def enqueue_standing_work(brain: BrainStore) -> list[str]:
             if not (lo <= now.hour <= hi):
                 continue
         last = st.get("standing:" + it["name"], 0)
-        overdue = (ts - last) / 3600 - float(it.get("every_hours", 6))
-        if overdue >= 0 and not any(t.get("source") == "standing:" + it["name"] for t in queued):
-            cands.append((overdue, it))
+        every = float(it.get("every_hours", 6)); elapsed_h = (ts - last) / 3600
+        overdue = elapsed_h - every
+        # idle filler: nothing queued or running -> the item nearest to due may start early, once a third of its interval
+        # (and at least an hour) has passed; never for weekly items
+        early_ok = idle and every <= 48 and elapsed_h >= max(1.0, every / 3)
+        if (overdue >= 0 or early_ok) and not any(t.get("source") == "standing:" + it["name"] for t in queued):
+            cands.append((elapsed_h / every, it))
     if not cands:
-        return []
+        _save_state(st); return []
     cands.sort(key=lambda c: -c[0])
     out = []
     for _, it in cands[:MAX_PARALLEL - len(queued)]:
+        if not standing_rate_ok(st, ts):
+            break
         brain.task_create(it.get("title", it["name"]), it["task"], owner=it["agent"], created_by="scheduler",
                           priority=int(it.get("priority", 2)), source="standing:" + it["name"])
-        st["standing:" + it["name"]] = ts; out.append(it["name"])
+        st["standing:" + it["name"]] = ts; st.setdefault("standing_starts", []).append(ts); out.append(it["name"])
     _save_state(st)
     return out
 
@@ -360,9 +379,12 @@ def tick(brain: BrainStore, engine: str = "auto") -> dict:
             continue
         if r["proc"].poll() is not None:
             t = brain.task_get(tid)
-            if t["status"] == "failed" and "no capable model" in (t.get("result") or "") and (t.get("result") or "").count("retry_after") < 3:
-                # every cloud provider was cooling down: try again in 15 minutes instead of giving up
-                brain.task_update(tid, agent="scheduler", status="queued", result=(t.get("result") or "")[:300] + f" | retry_after:{int(time.time()) + 900}")
+            if t["status"] == "failed" and "no capable model" in (t.get("result") or ""):
+                # every cloud provider was cooling down: capacity, not the task, failed. Retry in 15 minutes, then hourly;
+                # sweep_stale retires what has genuinely gone stale, so nothing is abandoned for lack of quota
+                tries = (t.get("result") or "").count("retry_after")
+                delay = 900 if tries < 3 else 3600
+                brain.task_update(tid, agent="scheduler", status="queued", result=(t.get("result") or "")[:300] + f" | retry_after:{int(time.time()) + delay}")
                 info["finished"].append(tid); _running.pop(tid, None); continue
             if t["status"] == "running":   # run.py marks done/failed itself; safety net if it died hard
                 brain.task_update(tid, agent="scheduler", status="failed", result=f"process exited {r['proc'].returncode} without reporting")
@@ -386,15 +408,15 @@ def tick(brain: BrainStore, engine: str = "auto") -> dict:
         ok_cloud, soonest = True, 0
     if not ok_cloud:
         info["waiting_for_cloud_until"] = soonest; effective = 0        # queue, do not burn runs that will fail
-    now = time.time()
+    now = time.time(); skip: list[int] = []
     while len(running_ids()) < effective:
-        nxt = brain.task_claim_next()
+        nxt = brain.task_claim_next(exclude=skip)
         if not nxt:
             break
-        m = re.search(r"retry_after:(\d+)", nxt.get("result") or "")
-        if m and float(m.group(1)) > now:
-            brain.task_update(nxt["id"], agent="scheduler", status="queued")   # not yet: leave it queued for a later tick
-            break
+        stamps = re.findall(r"retry_after:(\d+)", nxt.get("result") or "")   # the result accumulates one per retry: honour the latest
+        if stamps and float(stamps[-1]) > now:
+            brain.task_update(nxt["id"], agent="scheduler", status="queued")   # not yet: leave it queued, try the next one
+            skip.append(nxt["id"]); continue
         eng = engine if engine != "auto" else pick_engine()
         _running[nxt["id"]] = {"proc": _spawn(nxt, eng), "task": nxt, "engine": eng}
         info["started"].append(nxt["id"])

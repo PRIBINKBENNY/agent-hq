@@ -545,11 +545,13 @@ class BrainStore:
                          priority DESC, created_at DESC LIMIT ?""", [*vals, int(limit)]).fetchall()
         return [self._task_row(r) for r in rows]
 
-    def task_claim_next(self) -> Optional[dict]:
-        """Atomically take the highest-priority queued task (for the scheduler)."""
+    def task_claim_next(self, exclude: Iterable[int] = ()) -> Optional[dict]:
+        """Atomically take the highest-priority queued task (for the scheduler), skipping `exclude` ids."""
+        ex = [int(x) for x in exclude]
         with self._lock:
             r = self.conn.execute(
-                "SELECT id FROM tasks WHERE status='queued' ORDER BY priority DESC, created_at ASC LIMIT 1").fetchone()
+                f"SELECT id FROM tasks WHERE status='queued'{(' AND id NOT IN (' + ','.join('?' * len(ex)) + ')') if ex else ''} "
+                "ORDER BY priority DESC, created_at ASC LIMIT 1", ex).fetchone()
             if not r:
                 return None
             self.conn.execute("UPDATE tasks SET status='running', started_at=?, updated_at=? WHERE id=?",

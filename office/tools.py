@@ -941,7 +941,8 @@ def linkedin_post(approval_id: int, path: str, _agent="unknown"):
 
 
 # ---------------------------------------------------------------- COO: oversight and self-optimisation (bounded)
-KNOB_BOUNDS = {"max_parallel": (1, 4), "run_token_budget": (30000, 120000), "max_turns": (10, 30), "standing_budget_fraction": (0.1, 0.6), "task_wall_seconds": (600, 3600)}
+KNOB_BOUNDS = {"max_parallel": (1, 4), "run_token_budget": (30000, 120000), "max_turns": (10, 30), "standing_budget_fraction": (0.1, 0.6), "task_wall_seconds": (600, 3600),
+               "standing_per_hour": (1, 8)}
 TUNING_FILE = ROOT / "office" / "tuning.json"
 STANDING_FILE = ROOT / "office" / "standing-work.yaml"
 AGENTS_DIR = ROOT / "office" / "agents"
@@ -995,7 +996,7 @@ def ops_metrics(hours: int = 24):
                        "budget": budget, "knobs": {k: v for k, v in knobs.items() if k != "notes"}, "knob_bounds": KNOB_BOUNDS, "standing": standing})
 
 
-@registry.register("tune", "Change a bounded office knob (max_parallel, run_token_budget, max_turns, standing_budget_fraction, task_wall_seconds) "
+@registry.register("tune", "Change a bounded office knob (max_parallel, run_token_budget, max_turns, standing_budget_fraction, task_wall_seconds, standing_per_hour) "
                    "or a standing-work item's every_hours / enabled. Takes effect within a minute. Out-of-bounds values are refused.", {
     "type": "object", "properties": {
         "knob": {"type": "string", "description": "a knob name, or 'standing:<item-name>'"},

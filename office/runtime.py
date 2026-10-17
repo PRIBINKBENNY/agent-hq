@@ -606,7 +606,8 @@ class Agent:
         if remote_all:
             soonest = min(remote_all, key=cool)
             wait = cool(soonest) - now
-            limit = 180 if self.brief.tier == "lead" else 45
+            # free tiers meter tokens per minute: waiting a few minutes for the next window beats failing the run
+            limit = int(os.environ.get("OFFICE_LEAD_WAIT_MAX") or 600) if self.brief.tier == "lead" else 45
             if wait <= limit:
                 self._say(f"all remote models cooling down, waiting {wait:.0f}s for {soonest[0]}:{soonest[1]}")
                 time.sleep(max(0.5, wait + 0.5))
