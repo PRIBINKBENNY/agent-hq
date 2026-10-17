@@ -529,6 +529,46 @@ def tunnel_status() -> dict:
         return {"running": False, "url": None, "dead": False}
 
 
+def phone_link_repo() -> str:
+    """Opt-in: PHONE_LINK_REPO=owner/repo whose gh-pages branch is a one-page redirector to the current tunnel."""
+    return (os.environ.get("PHONE_LINK_REPO") or "").strip()
+
+
+def phone_link_url() -> str:
+    repo = phone_link_repo()
+    return f"https://{repo.split('/')[0].lower()}.github.io/{repo.split('/')[1]}/" if "/" in repo else ""
+
+
+def phone_link_html(url: str) -> str:
+    """A one-line GitHub Pages site that bounces the phone to wherever the quick tunnel lives today."""
+    target = url.rstrip("/") + "/m"
+    return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<meta name="robots" content="noindex,nofollow"><title>Agent HQ</title>'
+            f'<meta http-equiv="refresh" content="0; url={target}">'
+            '<style>body{font-family:-apple-system,system-ui,sans-serif;background:#0b0f16;color:#e8eef7;display:grid;place-items:center;'
+            'height:100vh;margin:0}a{color:#7cc4ff}</style></head>'
+            f'<body><p>Opening Agent HQ… <a href="{target}">tap here if nothing happens</a></p><script>location.replace("{target}")</script></body></html>')
+
+
+def publish_phone_link(url: str) -> dict:
+    """Update index.html on the gh-pages branch so the stable link follows the tunnel. Uses the logged-in gh CLI."""
+    import base64
+    if not phone_link_repo():
+        return {"ok": False, "link": "", "error": "PHONE_LINK_REPO not set"}
+    body = base64.b64encode(phone_link_html(url).encode()).decode()
+    path = f"repos/{phone_link_repo()}/contents/index.html"
+    try:
+        cur = subprocess.run(["gh", "api", f"{path}?ref=gh-pages", "--jq", ".sha"], capture_output=True, text=True, timeout=30)
+        sha = cur.stdout.strip() if cur.returncode == 0 else ""
+        args = ["gh", "api", "-X", "PUT", path, "-f", "branch=gh-pages", "-f", f"message=Phone link -> {url}", "-f", f"content={body}"]
+        if sha:
+            args += ["-f", f"sha={sha}"]
+        r = subprocess.run(args, capture_output=True, text=True, timeout=60)
+        return {"ok": r.returncode == 0, "link": phone_link_url(), "error": (r.stderr or "")[:160] if r.returncode else ""}
+    except Exception as e:
+        return {"ok": False, "link": phone_link_url(), "error": str(e)[:160]}
+
+
 def tunnel_watch(force: bool = False) -> dict:
     """Once a minute: restart a dead quick tunnel (launchd starts it again with a fresh URL) and, when the
     address changes, tell Pribin on the Mac and on the phone (web push still reaches the old install)."""
@@ -549,12 +589,15 @@ def tunnel_watch(force: bool = False) -> dict:
         return info
     if st["url"] and st["url"] != state.get("tunnel_url"):
         prev = state.get("tunnel_url"); state["tunnel_url"] = st["url"]; _save_state(state); info["url"] = st["url"]
+        if phone_link_repo():
+            info["phone_link"] = publish_phone_link(st["url"])    # the stable link now points at the new address
+        open_url = phone_link_url() or (st["url"] + "/m")
         if prev:                                # moved, not first start
-            _notify("Phone app moved", st["url"] + "/m")
+            _notify("Phone app moved", open_url)
             try:
                 import push
-                info["push"] = push.send("Agent HQ phone app moved", "Open the new address and add it to your home screen again.",
-                                         url=st["url"] + "/m", tag="tunnel")
+                info["push"] = push.send("Agent HQ phone app moved", f"Open {open_url} and log in once with the dashboard token.",
+                                         url=open_url, tag="tunnel")
             except Exception as e:
                 info["push_error"] = str(e)[:120]
     return info

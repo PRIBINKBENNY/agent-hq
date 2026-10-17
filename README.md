@@ -156,6 +156,12 @@ Reach it from outside the Mac through a free tunnel; every remote request needs 
 ```
 
 For a permanent private URL use Tailscale, or a named Cloudflare tunnel on your own domain.
+
+The quick tunnel dies when the Mac sleeps and comes back with a new address; the scheduler restarts it
+and pushes the new address to the phone. For a link that never changes, set `PHONE_LINK_REPO=owner/repo`
+in `.env`: the scheduler then keeps a one-page redirector on that repo's `gh-pages` branch (GitHub Pages,
+free) pointing at the current tunnel, so `https://owner.github.io/repo/` always opens the office. The page
+carries only the address, never the token; the dashboard still asks for the token on every new address.
 See `DEPLOY.md`, which also covers running the office on a free cloud VM so it keeps working
 when the Mac is off. While it runs on the Mac, the dashboard keeps the machine awake on mains power.
 

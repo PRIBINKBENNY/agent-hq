@@ -341,3 +341,19 @@ def test_tasks_waiting_for_cooldown_do_not_count_as_a_full_queue(tmp_path, monke
         t = b.task_create(f"parked {i}", "x", owner="coo"); b.task_update(t["id"], result=f"no capable model | retry_after:{int(now) + 900}")
     scheduler._save_state({"standing:a": now - 3 * 3600})          # not due (6h), but idle -> early start allowed
     assert scheduler.enqueue_standing_work(b) == ["a"]
+
+
+def test_phone_link_redirector_is_opt_in_and_updates_gh_pages(tmp_path, monkeypatch):
+    monkeypatch.delenv("PHONE_LINK_REPO", raising=False)
+    assert scheduler.publish_phone_link("https://x.trycloudflare.com")["ok"] is False and scheduler.phone_link_url() == ""
+    monkeypatch.setenv("PHONE_LINK_REPO", "Someone/agent-hq")
+    assert scheduler.phone_link_url() == "https://someone.github.io/agent-hq/"
+    html = scheduler.phone_link_html("https://x.trycloudflare.com")
+    assert 'url=https://x.trycloudflare.com/m' in html and "noindex" in html and "token" not in html.lower()
+    calls = []
+    class R:
+        returncode = 0; stdout = "abc123\n"; stderr = ""
+    monkeypatch.setattr(scheduler.subprocess, "run", lambda cmd, **kw: calls.append(cmd) or R())
+    r = scheduler.publish_phone_link("https://x.trycloudflare.com")
+    assert r["ok"] and r["link"] == "https://someone.github.io/agent-hq/"
+    put = calls[-1]; assert "PUT" in put and "branch=gh-pages" in put and "sha=abc123" in put and "repos/Someone/agent-hq/contents/index.html" in put
