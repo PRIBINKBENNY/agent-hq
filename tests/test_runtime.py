@@ -393,3 +393,11 @@ def test_repeated_blocked_reads_end_the_run_early(monkeypatch, tmp_path):
     monkeypatch.setattr(rt, "available_models", lambda n: None)
     res = Agent(Brief("w", "o", "worker", ["read_file"], [], "s"), reg, engine="auto", verbose=False).run("read a.md")
     assert "DONE" in res.answer and n["calls"] <= 6          # 2 normal reads, 2 blocked repeats, then the forced final answer
+
+
+def test_zai_provider_is_wired_before_openrouter():
+    import runtime
+    z = runtime.PROVIDERS["zai"]
+    assert z["key_env"] == "ZAI_API_KEY" and z["url"].startswith("https://api.z.ai/api/paas/v4/") and all("flash" in m for m in z["lead"] + z["worker"])
+    assert runtime.PROVIDER_ORDER.index("zai") < runtime.PROVIDER_ORDER.index("openrouter")
+    assert "gemini-2.5-pro" not in runtime.PROVIDERS["gemini"]["lead"]

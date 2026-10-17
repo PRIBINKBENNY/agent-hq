@@ -69,7 +69,7 @@ PROVIDERS: dict[str, dict] = {
         "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         "models_url": "https://generativelanguage.googleapis.com/v1beta/openai/models",
         "key_env": "GEMINI_API_KEY",
-        "lead": _env_list("GEMINI_LEAD_MODELS", "gemini-2.5-flash,gemini-2.5-pro"),
+        "lead": _env_list("GEMINI_LEAD_MODELS", "gemini-2.5-flash,gemini-2.5-flash-lite"),   # Pro is no longer on the free tier
         "worker": _env_list("GEMINI_WORKER_MODELS", "gemini-2.5-flash-lite,gemini-2.5-flash"),
     },
     # free with an email sign-up, no card: NVIDIA's hosted open models (about 40 requests/min)
@@ -85,6 +85,13 @@ PROVIDERS: dict[str, dict] = {
         "key_env": "SAMBANOVA_API_KEY",
         "lead": _env_list("SAMBANOVA_LEAD_MODELS", "Meta-Llama-3.3-70B-Instruct,DeepSeek-V3-0324"),
         "worker": _env_list("SAMBANOVA_WORKER_MODELS", "Meta-Llama-3.1-8B-Instruct,Meta-Llama-3.3-70B-Instruct"),
+    },
+    # free sign-up (email), no card: Z.ai's GLM "Flash" models are priced at $0 (about 1 request/s, ~1,000/day; tool calling)
+    "zai": {
+        "url": "https://api.z.ai/api/paas/v4/chat/completions", "models_url": "https://api.z.ai/api/paas/v4/models",
+        "key_env": "ZAI_API_KEY",
+        "lead": _env_list("ZAI_LEAD_MODELS", "glm-4.7-flash,glm-4.5-flash"),
+        "worker": _env_list("ZAI_WORKER_MODELS", "glm-4.5-flash,glm-4.7-flash"),
     },
     # free sign-up, no card: OpenRouter's ":free" models (20 requests/min, 50 requests/day without credits).
     # Thin, so it sits late in the order; the models listed here all support tool calling (checked against /api/v1/models).
@@ -103,7 +110,7 @@ PROVIDERS: dict[str, dict] = {
         "worker": _env_list("CLOUDFLARE_WORKER_MODELS", "@cf/meta/llama-3.1-8b-instruct-fast,@cf/meta/llama-3.3-70b-instruct-fp8-fast"),
     },
 }
-PROVIDER_ORDER = _env_list("PROVIDER_ORDER", "cerebras,groq,gemini,mistral,nvidia,sambanova,openrouter,cloudflare")
+PROVIDER_ORDER = _env_list("PROVIDER_ORDER", "cerebras,groq,gemini,mistral,nvidia,sambanova,zai,openrouter,cloudflare")
 
 
 _STORE = None
