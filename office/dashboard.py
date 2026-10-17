@@ -84,6 +84,7 @@ from store import BrainStore  # noqa: E402
 import scheduler  # noqa: E402
 import push  # noqa: E402
 import linkedin  # noqa: E402
+import mail  # noqa: E402
 
 PORT = int(os.environ.get("DASHBOARD_PORT", "8787"))
 HTML_PATH = ROOT / "office" / "static" / "dashboard.html"
@@ -126,6 +127,7 @@ def state() -> dict:
         "paused": scheduler.paused(),
         "cloud": (lambda r: {"available": r[0], "until": r[1]})(__import__("runtime").cloud_available()),
         "treasury": _treasury_state(),
+        "mail": mail.status(),
         "now": time.time(),
     }
 
@@ -304,7 +306,15 @@ async def api_approve(request: Request):
         if "brief-proposal" in tags:
             detail = f"Pribin APPROVED brief proposal #{mid}. Apply it with apply_proposal(approval_id={mid}) and confirm which agent changed."
         elif "email" in tags or "/outbox/" in txt:
-            detail = None   # he will send it himself; nothing to chain (chaining emails created junk follow-ups)
+            detail = None   # no chained follow-ups for emails (they created junk tasks)
+            if mail.configured():                       # Gmail connected: approving an email sends it, deterministically
+                from tools import send_approved_email
+                try:
+                    sent = await asyncio.to_thread(send_approved_email, mid, None, "pribin")
+                    return JSONResponse({"ok": True, "sent": sent, "follow_up_task": None})
+                except Exception as e:
+                    brain.update(mid, agent="pribin", add_tags=["send-failed"])
+                    return JSONResponse({"ok": True, "sent": None, "error": f"approved but not sent: {str(e)[:200]}", "follow_up_task": None})
         elif "application" in tags or "/applications/" in txt:
             detail = (f"Pribin APPROVED application #{mid}: {new[:200]}. tracker: set that company's stage to 'approved, ready to apply' in pipeline/jobs.md. "
                       "Do NOT draft any email; he presses 'I applied' when he has applied.")

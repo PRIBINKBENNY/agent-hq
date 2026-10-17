@@ -166,3 +166,14 @@
   title: 'Learner: weekly trading review'
   task: 'Weekly review: journal stats vs expectations per strategy; retire what failed on the evidence, change at
     most one thing and re-validate, update trading/plan.md, notify Pribin.'
+- name: mail-triage
+  agent: mail-assistant
+  every_hours: 2
+  hours: 08-21
+  requires_env: GMAIL_ADDRESS
+  priority: 4
+  title: 'Mail: triage the inbox and answer customers'
+  task: 'Mail triage: mail_inbox (unread, last 7 days). Skip newsletters, notifications and anything automated. For each real
+    message from a client, lead, recruiter or contact: brain_recall the context, then mail_reply with a short, specific answer
+    (auto-sent only inside existing known-contact threads when MAIL_AUTOREPLY is on; otherwise it becomes an approval).
+    Record one brain event per handled message (tags contact:<slug>, email). Report: messages seen, replied, awaiting approval, skipped.'

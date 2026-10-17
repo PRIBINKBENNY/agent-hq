@@ -188,6 +188,8 @@ def enqueue_standing_work(brain: BrainStore) -> list[str]:
             continue
         if it.get("weekdays") and now.weekday() >= 5:
             continue
+        if it.get("requires_env") and not (os.environ.get(str(it["requires_env"])) or "").strip():
+            continue                                   # e.g. mail triage only when Gmail is configured
         if it.get("hours"):
             lo, hi = [int(x) for x in str(it["hours"]).split("-")]
             if not (lo <= now.hour <= hi):

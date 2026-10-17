@@ -1525,3 +1525,130 @@ def record_trade_outcome(pnl: float, r: float | None, strategy: str, epic: str, 
 @registry.register("treasury_status", "The office treasury fed by profitable demo trades: credits, xp, level, wins/losses, streak, recent rewards.", {"type": "object", "properties": {}})
 def treasury_status():
     t = treasury(); return json.dumps({**{k: t[k] for k in ("credits", "currency", "xp", "level", "wins", "losses", "streak", "best_streak")}, "recent": t["history"][-5:]})
+
+
+# ---------------------------------------------------------------- Gmail (office/mail.py): gated sending, inbox triage
+def _known_contact(addr: str) -> bool:
+    """Someone we already deal with: in pipeline/clients.md, pipeline/jobs.md, or anywhere in the brain."""
+    addr = (addr or "").lower(); dom = addr.split("@")[-1]
+    for name in ("pipeline/clients.md", "pipeline/jobs.md", "pipeline/projects.md"):
+        p = WORKSPACE / name
+        try:
+            txt = p.read_text().lower()
+            if addr in txt or (dom not in ("gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com") and dom in txt):
+                return True
+        except Exception:
+            pass
+    try:
+        return any(addr in m.content.lower() for m in brain.recall(addr, limit=5))
+    except Exception:
+        return False
+
+
+def send_approved_email(approval_id: int, path: str | None = None, agent: str = "pribin") -> dict:
+    """Send the outbox draft behind an APPROVED email approval. Shared by the dashboard's Approve button and mail_send."""
+    import mail
+    m = brain.get(int(approval_id))
+    if m.kind != "approval" or "approved" not in m.tags:
+        raise mail.MailError("that approval has not been approved by Pribin")
+    if "qa-fail" in m.tags:
+        raise mail.MailError("QA failed on this draft")
+    if "sent" in m.tags:
+        raise mail.MailError("already sent")
+    if not path:
+        mt = re.search(r"(?:workspace/)?(outbox/[\w./ -]+?\.md)", m.content)
+        path = mt.group(1) if mt else None
+    p = _safe(path or "")
+    if not path or not p.exists() or "/outbox/" not in str(p):
+        raise mail.MailError(f"{path} is not an outbox draft")
+    d = mail.parse_draft(p.read_text())
+    r = mail.send(d["to"], d["subject"], d["body"], in_reply_to=d["in_reply_to"], references=d["references"], agent=agent, mode="approved")
+    brain.update(m.id, agent=agent, content=re.sub(r"^(PENDING APPROVAL|APPROVED)", "SENT", m.content, count=1), add_tags=["sent"])
+    brain.remember(f"Sent email to {r['to']}: '{d['subject']}' ({path}); approval #{m.id}", agent=agent, kind="event", importance=4,
+                   tags=["email", "sent", f"contact:{re.sub(r'[^a-z0-9]+', '-', r['to'].split('@')[0].lower())}"])
+    return {**r, "approval_id": m.id, "path": path}
+
+
+@registry.register("mail_inbox", "Unread Gmail messages (newest first): uid, from, subject, date, automated flag, the new text of each message.", {
+    "type": "object", "properties": {"limit": {"type": "integer", "default": 15}, "unread_only": {"type": "boolean", "default": True},
+                                     "since_days": {"type": "integer", "default": 7}}})
+def mail_inbox(limit: int = 15, unread_only: bool = True, since_days: int = 7):
+    import mail
+    if not mail.configured():
+        return "not configured: Gmail is not connected (GMAIL_ADDRESS / GMAIL_APP_PASSWORD). Report this and stop."
+    try:
+        rows = mail.inbox(limit=int(limit), unread_only=bool(unread_only), since_days=int(since_days))
+    except Exception as e:
+        return f"ERROR: mail: {e}"
+    for r in rows:
+        r["body"] = r["body"][:900]
+    return json.dumps(rows, ensure_ascii=False) if rows else "inbox: nothing unread in that window"
+
+
+@registry.register("mail_read", "Full text of one inbox message by uid.", {
+    "type": "object", "properties": {"uid": {"type": "string"}}, "required": ["uid"]})
+def mail_read(uid: str):
+    import mail
+    try:
+        return json.dumps(mail.read(str(uid)), ensure_ascii=False)
+    except Exception as e:
+        return f"ERROR: mail: {e}"
+
+
+@registry.register("mail_reply", "Answer an inbox message. Sends now only inside an existing thread with a known contact and only when "
+                   "MAIL_AUTOREPLY is on; otherwise it saves the reply to the outbox and asks Pribin for approval.", {
+    "type": "object", "properties": {"uid": {"type": "string"}, "body": {"type": "string"},
+                                     "subject": {"type": "string", "description": "optional; default 'Re: <their subject>'"}},
+    "required": ["uid", "body"]})
+def mail_reply(uid: str, body: str, subject: str = "", _agent="unknown"):
+    import mail
+    try:
+        msg = mail.read(str(uid))
+    except Exception as e:
+        return f"ERROR: mail: {e}"
+    to = msg.get("from_email") or ""
+    subj = subject.strip() or ("Re: " + re.sub(r"^(re|fwd?):\s*", "", msg.get("subject") or "", flags=re.I)).strip()
+    refs = " ".join(x for x in (msg.get("references"), msg.get("message_id")) if x) or None
+    try:
+        mail.check_sendable(to, subj, body)
+    except mail.MailError as e:
+        return f"refused: {e}"
+    ok, why = mail.can_autoreply(msg, _known_contact)
+    slug = re.sub(r"[^a-z0-9]+", "-", (to.split("@")[0] + "-" + subj).lower())[:50].strip("-") or "reply"
+    path = f"outbox/{time.strftime('%Y%m%d-%H%M')}-{slug}.md"
+    write_file(path, f"To: {to}\nSubject: {subj}\nFrom-agent: {_agent}\nIn-Reply-To: {msg.get('message_id') or ''}\n"
+                     f"References: {refs or ''}\nReply-Uid: {uid}\n\n{body.strip()}\n")
+    if ok:
+        try:
+            r = mail.send(to, subj, body, in_reply_to=msg.get("message_id"), references=refs, agent=_agent, mode="autoreply")
+        except Exception as e:
+            return f"ERROR: mail: {e}"
+        try:
+            mail.mark_seen(str(uid))
+        except Exception:
+            pass
+        brain.remember(f"Auto-replied to {to} on '{subj}' ({path}). Their message: {msg.get('body', '')[:200]}", agent=_agent, kind="event",
+                       importance=4, tags=["email", "sent", "autoreply", f"contact:{re.sub(r'[^a-z0-9]+', '-', to.split('@')[0].lower())}"])
+        try:
+            import push
+            push.send("Agent HQ replied to a customer", f"{to}: {subj}"[:180], url="/m", tag="mail")
+        except Exception:
+            pass
+        return json.dumps({"sent": True, "to": to, "subject": subj, "path": path, "why": why})
+    m = brain.remember(f"PENDING APPROVAL from {_agent}: email reply '{subj}' to {to} at workspace/{path} (answering their message uid {uid}: "
+                       f"{(msg.get('body') or '')[:160]})", agent=_agent, kind="approval", importance=5, tags=["pending", "email", "reply"])
+    return f"draft saved to {path}; approval #{m.id} requested ({why}). Approving on the dashboard sends it."
+
+
+@registry.register("mail_send", "Send an outbox draft that Pribin has APPROVED (approval id + draft path). Refuses anything else.", {
+    "type": "object", "properties": {"approval_id": {"type": "integer"}, "path": {"type": "string"}}, "required": ["approval_id"]})
+def mail_send(approval_id: int, path: str = "", _agent="unknown"):
+    import mail
+    if _agent not in ("pribin", "mail-assistant", "chief-of-staff"):
+        return "refused: only the mail-assistant sends email"
+    try:
+        return json.dumps(send_approved_email(int(approval_id), path or None, agent=_agent))
+    except (mail.MailError, KeyError) as e:
+        return f"refused: {e}"
+    except Exception as e:
+        return f"ERROR: mail: {e}"

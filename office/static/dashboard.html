@@ -388,7 +388,7 @@ async function refreshState() {
       const postBtns = isPost ? paths.filter(p => p.includes("posts/")).map(p => `<button class="ok" onclick="postLinkedIn(${a.id},'${esc(p)}')">Post ${esc(p.split("/").pop().replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(".md", ""))}</button>`).join("") : "";
       return `<div class="appr" id="appr-${a.id}"><div class="who">#${a.id} · ${esc(a.agent)} · ${esc(a.created)}</div><div>${qa}${esc(a.content.replace(/^(QA: \w+ - )?PENDING APPROVAL from [\w-]+: /, ""))}</div>
       <button class="more" onclick="toggleApproval(${a.id})">Show details</button><div class="det"></div>
-      <div class="btns"><button class="ok" onclick="decide(${a.id},'approved')">Approve</button>${isApp ? `<button class="ok" onclick="applied(${a.id})">I applied</button>` : ""}${postBtns}<button class="no" onclick="decide(${a.id},'rejected')">Reject</button>${[...new Set(paths)].map(p => `<button class="view" onclick="viewFile('${esc(p)}')">view ${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
+      <div class="btns"><button class="ok" onclick="decide(${a.id},'approved')">${(a.tags.includes("email") && s.mail && s.mail.configured) ? "Approve &amp; send" : "Approve"}</button>${isApp ? `<button class="ok" onclick="applied(${a.id})">I applied</button>` : ""}${postBtns}<button class="no" onclick="decide(${a.id},'rejected')">Reject</button>${[...new Set(paths)].map(p => `<button class="view" onclick="viewFile('${esc(p)}')">view ${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
     : `<div class="empty">Nothing waiting. Agents park applications, emails and posts here.</div>`;
   renderTasks(s.tasks || []);
   $("#memories").innerHTML = s.memories.length ? s.memories.map(m => `<div class="mem"><span class="k">${esc(m.kind)}</span>${esc(m.content)}<div class="who">${esc(m.agent)} · ${esc(m.created)}${m.tags.length ? " · " + esc(m.tags.join(", ")) : ""}</div></div>`).join("")
@@ -446,7 +446,7 @@ async function toggleApproval(id) {
     det.dataset.loaded = "1"; }
   card.classList.add("open"); btn.textContent = "Hide details";
 }
-async function decide(id, decision) { await fetch("/api/approve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, decision }) }); refreshState(); }
+async function decide(id, decision) { const r = await fetch("/api/approve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, decision }) }); try { const j = await r.json(); if (j.sent) toast(`Email sent to ${j.sent.to}`); else if (j.error) toast(j.error); } catch (e) {} refreshState(); }
 $("#go").onclick = async () => {
   const task = $("#task").value.trim(); if (!task) return; $("#go").disabled = true;
   const r = await (await fetch("/api/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ task, agent: $("#agent").value, engine: $("#engine").value }) })).json();

@@ -214,6 +214,24 @@ Connect", add `http://localhost:8787/linkedin/callback` as a redirect URL, put t
 in `.env`, restart, open `/linkedin/connect`. The token lasts 60 days; the phone app shows the days left.
 Hard limits in code: 3,000 characters, 5 posts a day, QA-failed drafts refused.
 
+## Email: Gmail inbox and replies
+
+The mail-assistant reads the Gmail inbox (IMAP) and sends (SMTP) with a free App Password; no Google Cloud
+project, no OAuth. One-time setup, about five minutes: turn on 2-Step Verification for the Google account,
+create an App Password at myaccount.google.com/apppasswords, put `GMAIL_ADDRESS` and `GMAIL_APP_PASSWORD`
+in `.env`, restart. From then on:
+
+- Every two hours (08-21) the assistant triages unread mail, skips newsletters and automated senders, and
+  answers real messages from clients, leads and recruiters with `mail_reply`.
+- **Default: nothing leaves without you.** A reply or a new email becomes an approval; **Approve & send** on
+  the dashboard or phone sends it from your address and marks it SENT.
+- `MAIL_AUTOREPLY=1` lets replies go out immediately, but only inside an existing conversation (they wrote
+  to us after we wrote to them, or their message is a reply) with a sender known in the pipeline or the brain.
+  A first contact from a new address always waits for you. You get a push notification for each auto-reply.
+- Hard limits in code, not prompts: real address only, never to ourselves or no-reply addresses,
+  `MAIL_DAILY_CAP` (20) a day, `MAIL_BLOCKLIST`, no placeholder text, every send logged to
+  `office/logs/mail_sent.jsonl` and the brain.
+
 ## Operating it
 
 ```bash

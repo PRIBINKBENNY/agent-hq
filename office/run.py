@@ -83,6 +83,9 @@ def main():
         except Exception:
             print("  INFO no scheduled job has run yet")
         gh = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True); ok("Logged in" in (gh.stdout + gh.stderr), "GitHub CLI logged in")
+        import mail as _mail
+        ms = _mail.status()
+        print(f"  {'OK  ' if ms['configured'] else 'INFO'} gmail: {('connected as ' + ms['address'] + f', sent today {ms['sent_today']}/{ms['daily_cap']}, auto-reply ' + ('ON (existing known-contact threads only)' if ms['autoreply'] else 'off: every email needs approval')) if ms['configured'] else 'not connected (GMAIL_ADDRESS + GMAIL_APP_PASSWORD in .env; see office/mail.py)'}")
         ts = _sch.tunnel_status()
         if ts["dead"]:
             print("  WARN phone tunnel is dead (quick tunnel expired while the Mac slept); the scheduler restarts it within a minute and pushes the new URL")
