@@ -32,7 +32,7 @@ EOF3
   exit 0
 fi
 if [[ "$1" == "url" ]]; then
-  grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" "$ROOT/office/logs/tunnel.log" 2>/dev/null | head -1 | sed 's#$#/m#' || echo "no tunnel running"
+  grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" "$ROOT/office/logs/tunnel.log" 2>/dev/null | tail -1 | sed 's#$#/m#' || echo "no tunnel running"
   exit 0
 fi
 if [[ "$1" == "off" ]]; then

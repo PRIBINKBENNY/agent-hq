@@ -497,6 +497,12 @@ async def api_trading(_: Request):
     return JSONResponse(data)
 
 
+async def favicon(_: Request):
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#1f3a5f"/>'
+           '<circle cx="16" cy="16" r="9" fill="none" stroke="#e8eef7" stroke-width="2.5"/><circle cx="16" cy="16" r="3.5" fill="#f2b84b"/></svg>')
+    return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
+
+
 async def api_schedule(_: Request):
     """Upcoming scheduled jobs with their next expected time."""
     import yaml
@@ -675,6 +681,7 @@ app = Starlette(middleware=[Middleware(AuthMiddleware)], routes=[
     Route("/api/push/subscribe", api_push_subscribe, methods=["POST"]),
     Route("/api/push/test", api_push_test, methods=["POST"]),
     Route("/", index),
+    Route("/favicon.ico", favicon),
     Route("/api/state", api_state),
     Route("/api/events", api_events),
     Route("/api/run", api_run, methods=["POST"]),

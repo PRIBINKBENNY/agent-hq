@@ -312,7 +312,7 @@ $("#quick").onclick = e => { const b = e.target.closest("button"); if (!b) retur
 async function refreshSchedule() {
   const s = await (await fetch("/api/schedule")).json();
   $("#sched-sp").textContent = s.busy ? "scheduler busy" : "";
-  $("#schedule").innerHTML = s.jobs.slice(0, 8).map(j => `<div class="task"><div><div>${esc(j.title)}</div><div class="who">${esc(j.agent)} · ${esc(j.every)}${j.last ? " · last " + esc(j.last) : ""}</div></div><div><span class="st queued">${esc(j.next)}</span></div></div>`).join("") || `<div class="empty">No scheduled jobs.</div>`;
+  $("#schedule").innerHTML = s.jobs.slice(0, 8).map(j => `<div class="task"><div><div>${esc(j.title)}</div><div class="who">${esc(j.agent)} · ${esc(j.every)}${j.last ? " · last " + esc(j.last) : ""}</div></div><div><span class="st queued">${j.next_ts && j.next_ts * 1000 < Date.now() - 60000 ? "due · waiting" : esc(j.next)}</span></div></div>`).join("") || `<div class="empty">No scheduled jobs.</div>`;
 }
 async function refreshTrading() {
   const t = await (await fetch("/api/trading")).json();

@@ -52,8 +52,10 @@ def main():
         pz = _sch.paused(); print(("  INFO OFFICE PAUSED: " + pz.get("reason", "")) if pz.get("paused") else "  OK   office running (not paused)")
         ok(bool(active_providers()), f"providers with keys: {', '.join(active_providers()) or 'none (Ollama only)'}")
         from runtime import provider_down as _pd
+        from runtime import provider_down_repeated as _pdr
         for prov, until in _pd().items():
-            print(f"  WARN {prov} parked until {_t.strftime('%H:%M', _t.localtime(until))} (answered 401/402/403: key invalid or credits exhausted)")
+            hint = "key is dead: remove it from .env or top up credits" if prov in _pdr() else "answered 401/402/403: key invalid or credits exhausted"
+            print(f"  WARN {prov} parked until {_t.strftime('%a %H:%M', _t.localtime(until))} ({hint})")
         u = read_usage()
         for prov, d in u.items():
             day = d.get("x-ratelimit-remaining-tokens-day") or d.get("x-ratelimit-remaining-requests") or "?"
@@ -81,14 +83,13 @@ def main():
         except Exception:
             print("  INFO no scheduled job has run yet")
         gh = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True); ok("Logged in" in (gh.stdout + gh.stderr), "GitHub CLI logged in")
-        try:
-            import re as _re
-            tl = (Path(__file__).resolve().parent / "logs" / "tunnel.log").read_text()
-            tu = _re.findall(r"https://[a-z0-9-]+\.trycloudflare\.com", tl)
-            alive = subprocess.run(["pgrep", "-f", "cloudflared tunnel"], capture_output=True).returncode == 0
-            print(f"  INFO phone app URL: {tu[-1] + '/m' if tu and alive else 'no tunnel running (./office/launchd/install.sh tunnel)'}")
-        except Exception:
-            print("  INFO phone app: no tunnel log yet")
+        ts = _sch.tunnel_status()
+        if ts["dead"]:
+            print("  WARN phone tunnel is dead (quick tunnel expired while the Mac slept); the scheduler restarts it within a minute and pushes the new URL")
+        elif ts["running"] and ts["url"]:
+            print(f"  INFO phone app URL: {ts['url']}/m")
+        else:
+            print("  INFO phone app: no tunnel running (./office/launchd/install.sh tunnel)")
         env = Path(__file__).resolve().parent.parent / ".env"; ok(env.exists() and (env.stat().st_mode & 0o777) == 0o600, ".env present with mode 600")
         return
     if a.providers:

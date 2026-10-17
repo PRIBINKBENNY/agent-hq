@@ -369,11 +369,12 @@ def tick(brain: BrainStore, engine: str = "auto") -> dict:
             info["finished"].append(tid); _running.pop(tid, None)
     if paused()["paused"]:
         info["paused"] = True
-        check_approvals(brain); housekeeping()
+        check_approvals(brain); housekeeping(); tunnel_watch()
         return info                     # finished runs are reaped above; nothing new is enqueued or started
+    info["swept"] = sweep_stale(brain)           # work that waited too long (e.g. through a pause) is replaced, not run late
     info["enqueued"] = enqueue_due_jobs(brain) + enqueue_standing_work(brain)
     check_approvals(brain)
-    housekeeping()
+    housekeeping(); tunnel_watch()
     healthy = [p for p, v in budget().items() if v["ok"] and not v.get("down")]
     effective = max(1, min(MAX_PARALLEL, len(healthy))) if budget() else MAX_PARALLEL
     try:
@@ -441,6 +442,93 @@ def housekeeping(days_logs: int = 14, days_handoff: int = 7) -> dict:
         ev.write_text("\n".join(lines) + "\n"); removed["events_trimmed"] = True
     return removed
 
+
+# ---------------------------------------------------------------- stale work + phone tunnel watch
+_last_sweep = 0.0
+
+
+def sweep_stale(brain: BrainStore, now: float | None = None) -> list[int]:
+    """Cancel queued scheduler work that has waited past its usefulness (typically after a long pause):
+    hourly jobs older than 3h, anything the scheduler created more than 36h ago. The next due run replaces it."""
+    global _last_sweep
+    now = now or time.time()
+    if now - _last_sweep < 60:
+        return []
+    _last_sweep = now
+    hourly: set[str] = set()
+    try:
+        hourly = {j["name"] for j in (yaml.safe_load(SCHEDULE_FILE.read_text()) or []) if j.get("every") == "hourly"}
+    except Exception:
+        pass
+    out = []
+    for t in brain.task_list(limit=200, status="queued"):
+        if t.get("created_by") != "scheduler":
+            continue
+        age = now - float(t.get("created_at") or now)
+        src = t.get("source") or ""
+        limit = 3 * 3600 if src.startswith("schedule:") and src[len("schedule:"):] in hourly else 36 * 3600
+        if age > limit:
+            brain.task_update(t["id"], agent="scheduler", status="cancelled",
+                              result=f"stale: queued {age / 3600:.0f}h ago; the next scheduled run replaces it")
+            out.append(t["id"])
+    return out
+
+
+TUNNEL_LOG = LOG_DIR / "tunnel.log"
+TUNNEL_LABEL = "com.pribin.agenthq.tunnel"
+_last_tunnel_check = 0.0
+
+
+def tunnel_status() -> dict:
+    """{'running', 'url', 'dead'} for the free Cloudflare quick tunnel behind the phone app.
+    A quick tunnel dies for good when the Mac sleeps: cloudflared then logs 'Tunnel not found' forever
+    and only a restart (which hands out a new URL) brings the phone app back."""
+    if not TUNNEL_LOG.exists():
+        return {"running": False, "url": None, "dead": False}
+    try:
+        size = TUNNEL_LOG.stat().st_size
+        with open(TUNNEL_LOG, "rb") as f:
+            head = f.read(8000).decode("utf-8", "ignore")
+            f.seek(max(0, size - 6000)); tail = f.read().decode("utf-8", "ignore")
+        running = subprocess.run(["pgrep", "-f", "cloudflared tunnel"], capture_output=True, timeout=5).returncode == 0
+        last_lines = tail.splitlines()[-12:]
+        not_found = sum("Tunnel not found" in ln for ln in last_lines)
+        recovered = ("Registered tunnel connection" in tail[tail.rfind("Tunnel not found"):]) if not_found else True
+        urls = re.findall(r"https://[a-z0-9-]+\.trycloudflare\.com", head + tail)
+        return {"running": running, "url": (urls[-1] if urls else None), "dead": bool(running and not_found >= 3 and not recovered)}
+    except Exception:
+        return {"running": False, "url": None, "dead": False}
+
+
+def tunnel_watch(force: bool = False) -> dict:
+    """Once a minute: restart a dead quick tunnel (launchd starts it again with a fresh URL) and, when the
+    address changes, tell Pribin on the Mac and on the phone (web push still reaches the old install)."""
+    global _last_tunnel_check
+    if not force and time.time() - _last_tunnel_check < 60:
+        return {}
+    _last_tunnel_check = time.time()
+    st = tunnel_status(); state = _load_state(); info: dict = {}
+    if st["dead"]:
+        if time.time() - float(state.get("tunnel_kick_ts", 0)) < 600:
+            return {"dead": True}
+        try:
+            TUNNEL_LOG.write_text("")          # thousands of retry lines; start clean so the new URL is easy to find
+            subprocess.run(["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/{TUNNEL_LABEL}"], capture_output=True, timeout=20)
+            state["tunnel_kick_ts"] = time.time(); _save_state(state); info["kicked"] = True
+        except Exception as e:
+            info["error"] = str(e)[:120]
+        return info
+    if st["url"] and st["url"] != state.get("tunnel_url"):
+        prev = state.get("tunnel_url"); state["tunnel_url"] = st["url"]; _save_state(state); info["url"] = st["url"]
+        if prev:                                # moved, not first start
+            _notify("Phone app moved", st["url"] + "/m")
+            try:
+                import push
+                info["push"] = push.send("Agent HQ phone app moved", "Open the new address and add it to your home screen again.",
+                                         url=st["url"] + "/m", tag="tunnel")
+            except Exception as e:
+                info["push_error"] = str(e)[:120]
+    return info
 
 
 

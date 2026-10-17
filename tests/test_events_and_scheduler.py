@@ -215,3 +215,49 @@ def test_scheduler_parallelism_follows_healthy_providers_and_retries_model_outag
     info = scheduler.tick(b)
     t = b.task_get(tid); assert t["status"] == "queued" and "retry_after:" in t["result"]   # retried later, not abandoned
     scheduler._running.clear()
+
+
+def test_sweep_stale_cancels_scheduler_work_that_waited_too_long(tmp_path, monkeypatch):
+    import time
+    b = _brain(tmp_path); scheduler._last_sweep = 0
+    sched = tmp_path / "schedule.yaml"; sched.write_text("- name: market-pulse\n  every: hourly\n  agent: trader\n  task: x\n")
+    monkeypatch.setattr(scheduler, "SCHEDULE_FILE", sched)
+    now = time.time()
+    old_hourly = b.task_create("Market pulse", "x", owner="trader", created_by="scheduler", source="schedule:market-pulse")
+    fresh_hourly = b.task_create("Market pulse", "x", owner="trader", created_by="scheduler", source="schedule:market-pulse")
+    old_standing = b.task_create("Networker: one more company", "x", owner="networker", created_by="scheduler", source="standing:networker")
+    old_user = b.task_create("Write proposal", "x", owner="proposal-writer", created_by="pribin")
+    for t, age_h in ((old_hourly, 4), (fresh_hourly, 1), (old_standing, 40), (old_user, 60)):
+        b.conn.execute("UPDATE tasks SET created_at=? WHERE id=?", (now - age_h * 3600, t["id"])); b.conn.commit()
+    swept = scheduler.sweep_stale(b, now=now)
+    assert sorted(swept) == sorted([old_hourly["id"], old_standing["id"]])
+    assert b.task_get(old_hourly["id"])["status"] == "cancelled" and "stale" in b.task_get(old_hourly["id"])["result"]
+    assert b.task_get(fresh_hourly["id"])["status"] == "queued" and b.task_get(old_user["id"])["status"] == "queued"
+    assert scheduler.sweep_stale(b, now=now + 10) == []          # rate-limited to once a minute
+
+
+def test_tunnel_watch_restarts_a_dead_quick_tunnel_and_announces_the_new_url(tmp_path, monkeypatch):
+    import json
+    log = tmp_path / "tunnel.log"; st_file = tmp_path / "st.json"
+    monkeypatch.setattr(scheduler, "TUNNEL_LOG", log); monkeypatch.setattr(scheduler, "STATE_FILE", st_file)
+    st_file.write_text(json.dumps({"tunnel_url": "https://old-name.trycloudflare.com"}))
+    calls = []
+    class R: returncode = 0
+    monkeypatch.setattr(scheduler.subprocess, "run", lambda cmd, **kw: calls.append(cmd) or R())
+    notes = []; monkeypatch.setattr(scheduler, "_notify", lambda t, m: notes.append(m))
+    import push; pushed = []
+    monkeypatch.setattr(push, "send", lambda title, body, url="/m", tag="hq": pushed.append(url) or {"sent": 1})
+    log.write_text("INF Requesting new quick Tunnel on trycloudflare.com...\nINF |  https://old-name.trycloudflare.com  |\nINF Registered tunnel connection connIndex=0\n"
+                   + 'ERR Register tunnel error from server side error="Unauthorized: Tunnel not found" connIndex=0\n' * 6)
+    s = scheduler.tunnel_status()
+    assert s == {"running": True, "url": "https://old-name.trycloudflare.com", "dead": True}
+    info = scheduler.tunnel_watch(force=True)
+    assert info.get("kicked") and any("kickstart" in c for c in calls) and log.read_text() == ""
+    log.write_text('ERR Register tunnel error from server side error="Unauthorized: Tunnel not found"\n' * 6)
+    assert scheduler.tunnel_watch(force=True) == {"dead": True}                       # one restart per 10 minutes
+    log.write_text("INF Requesting new quick Tunnel on trycloudflare.com...\nINF |  https://new-name.trycloudflare.com  |\nINF Registered tunnel connection connIndex=0\n")
+    assert scheduler.tunnel_status()["dead"] is False
+    info = scheduler.tunnel_watch(force=True)
+    assert info["url"] == "https://new-name.trycloudflare.com" and pushed == ["https://new-name.trycloudflare.com/m"] and notes
+    assert json.loads(st_file.read_text())["tunnel_url"] == "https://new-name.trycloudflare.com"
+    assert scheduler.tunnel_watch(force=True) == {}                                   # unchanged: quiet

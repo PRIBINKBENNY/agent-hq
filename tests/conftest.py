@@ -13,4 +13,6 @@ def _isolate_side_effects(tmp_path, monkeypatch):
     import events
     monkeypatch.setattr(events, "EVENTS_FILE", tmp_path / "events.jsonl")
     monkeypatch.setenv("OFFICE_REFLECT", "0")
+    import scheduler
+    monkeypatch.setattr(scheduler, "TUNNEL_LOG", tmp_path / "tunnel.log")   # never look at (or restart) the real tunnel from a test
     yield

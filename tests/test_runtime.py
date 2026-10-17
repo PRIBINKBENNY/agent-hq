@@ -329,3 +329,22 @@ def test_cloud_available_and_local_ok(tmp_path, monkeypatch):
         lead._pick(chain)
     ok_lead = Agent(Brief("l2", "o", "lead", [], [], "s", local_ok=True), ToolRegistry(), engine="auto", verbose=False)
     assert ok_lead._pick(chain) == ("ollama", "local")
+
+
+def test_status_claims_need_a_status_tool_call():
+    from runtime import unbacked_claim
+    assert unbacked_claim("System operational. All tools ready.", [], ["office_status", "brain_recall"]) == "checked the office status"
+    assert unbacked_claim("System operational.", [{"tool": "office_status", "result_preview": "{}"}], ["office_status"]) is None
+    assert unbacked_claim("The office is healthy.", [], ["web_search"]) is None          # cannot check anyway -> prose
+    assert unbacked_claim("Here are three job leads.", [], ["office_status"]) is None
+
+
+def test_provider_parking_escalates_after_repeated_strikes(tmp_path, monkeypatch):
+    import json, time
+    import runtime
+    monkeypatch.setattr(runtime, "PROVIDER_DOWN_FILE", tmp_path / "down.json"); monkeypatch.setattr(runtime, "DOWN_HIST_FILE", tmp_path / "hist.json")
+    runtime.mark_provider_down("cerebras", reason="402")
+    assert runtime.provider_down()["cerebras"] < time.time() + 7 * 3600 and runtime.provider_down_repeated() == []
+    runtime.mark_provider_down("cerebras", reason="402"); runtime.mark_provider_down("cerebras", reason="402")
+    assert runtime.provider_down()["cerebras"] > time.time() + 23 * 3600 and runtime.provider_down_repeated() == ["cerebras"]
+    assert len(json.loads((tmp_path / "hist.json").read_text())["cerebras"]) == 3

@@ -267,7 +267,32 @@ def cloud_available() -> tuple[bool, float]:
     return (False, soonest or time.time() + 600) if active_providers() else (False, time.time() + 3600)
 
 
+DOWN_HIST_FILE = LOG_DIR / "provider_down_hist.json"
+
+
+def provider_down_repeated(window_hours: float = 48, times: int = 3) -> list[str]:
+    """Providers parked `times` or more times in the window: the key is dead, not just a blip."""
+    try:
+        hist = json.loads(DOWN_HIST_FILE.read_text())
+    except Exception:
+        return []
+    cut = time.time() - window_hours * 3600
+    return [p for p, ts in hist.items() if sum(1 for t in ts if t > cut) >= times]
+
+
 def mark_provider_down(provider: str, hours: float = 6, reason: str = ""):
+    try:
+        hist = json.loads(DOWN_HIST_FILE.read_text())
+    except Exception:
+        hist = {}
+    recent = [t for t in hist.get(provider, []) if t > time.time() - 48 * 3600] + [time.time()]
+    hist[provider] = recent[-10:]
+    try:
+        DOWN_HIST_FILE.parent.mkdir(parents=True, exist_ok=True); DOWN_HIST_FILE.write_text(json.dumps(hist))
+    except Exception:
+        pass
+    if len(recent) >= 3:                      # third strike in two days: this key is dead, stop poking it every 6h
+        hours = max(hours, 24); reason = (reason[:100] + " | repeated: remove the key from .env or top up credits")
     d = provider_down(); d[provider] = time.time() + hours * 3600
     try:
         PROVIDER_DOWN_FILE.parent.mkdir(parents=True, exist_ok=True); PROVIDER_DOWN_FILE.write_text(json.dumps(d))
@@ -448,6 +473,8 @@ _CLAIMS = [
     (r"\b(approval|approve)\b[^.\n]{0,40}\b(requested|logged|sent|submitted)\b", {"request_approval", "draft_email"}, "requested approval"),
     (r"\b(committed|git commit)\b", {"git"}, "committed with git"),
     (r"\b(queued|added)\b[^.\n]{0,40}\b(task|board)\b", {"task_create"}, "created a task"),
+    (r"\b(system|office|all tools|all agents|all systems|everything)\b[^.\n]{0,40}\b(operational|healthy|nominal|ready|up and running|running (fine|normally|smoothly)|working (fine|normally))\b",
+     {"office_status", "ops_metrics", "scorecard"}, "checked the office status"),
 ]
 
 
