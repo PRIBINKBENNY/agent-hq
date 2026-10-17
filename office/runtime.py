@@ -90,7 +90,7 @@ PROVIDERS: dict[str, dict] = {
     # Thin, so it sits late in the order; the models listed here all support tool calling (checked against /api/v1/models).
     "openrouter": {
         "url": "https://openrouter.ai/api/v1/chat/completions", "models_url": "https://openrouter.ai/api/v1/models",
-        "key_env": "OPENROUTER_API_KEY",
+        "key_env": "OPENROUTER_API_KEY", "free_only": True,     # never a paid model here: Pribin's budget is zero
         "lead": _env_list("OPENROUTER_LEAD_MODELS", "nvidia/nemotron-3-super-120b-a12b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3-ultra-550b-a55b:free"),
         "worker": _env_list("OPENROUTER_WORKER_MODELS", "google/gemma-4-26b-a4b-it:free,nvidia/nemotron-3.5-lightning:free,nvidia/nemotron-3-super-120b-a12b:free"),
     },
@@ -417,6 +417,8 @@ def _chat(url: str, headers: dict, payload: dict, timeout: float = 120, provider
 
 def _call_model(messages: list[dict], tools: list[dict], model: str, engine: str, tier: str = "worker",
                 tool_choice: str = "auto") -> dict:
+    if PROVIDERS.get(engine, {}).get("free_only") and not model.endswith(":free"):
+        raise EngineError(f"refusing {engine}:{model}: only ':free' models are allowed on {engine} (zero budget)")
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
@@ -528,7 +530,12 @@ def model_chain(brief: Brief, engine_pref: str) -> list[tuple[str, str]]:
     pins = [m.strip() for m in (brief.model or "").split(",") if m.strip()]
     for name in providers:
         avail = available_models(name)
+        free_only = bool(PROVIDERS.get(name, {}).get("free_only"))
         for pin in pins:
+            if free_only:                           # a brief pin like openai/gpt-oss-120b would be a paid model on OpenRouter
+                pin = pin if pin.endswith(":free") else pin + ":free"
+                if avail is None or pin not in avail:
+                    continue                        # only when the provider confirms a free variant exists
             if avail is None or pin in avail:
                 chain.append((name, pin))           # pinned model, where this provider serves it
         for m in provider_models(name, brief.tier):

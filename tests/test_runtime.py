@@ -358,3 +358,20 @@ def test_openrouter_provider_uses_free_models_and_daily_limits_wait_for_the_rese
     w = runtime.seconds_until_utc_midnight(now=86400 * 1000 + 3600)      # 01:00 UTC -> about 23h
     assert 22.9 * 3600 < w < 23.1 * 3600
     assert runtime.seconds_until_utc_midnight(now=86400 * 1000 + 86390) >= 60
+
+
+def test_openrouter_never_gets_a_paid_model(monkeypatch):
+    import runtime as rt
+    from runtime import Brief, EngineError
+    monkeypatch.setattr(rt, "active_providers", lambda: ["openrouter"])
+    monkeypatch.setattr(rt, "provider_key", lambda n: "k" if n == "openrouter" else "")
+    monkeypatch.setattr(rt, "available_models", lambda n: {"openai/gpt-oss-120b", "openai/gpt-oss-20b:free", "nvidia/nemotron-3-super-120b-a12b:free",
+                                                            "google/gemma-4-31b-it:free", "nvidia/nemotron-3-ultra-550b-a55b:free", "google/gemma-4-26b-a4b-it:free", "nvidia/nemotron-3.5-lightning:free"})
+    chain = rt.model_chain(Brief("t", "o", "lead", [], [], "s", model="gpt-oss-120b,openai/gpt-oss-120b,openai/gpt-oss-20b"), "openrouter")
+    orm = [m for e, m in chain if e == "openrouter"]
+    assert orm and all(m.endswith(":free") for m in orm) and orm[0] == "openai/gpt-oss-20b:free"   # pin kept only as its free variant
+    monkeypatch.setattr(rt, "available_models", lambda n: None)                                      # list unavailable: pins dropped, config kept
+    chain = rt.model_chain(Brief("t", "o", "lead", [], [], "s", model="openai/gpt-oss-120b"), "openrouter")
+    assert all(m.endswith(":free") for e, m in chain if e == "openrouter")
+    with pytest.raises(EngineError, match="only ':free'"):
+        rt._call_model([{"role": "user", "content": "hi"}], [], "openai/gpt-oss-120b", "openrouter")
