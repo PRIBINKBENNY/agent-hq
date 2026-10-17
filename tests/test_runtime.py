@@ -348,3 +348,13 @@ def test_provider_parking_escalates_after_repeated_strikes(tmp_path, monkeypatch
     runtime.mark_provider_down("cerebras", reason="402"); runtime.mark_provider_down("cerebras", reason="402")
     assert runtime.provider_down()["cerebras"] > time.time() + 23 * 3600 and runtime.provider_down_repeated() == ["cerebras"]
     assert len(json.loads((tmp_path / "hist.json").read_text())["cerebras"]) == 3
+
+
+def test_openrouter_provider_uses_free_models_and_daily_limits_wait_for_the_reset(monkeypatch):
+    import runtime
+    pr = runtime.PROVIDERS["openrouter"]
+    assert pr["key_env"] == "OPENROUTER_API_KEY" and all(m.endswith(":free") for m in pr["lead"] + pr["worker"])
+    assert "openrouter" in runtime.PROVIDER_ORDER
+    w = runtime.seconds_until_utc_midnight(now=86400 * 1000 + 3600)      # 01:00 UTC -> about 23h
+    assert 22.9 * 3600 < w < 23.1 * 3600
+    assert runtime.seconds_until_utc_midnight(now=86400 * 1000 + 86390) >= 60

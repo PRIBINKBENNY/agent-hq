@@ -86,6 +86,14 @@ PROVIDERS: dict[str, dict] = {
         "lead": _env_list("SAMBANOVA_LEAD_MODELS", "Meta-Llama-3.3-70B-Instruct,DeepSeek-V3-0324"),
         "worker": _env_list("SAMBANOVA_WORKER_MODELS", "Meta-Llama-3.1-8B-Instruct,Meta-Llama-3.3-70B-Instruct"),
     },
+    # free sign-up, no card: OpenRouter's ":free" models (20 requests/min, 50 requests/day without credits).
+    # Thin, so it sits late in the order; the models listed here all support tool calling (checked against /api/v1/models).
+    "openrouter": {
+        "url": "https://openrouter.ai/api/v1/chat/completions", "models_url": "https://openrouter.ai/api/v1/models",
+        "key_env": "OPENROUTER_API_KEY",
+        "lead": _env_list("OPENROUTER_LEAD_MODELS", "nvidia/nemotron-3-super-120b-a12b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3-ultra-550b-a55b:free"),
+        "worker": _env_list("OPENROUTER_WORKER_MODELS", "google/gemma-4-26b-a4b-it:free,nvidia/nemotron-3.5-lightning:free,nvidia/nemotron-3-super-120b-a12b:free"),
+    },
     # free Cloudflare account, no card: Workers AI (10,000 neurons/day); needs the account id in the URL
     "cloudflare": {
         "url": f"https://api.cloudflare.com/client/v4/accounts/{os.environ.get('CLOUDFLARE_ACCOUNT_ID', 'ACCOUNT_ID')}/ai/v1/chat/completions",
@@ -95,7 +103,7 @@ PROVIDERS: dict[str, dict] = {
         "worker": _env_list("CLOUDFLARE_WORKER_MODELS", "@cf/meta/llama-3.1-8b-instruct-fast,@cf/meta/llama-3.3-70b-instruct-fp8-fast"),
     },
 }
-PROVIDER_ORDER = _env_list("PROVIDER_ORDER", "cerebras,groq,gemini,mistral,nvidia,sambanova,cloudflare")
+PROVIDER_ORDER = _env_list("PROVIDER_ORDER", "cerebras,groq,gemini,mistral,nvidia,sambanova,openrouter,cloudflare")
 
 
 _STORE = None
@@ -304,6 +312,12 @@ def mark_provider_down(provider: str, hours: float = 6, reason: str = ""):
         pass
 
 
+def seconds_until_utc_midnight(now: float | None = None) -> float:
+    """Daily quotas (OpenRouter free models, Groq tokens/day) reset at 00:00 UTC."""
+    now = now if now is not None else time.time()
+    return max(60.0, 86400 - (now % 86400) + 30)
+
+
 class RateLimited(Exception):
     pass
 
@@ -389,6 +403,8 @@ def _chat(url: str, headers: dict, payload: dict, timeout: float = 120, provider
             wait = parse_duration(m.group(1)) if m else None
         if wait is None:
             wait = parse_duration(r.headers.get("x-ratelimit-reset-tokens")) or parse_duration(r.headers.get("x-ratelimit-reset-requests"))
+        if wait is None and re.search(r"per[- ]day|daily", r.text, re.I):
+            wait = seconds_until_utc_midnight()        # e.g. OpenRouter "free-models-per-day": nothing to gain before the reset
         raise RateLimited(str(wait if wait is not None else 30.0))
     if r.status_code == 413:
         raise RateLimited("payload too large")

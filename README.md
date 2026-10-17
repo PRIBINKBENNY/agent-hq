@@ -222,7 +222,7 @@ Hard limits in code: 3,000 characters, 5 posts a day, QA-failed drafts refused.
 ./office/publish.sh                          # refresh the public portfolio repo from this one (also runs Fridays)
 ```
 
-- **Free providers**: the pool knows Cerebras, Groq, Gemini, Mistral, NVIDIA, SambaNova and Cloudflare Workers
+- **Free providers**: the pool knows Cerebras, Groq, Gemini, Mistral, NVIDIA, SambaNova, OpenRouter (":free" models, 50 requests/day) and Cloudflare Workers
   AI, all with free tiers that need no card at the time of writing, plus local Ollama. Paste a key into `.env`
   and the provider joins the rotation; `run.py --providers` pings each one.
 - **Budget pacing**: the runtime reads each provider's rate-limit headers (per minute and per day) and
