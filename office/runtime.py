@@ -175,6 +175,7 @@ def tuning() -> dict:
 
 
 MAX_TURNS = int(os.environ.get("OFFICE_MAX_TURNS") or tuning().get("max_turns", 20))
+FREE_RUN_REQUEST_CAP = int(os.environ.get("OFFICE_FREE_RUN_REQUEST_CAP") or 10)   # per run, on providers marked free_only
 READ_TOOLS = {"read_file", "list_files", "brain_recall", "brain_recent", "brain_query", "job_details", "web_fetch", "fact_check",
               "cv_truth_check", "market_data", "task_list", "github_status", "job_search", "web_search"}
 TOOL_RESULT_CAP = int(os.environ.get("OFFICE_TOOL_RESULT_CAP", "3000"))
@@ -676,6 +677,7 @@ class Agent:
         t0 = time.time(); tok_in = tok_out = 0
         self._say(f"task: {task[:120]}")
         self._emit("start", task=task[:300], office=self.brief.office)
+        blocked_reads = 0; free_calls = 0; wrap_reason = "hit max turns"
 
         for turn in range(1, MAX_TURNS + 1):
             engine, model = self._pick(chain, prefer=(engine, model))
@@ -685,6 +687,8 @@ class Agent:
                     self._emit("think", model=f"{engine}:{model}", turn=turn)
                     resp = _call_model(trim_context(messages), tools, model, engine, self.brief.tier)
                     rl_hits = 0
+                    if PROVIDERS.get(engine, {}).get("free_only"):
+                        free_calls += 1
                     break
                 except RateLimited as e:
                     ra = str(e)
@@ -782,12 +786,16 @@ class Agent:
                 if fn in READ_TOOLS and seen[sig] >= 3:
                     result = (f"You already called {fn} with exactly these arguments {seen[sig] - 1} times this run. "
                               "Nothing has changed. Use what you learned and move on to the next step; do not repeat reads.")
-                    self._say(f"repeat read blocked: {fn}")
+                    self._say(f"repeat read blocked: {fn}"); blocked_reads += 1
                 calls.append({"tool": fn, "args": args, "result_preview": result[:200],
                               "result_full": result[:1800] if fn in READ_TOOLS else result[:300]})
                 messages.append({"role": "tool", "tool_call_id": tc.get("id", fn), "name": fn, "content": result})
+            if blocked_reads >= 2:                      # the model is looping on the same reads: stop feeding it turns
+                wrap_reason = "looping on repeated reads"; break
+            if free_calls >= FREE_RUN_REQUEST_CAP:      # a 50-requests-a-day provider must not be drained by one run
+                wrap_reason = f"{free_calls} requests on a free-only provider"; break
 
-        self._say("hit max turns, asking for a final answer")
+        self._say(f"{wrap_reason}, asking for a final answer")
         messages.append({"role": "user", "content": "Stop using tools. Report in this exact shape: DONE: <what is finished and verified>. "
                          "REMAINING: <what is still left, step by step, with file paths>. If nothing is left write REMAINING: none."})
         content = ""

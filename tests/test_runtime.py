@@ -375,3 +375,20 @@ def test_openrouter_never_gets_a_paid_model(monkeypatch):
     assert all(m.endswith(":free") for e, m in chain if e == "openrouter")
     with pytest.raises(EngineError, match="only ':free'"):
         rt._call_model([{"role": "user", "content": "hi"}], [], "openai/gpt-oss-120b", "openrouter")
+
+
+def test_repeated_blocked_reads_end_the_run_early(monkeypatch, tmp_path):
+    import runtime as rt
+    from runtime import Agent, Brief, ToolRegistry
+    reg = ToolRegistry(); reg.register("read_file", "read", {"type": "object", "properties": {"path": {"type": "string"}}})(lambda path: "same text")
+    n = {"calls": 0}
+    def fake_call(messages, tools, model, engine, tier="worker", tool_choice="auto"):
+        n["calls"] += 1
+        if tool_choice == "none":
+            return {"choices": [{"message": {"content": "DONE: read it. REMAINING: none"}}], "usage": {}}
+        return {"choices": [{"message": {"content": "", "tool_calls": [{"id": "1", "function": {"name": "read_file", "arguments": "{\"path\": \"a.md\"}"}}]}}], "usage": {}}
+    monkeypatch.setattr(rt, "_call_model", fake_call)
+    monkeypatch.setattr(rt, "model_chain", lambda brief, pref: [("groq", "m")])
+    monkeypatch.setattr(rt, "available_models", lambda n: None)
+    res = Agent(Brief("w", "o", "worker", ["read_file"], [], "s"), reg, engine="auto", verbose=False).run("read a.md")
+    assert "DONE" in res.answer and n["calls"] <= 6          # 2 normal reads, 2 blocked repeats, then the forced final answer
