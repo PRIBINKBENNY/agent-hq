@@ -635,12 +635,18 @@ def git_push(cwd: str, repo_name: str | None = None, visibility: str = "private"
     if not user:
         return "ERROR: GitHub CLI not logged in (run `gh auth login` once)"
     name = repo_name or d.name
-    g = lambda *a: _run(["git", "-c", "commit.gpgsign=false", *a], d, 60)
-    if not (d / ".git").exists():
+    ident = ["-c", f"user.name={user}", "-c", f"user.email={user}@users.noreply.github.com", "-c", "commit.gpgsign=false"]
+    g = lambda *a: _run(["git", *ident, *a], d, 60)
+    fresh = not (d / ".git").exists()
+    if fresh:
         g("init", "-q", "-b", "main")
     status = g("status", "--porcelain")
     if status.strip() and "[exit 0]\n" != status:
-        g("add", "-A"); g("commit", "-q", "-m", message or "Update by Agent HQ")
+        g("add", "-A"); c = g("commit", "-q", "-m", message or "Update by Agent HQ")
+        if "[exit 0]" not in c:
+            if fresh:                       # a repo with no commit inside the office tree breaks every parent commit: undo it
+                import shutil; shutil.rmtree(d / ".git", ignore_errors=True)
+            return "ERROR: commit failed, nothing pushed: " + c.strip()[-300:]
     remotes = g("remote", "-v")
     log = []
     if "origin" not in remotes:

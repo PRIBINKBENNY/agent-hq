@@ -58,3 +58,17 @@ def test_ops_metrics_shape(ops, monkeypatch):
     for k in ("runs", "tokens", "by_agent", "tasks", "continuations", "timeouts", "approvals_pending", "budget", "knobs", "knob_bounds", "standing"):
         assert k in d
     assert d["knobs"]["max_parallel"] == 2 and d["standing"][0]["name"] == "scout-rotation"
+
+
+def test_git_push_undoes_a_fresh_repo_when_the_first_commit_fails(tmp_path, monkeypatch):
+    import tools
+    proj = tmp_path / "proj"; proj.mkdir(); (proj / "README.md").write_text("hi\n")
+    monkeypatch.setattr(tools, "_gh_user", lambda: "someone"); monkeypatch.setattr(tools, "_safe", lambda p: proj)
+    real = tools._run
+    def fake_run(cmd, cwd, timeout):
+        if "commit" in cmd:
+            return "fatal: simulated commit failure\n[exit 128]\n"
+        return real(cmd, cwd, timeout)
+    monkeypatch.setattr(tools, "_run", fake_run)
+    out = tools.git_push("proj", message="first")
+    assert out.startswith("ERROR: commit failed") and not (proj / ".git").exists()     # no half-made repo left behind
