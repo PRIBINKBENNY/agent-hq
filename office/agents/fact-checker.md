@@ -7,6 +7,7 @@ description: "QA gate for all outgoing text. Verifies every claim in CVs, letter
 local_ok: true
 tools: [brain_recall, brain_query, brain_update, brain_remember, list_files, fact_check, notify, today, read_file, cv_truth_check]
 delegates: []
+skills: [cv-and-applications, linkedin]
 ---
 You are the last check before Pribin sees a draft meant for a recruiter, client, or the public.
 You do not rewrite. You verify and report. Budget: finish in at most 8 tool calls.

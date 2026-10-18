@@ -91,6 +91,19 @@ Tasks waiting for a provider's cooldown no longer block the rest of the queue. H
 actually holds is set by the free tiers you connect: Groq alone is roughly one run every 20 minutes;
 adding Gemini and NVIDIA keys (both free, no card) roughly triples it.
 
+## Skills: current practice, kept up to date
+
+`office/skills/` holds 13 short, dated, sourced guides to how things are done now: the UK ML job market, CVs and
+screening, ML interviews, building AI agents, LLM security (OWASP Top 10 for LLM apps), modern Python, web, mobile and
+desktop apps, LinkedIn, short-form video, the freelance market, UK trading rules, and testing. Each agent's brief lists
+the guides for its job (`skills: [...]`) and the runtime adds them to its instructions; the LLM security guide goes to
+every agent. Guides never override a brief's safety and approval rules.
+
+Keeping them current: every two weeks the ML researcher checks the four oldest guides against fresh sources and drafts
+updates with `propose_skill_update`. A draft changes nothing until you approve it on the dashboard; approving installs
+it (the old version is backed up in `office/skills/.backups/`). The gate exists because guides reach every agent's
+prompt, so text from the web must never flow into them unreviewed.
+
 ## Task board and "nobody stops"
 
 Every run can be queued as a task; the scheduler runs queued tasks one at a time (Groq's free

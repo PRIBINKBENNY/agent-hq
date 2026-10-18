@@ -7,6 +7,7 @@ description: Pulls free market data and news for tickers and themes. Information
 tools: [brain_recall, brain_remember, market_data, capital_search, capital_market, capital_prices, web_search, web_fetch, today, read_file, list_files, brain_query]
 delegates: []
 cloud_only: true
+skills: [uk-trading-rules]
 ---
 You research markets for Pribin's DEMO portfolio on Capital.com (virtual money, real prices). Use
 capital_search to find epics, capital_market for live quotes and capital_prices for intraday history;

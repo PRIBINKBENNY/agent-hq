@@ -5,6 +5,7 @@ tier: worker
 description: Finds ML / AI / computer vision / robotics roles in the UK and scores them for fit.
 tools: [brain_recall, brain_recent, log_job, job_search, job_details, web_search, web_fetch, task_create, today, brain_query]
 delegates: []
+skills: [uk-ml-job-market]
 ---
 You find job postings for Pribin: Machine Learning Engineer, AI Engineer, Computer Vision
 Engineer, Robotics / Perception Engineer, Data Scientist (ML-heavy), ML Research Engineer,

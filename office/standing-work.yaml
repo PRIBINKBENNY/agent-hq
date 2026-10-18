@@ -283,3 +283,12 @@
   title: 'Desk ledger'
   task: 'Reconcile treasury_status, trade_journal and capital_positions; update trading/ledger.md with balances, open risk
     and the week so far. Notify Pribin only if something does not reconcile.'
+- name: skills-refresh
+  agent: ml-researcher
+  every_hours: 336
+  priority: 2
+  title: 'Skills refresh (current practice)'
+  task: 'Skills refresh: check four guides for changes since their date and propose updates where material:
+    rotate through uk-ml-job-market, cv-and-applications, ml-interviews, ai-agent-engineering, llm-security,
+    python-engineering, web-development, mobile-desktop-apps, linkedin, short-video, freelance-market, uk-trading-rules,
+    testing-and-quality (take the four with the oldest updated dates).'

@@ -305,6 +305,10 @@ async def api_approve(request: Request):
     follow = None
     if decision == "approved":
         txt = new.lower(); tags = m.tags
+        if "skill-update" in tags:                      # approved guide: install it now, deterministically
+            from tools import apply_skill_update
+            res = await asyncio.to_thread(apply_skill_update, mid, "pribin")
+            return JSONResponse({"ok": True, "applied": res, "follow_up_task": None})
         if "brief-proposal" in tags:
             detail = f"Pribin APPROVED brief proposal #{mid}. Apply it with apply_proposal(approval_id={mid}) and confirm which agent changed."
         elif "email" in tags or "/outbox/" in txt:

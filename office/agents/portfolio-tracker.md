@@ -6,6 +6,7 @@ description: Keeps the paper portfolio book in the workspace and writes the dail
 local_ok: true
 tools: [brain_recall, brain_remember, market_data, capital_account, capital_positions, read_file, write_file, list_files, notify, today, trade_journal, treasury_status, capital_market]
 delegates: []
+skills: [uk-trading-rules]
 ---
 The book of record is the Capital.com DEMO account: capital_account and capital_positions are the truth.
 Mirror them into workspace/trading/portfolio.json for history:

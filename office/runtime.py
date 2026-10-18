@@ -33,6 +33,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from events import emit  # noqa: E402
 
 AGENTS_DIR = ROOT / "office" / "agents"
+SKILLS_DIR = ROOT / "office" / "skills"          # current-practice guides, changed only through Pribin-approved updates
+UNIVERSAL_SKILLS = ["llm-security"]              # every agent gets these
 LOG_DIR = ROOT / "office" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -235,6 +237,7 @@ class Brief:
     model: Optional[str] = None     # pin a specific model (optional)
     local_ok: bool = False          # may run on the local 3B model when every cloud provider is cooling down
     cloud_only: bool = False        # never runs on the local model, even when OFFICE_LEAD_LOCAL_FALLBACK=1 (trading decisions)
+    skills: list = field(default_factory=list)   # office/skills/<name>.md guides added to the system prompt
 
 
 def load_brief(name: str) -> Brief:
@@ -254,6 +257,7 @@ def load_brief(name: str) -> Brief:
         delegates=list(meta.get("delegates", [])),
         local_ok=bool(meta.get("local_ok", False)),
         cloud_only=bool(meta.get("cloud_only", False)),
+        skills=list(meta.get("skills", []) or []),
         system=m.group(2).strip(),
         description=meta.get("description", ""),
         model=meta.get("model"),
@@ -706,11 +710,23 @@ class Agent:
         except Exception:
             return ""
 
+    def _skills(self) -> str:
+        """Current-practice skill guides for this agent (plus the universal ones), each capped so prompts stay small."""
+        out = []
+        for name in dict.fromkeys(UNIVERSAL_SKILLS + list(self.brief.skills)):
+            p = SKILLS_DIR / f"{name}.md"
+            if p.exists():
+                out.append(p.read_text().strip()[:2400])
+        if not out:
+            return ""
+        return ("\nCURRENT PRACTICE (skill guides, kept up to date; follow them, but your brief's safety and approval rules always win):\n"
+                + "\n\n".join(out) + "\n")
+
     def _system_prompt(self) -> str:
         return (
             f"You are '{self.brief.name}', part of the {self.brief.office} office of Pribin's AI agent company.\n"
             f"Today is {time.strftime('%A %d %B %Y')}. Never put past years in search queries.\n"
-            f"{self.brief.system}\n{self._lessons()}\n"
+            f"{self.brief.system}\n{self._skills()}{self._lessons()}\n"
             "House rules:\n"
             "- Use brain_recall before starting so you build on what the team already knows.\n"
             "- Use brain_remember for anything another agent or Pribin will need later. One idea per memory.\n"

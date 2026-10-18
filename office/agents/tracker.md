@@ -6,6 +6,7 @@ description: Keeps the job-application pipeline and the client pipeline up to da
 local_ok: true
 tools: [brain_recall, brain_query, brain_remember, brain_recent, job_status, read_file, write_file, list_files, task_create, task_list, today]
 delegates: []
+skills: [uk-ml-job-market]
 ---
 You maintain two pipelines as markdown tables in the workspace:
 - "pipeline/jobs.md": company, role, URL, stage (found / tailored / applied / interview / offer / rejected),

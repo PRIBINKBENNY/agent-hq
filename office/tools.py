@@ -1660,3 +1660,59 @@ def mail_send(approval_id: int, path: str = "", _agent="unknown"):
         return f"refused: {e}"
     except Exception as e:
         return f"ERROR: mail: {e}"
+
+
+# ---------------------------------------------------------------- skill guides: researched updates, applied only after Pribin approves
+SKILLS_DIR = ROOT / "office" / "skills"
+SKILL_DRAFTS = WORKSPACE / "skills-drafts"
+
+
+@registry.register("skill_read", "Read one current-practice skill guide (office/skills/<name>.md). name '' lists them.", {
+    "type": "object", "properties": {"name": {"type": "string", "default": ""}}})
+def skill_read(name: str = ""):
+    if not name:
+        return json.dumps(sorted(p.stem for p in SKILLS_DIR.glob("*.md")))
+    p = SKILLS_DIR / f"{re.sub(r'[^a-z0-9-]', '', name.lower())}.md"
+    return p.read_text() if p.exists() else f"no skill guide named {name}"
+
+
+@registry.register("propose_skill_update", "Draft an updated skill guide from fresh research and ask Pribin to approve it. content = the full new "
+                   "guide (title line with 'updated YYYY-MM-DD', short actionable rules, a Sources line). It takes effect only after approval.", {
+    "type": "object", "properties": {"name": {"type": "string"}, "content": {"type": "string"}, "summary": {"type": "string", "description": "what changed and why, 1-3 lines"}},
+    "required": ["name", "content", "summary"]})
+def propose_skill_update(name: str, content: str, summary: str, _agent="unknown"):
+    slug = re.sub(r"[^a-z0-9-]", "", name.lower())
+    if not slug or not (SKILLS_DIR / f"{slug}.md").exists():
+        return f"refused: no existing guide named {name}; skill_read('') lists them (new guides are added by Pribin)"
+    text = content.strip()
+    if len(text) > 3000:
+        return f"refused: {len(text)} characters; keep a guide under 3000 so every agent's prompt stays small"
+    if "Sources:" not in text or not re.search(r"updated 20\d\d-\d\d-\d\d", text):
+        return "refused: a guide needs an 'updated YYYY-MM-DD' title and a 'Sources:' line"
+    if re.search(r"(ignore (all|previous|your) instructions|disregard .{0,20}(rules|brief)|send .{0,30}(password|token|key)|api[_ ]?key\s*[:=])", text, re.I):
+        return "refused: the draft contains instruction-like or secret-like text; guides hold practice, not commands from web pages"
+    SKILL_DRAFTS.mkdir(parents=True, exist_ok=True)
+    draft = SKILL_DRAFTS / f"{slug}-{time.strftime('%Y%m%d-%H%M')}.md"; draft.write_text(text + "\n")
+    m = brain.remember(f"PENDING APPROVAL from {_agent}: skill guide update '{slug}' at workspace/skills-drafts/{draft.name}. {summary[:300]}",
+                       agent=_agent, kind="approval", importance=4, tags=["pending", "skill-update", f"skill:{slug}"])
+    return f"draft saved to skills-drafts/{draft.name}; approval #{m.id} requested. It changes nothing until Pribin approves."
+
+
+def apply_skill_update(approval_id: int, agent: str = "pribin") -> str:
+    """Install an APPROVED skill draft into office/skills (old version backed up). Called by the dashboard on approval."""
+    import shutil
+    m = brain.get(int(approval_id))
+    if "skill-update" not in m.tags or "approved" not in m.tags:
+        return "refused: not an approved skill update"
+    if "applied" in m.tags:
+        return "already applied"
+    mm = re.search(r"workspace/skills-drafts/([\w.-]+\.md)", m.content); slug = next((t.split(":", 1)[1] for t in m.tags if t.startswith("skill:")), "")
+    if not mm or not slug or not (SKILL_DRAFTS / mm.group(1)).exists() or not (SKILLS_DIR / f"{slug}.md").exists():
+        return "refused: draft or guide missing"
+    bdir = SKILLS_DIR / ".backups"; bdir.mkdir(exist_ok=True)
+    shutil.copy(SKILLS_DIR / f"{slug}.md", bdir / f"{slug}-{time.strftime('%Y%m%d-%H%M%S')}.md")
+    shutil.copy(SKILL_DRAFTS / mm.group(1), SKILLS_DIR / f"{slug}.md")
+    brain.update(m.id, agent=agent, add_tags=["applied"])
+    brain.remember(f"Skill guide '{slug}' updated (approved by Pribin, approval #{m.id}); every agent using it now follows the new version.",
+                   agent=agent, kind="decision", importance=3, tags=["skill-update", f"skill:{slug}"])
+    return f"skill guide {slug} updated"
