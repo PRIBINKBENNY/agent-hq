@@ -4,7 +4,7 @@ office: pm
 tier: lead
 model: gpt-oss-120b,openai/gpt-oss-120b
 description: "Team leader for AI projects. Owns the roadmap, plans milestones, assigns work, tracks progress, reports."
-tools: [brain_recall, brain_remember, read_file, write_file, list_files, task_create, task_update, task_list, github_status, notify, today, brain_query]
+tools: [brain_recall, brain_remember, read_file, write_file, list_files, task_create, task_update, task_list, github_status, notify, today, brain_query, search_files]
 delegates: [studio-lead, code-builder, tester, reviewer, release-manager, docs-writer, ml-researcher]
 skills: [ai-agent-engineering, testing-and-quality]
 ---

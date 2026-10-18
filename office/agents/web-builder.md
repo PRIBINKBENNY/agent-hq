@@ -3,7 +3,7 @@ name: web-builder
 office: studio
 tier: worker
 description: Builds websites and landing pages that deploy free (static HTML/CSS/JS or Next.js on Vercel/Netlify/GitHub Pages).
-tools: [brain_recall, brain_remember, read_file, write_file, list_files, run_shell, git, run_python, run_tests, web_search, web_fetch, today]
+tools: [brain_recall, brain_remember, read_file, write_file, list_files, run_shell, git, run_python, run_tests, web_search, web_fetch, today, search_files]
 delegates: []
 skills: [web-development, testing-and-quality]
 ---

@@ -447,3 +447,38 @@ def test_paid_model_refusal_benches_the_model_not_the_provider(tmp_path, monkeyp
         rt._chat("https://x/v1/chat/completions", {}, {"model": "gpt-oss-120b"}, provider="cerebras", model="gpt-oss-120b")
     assert "cerebras" in rt.provider_down()                                        # account-level: the whole provider
     assert "gpt-oss:120b" in rt.PROVIDERS["ollamacloud"]["lead"] and "kimi-k2.6" not in rt.PROVIDERS["ollamacloud"]["lead"]
+
+
+def test_text_tool_calls_are_rescued_and_assumed_names_mapped(monkeypatch):
+    import runtime as rt
+    from runtime import Agent, Brief, ToolRegistry
+    reg = ToolRegistry(); seen = []
+    reg.register("search_files", "s", {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]})(lambda query: seen.append(("search", query)) or "hit")
+    reg.register("read_file", "r", {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})(lambda path: seen.append(("read", path)) or "text")
+    seq = iter([
+        {"choices": [{"message": {"content": "<tool_call> <function=read_file> <parameter=path> cv/master-cv.md </parameter> </function> </tool_call>"}}], "usage": {}},
+        {"choices": [{"message": {"content": "", "tool_calls": [{"id": "1", "function": {"name": "search", "arguments": '{"q": "Trainline"}'}}]}}], "usage": {}},
+        {"choices": [{"message": {"content": "done"}}], "usage": {}}])
+    monkeypatch.setattr(rt, "_call_model", lambda *a, **k: next(seq)); monkeypatch.setattr(rt, "model_chain", lambda b, e: [("groq", "m")])
+    res = Agent(Brief("w", "o", "worker", ["read_file", "search_files"], [], "s"), reg, engine="auto", verbose=False).run("x")
+    assert seen == [("read", "cv/master-cv.md"), ("search", "Trainline")] and res.answer == "done"
+
+
+def test_tool_arguments_are_coerced_and_errors_explain_the_schema():
+    from runtime import ToolRegistry
+    reg = ToolRegistry(); got = {}
+    reg.register("task_update", "t", {"type": "object", "properties": {"task_id": {"type": "integer"}, "status": {"type": "string"}}, "required": ["task_id"]})(
+        lambda task_id, status=None: got.update(task_id=task_id, status=status) or "ok")
+    assert reg.call("task_update", {"task_id": "#168", "status": "done"}) == "ok" and got["task_id"] == 168
+    assert reg.call("task_update", {"id": "task 42"}) == "ok" and got["task_id"] == 42
+    err = reg.call("task_update", {"status": "done"})
+    assert err.startswith("ERROR: task_update needs task_id") and "task_id (integer, required)" in err
+
+
+def test_search_files_greps_the_workspace(tmp_path, monkeypatch):
+    import tools
+    ws = tmp_path / "ws"; (ws / "p").mkdir(parents=True); (ws / "p" / "a.py").write_text("x = 1\ndef letting_agent():\n    pass\n")
+    (ws / ".git").mkdir(); (ws / ".git" / "x").write_text("letting_agent")
+    monkeypatch.setattr(tools, "WORKSPACE", ws)
+    out = tools.search_files("letting_agent")
+    assert out == "p/a.py:2: def letting_agent():" and tools.search_files("nothing-here").startswith("no matches")

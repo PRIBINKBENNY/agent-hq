@@ -1094,6 +1094,11 @@ def propose_brief(agent: str, new_text: str, reason: str, _agent="unknown"):
               if "brief-proposal" in m.tags and f"agent:{agent}" in m.tags and (time.time() - m.created_at < 86400 or "pending" in m.tags)]
     if recent:
         return f"refused: {agent} already has a brief proposal from the last 24 hours or one still pending (#{recent[0].id}); one per agent per day"
+    if not new_text.lstrip().startswith("---"):                     # instructions only: keep the current settings block
+        if len(new_text.strip()) < 80:
+            return "refused: new_text must be the agent's full instructions (at least a few lines), or a complete brief"
+        cur = p.read_text(); hm = re.match(r"^---\n.*?\n---\n", cur, re.S)
+        new_text = (hm.group(0) if hm else "") + new_text.strip() + "\n"
     if not new_text.startswith("---") or "\n---\n" not in new_text or f"name: {agent}" not in new_text:
         return "refused: new_text must be a complete brief with YAML frontmatter including name"
     PROPOSALS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1641,9 +1646,11 @@ def mail_inbox(limit: int = 15, unread_only: bool = True, since_days: int = 7):
         rows = mail.inbox(limit=int(limit), unread_only=bool(unread_only), since_days=int(since_days))
     except Exception as e:
         return f"ERROR: mail: {e}"
+    auto = [r for r in rows if r.get("automated")]; rows = [r for r in rows if not r.get("automated")]   # newsletters never need a reply
     for r in rows:
         r["body"] = r["body"][:900]
-    return json.dumps(rows, ensure_ascii=False) if rows else "inbox: nothing unread in that window"
+    note = f" ({len(auto)} automated messages skipped)" if auto else ""
+    return (json.dumps(rows, ensure_ascii=False) + note) if rows else f"inbox: nothing that needs a reply in that window{note}"
 
 
 @registry.register("mail_read", "Full text of one inbox message by uid.", {
@@ -1812,3 +1819,31 @@ def application_pack(job_id: int, _agent="unknown"):
         "base_cv_note": None if base.exists() else f"no base CV for '{kind}' roles yet: after this tailoring, also write the CV to cv/base/{kind}.md (minus company-specific lines) so the next {kind} role starts from it",
         "master_cv": master,
     })
+
+
+
+@registry.register("search_files", "Search text inside workspace files (like grep). query: words or a regex; path: folder to search "
+                   "(default the whole workspace). Returns path:line: matching text. Use it instead of reading files one by one.", {
+    "type": "object", "properties": {"query": {"type": "string"}, "path": {"type": "string", "default": "."},
+                                     "max_results": {"type": "integer", "default": 40}}, "required": ["query"]})
+def search_files(query: str, path: str = ".", max_results: int = 40):
+    root = _safe(path)
+    try:
+        pat = re.compile(query, re.I)
+    except re.error:
+        pat = re.compile(re.escape(query), re.I)
+    skip = {".git", "node_modules", ".venv", "__pycache__", ".trash", "site-packages", "dist", "build"}
+    hits = []
+    files = [root] if root.is_file() else [p for p in root.rglob("*") if p.is_file() and not (set(p.parts) & skip)]
+    for p in files:
+        if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".gif", ".pdf", ".mp4", ".db", ".zip", ".pyc", ".ico", ".woff2") or p.stat().st_size > 2_000_000:
+            continue
+        try:
+            for i, line in enumerate(p.read_text(errors="ignore").splitlines(), 1):
+                if pat.search(line):
+                    hits.append(f"{p.relative_to(WORKSPACE)}:{i}: {line.strip()[:160]}")
+                    if len(hits) >= int(max_results):
+                        return "\n".join(hits) + f"\n...(first {max_results} matches)"
+        except Exception:
+            continue
+    return "\n".join(hits) if hits else f"no matches for '{query}' in {path}"

@@ -4,7 +4,7 @@ office: trading
 tier: lead
 model: gpt-oss:120b,gpt-oss-120b,openai/gpt-oss-120b
 description: Backtests simple strategies on free data and runs them in paper mode. Never places real orders.
-tools: [brain_recall, brain_remember, signal_scan, strategy_list, trade_journal, market_data, capital_prices, capital_market, read_file, task_create, today, run_python, backtest_strategy, capital_search, brain_query, notify]
+tools: [brain_recall, brain_remember, signal_scan, strategy_list, trade_journal, market_data, capital_prices, capital_market, read_file, task_create, today, run_python, backtest_strategy, capital_search, brain_query, notify, search_files]
 delegates: []
 cloud_only: true
 skills: [uk-trading-rules, python-engineering]

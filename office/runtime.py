@@ -811,6 +811,10 @@ class Agent:
                 break
             content = re.sub(r"<think>.*?</think>", "", content, flags=re.S).strip()  # qwen thinking tags
             tool_calls = msg.get("tool_calls") or []
+            if not tool_calls and ("<function=" in content or re.match(r'^\s*\{\s*"name"\s*:', content)):
+                tool_calls = rescue_text_tool_calls(content)        # Nemotron & co. sometimes write the call as text
+                if tool_calls:
+                    self._say(f"rescued {len(tool_calls)} tool call(s) written as text"); content = ""
 
             looks_like_tool_json = bool(re.match(r'^\s*\{\s*"name"\s*:', content)) or ('"parameters"' in content[:200] and content.lstrip().startswith("{"))
             if not tool_calls and (not content or looks_like_tool_json) and turn < MAX_TURNS and not nudged_json:
@@ -844,7 +848,8 @@ class Agent:
 
             messages.append({"role": "assistant", "content": content or None, "tool_calls": tool_calls})
             for tc in tool_calls:
-                fn = re.sub(r"^(repo_browser|functions|tools|container|default_api)[.:/]", "", tc["function"]["name"] or "")   # gpt-oss habit
+                fn = re.sub(r"^(repo_browser|functions|function|tools|container|default_api|browser)[.:/]", "", tc["function"]["name"] or "")   # gpt-oss habit
+                fn = TOOL_ALIASES.get(fn, fn) if TOOL_ALIASES.get(fn) in self.brief.tools else fn         # 'search' -> search_files etc.
                 try:
                     args = json.loads(tc["function"].get("arguments") or "{}")
                 except json.JSONDecodeError:
@@ -1006,6 +1011,42 @@ class Tool:
     fn: Callable[..., Any]
 
 
+# names models assume exist -> the office's real tool (used only when the agent has the real one)
+TOOL_ALIASES = {"search": "search_files", "find": "search_files", "find_in_file": "search_files", "grep": "search_files",
+                "search_workspace": "search_files", "brain_search": "brain_recall", "recall": "brain_recall", "remember": "brain_remember",
+                "web_find": "web_search", "browse": "web_fetch", "open_url": "web_fetch", "open_file": "read_file", "cat": "read_file",
+                "ls": "list_files", "write": "write_file", "python": "run_python", "shell": "run_shell", "bash": "run_shell"}
+# argument names models often use -> the name the tool declares (applied only when the declared one is missing)
+ARG_ALIASES = {"script": "code", "source": "code", "python_code": "code", "program": "code", "filename": "file", "file_path": "path",
+               "filepath": "path", "dir": "path", "directory": "path", "folder": "path", "text": "content", "body": "content",
+               "q": "query", "search": "query", "term": "query", "keyword": "query", "id": None}
+
+
+def rescue_text_tool_calls(text: str) -> list[dict]:
+    """Turn tool calls a model wrote as TEXT into real ones: <function=NAME><parameter=K>V</parameter></function>
+    (Nemotron/Qwen style) or a bare {"name": ..., "arguments": {...}} JSON object."""
+    calls = []
+    for i, m in enumerate(re.finditer(r"<function=([\w./:-]+)>(.*?)</function>", text, re.S)):
+        args = {}
+        for p in re.finditer(r"<parameter=([\w-]+)>\s*(.*?)\s*</parameter>", m.group(2), re.S):
+            v = p.group(2).strip()
+            try:
+                v = json.loads(v)
+            except Exception:
+                pass
+            args[p.group(1)] = v
+        calls.append({"id": f"rescued_{i}", "type": "function", "function": {"name": m.group(1), "arguments": json.dumps(args)}})
+    if not calls:
+        try:
+            obj = json.loads(text.strip())
+            if isinstance(obj, dict) and isinstance(obj.get("name"), str):
+                a = obj.get("arguments", obj.get("parameters", {}))
+                calls = [{"id": "rescued_0", "type": "function", "function": {"name": obj["name"], "arguments": a if isinstance(a, str) else json.dumps(a)}}]
+        except Exception:
+            pass
+    return calls
+
+
 class ToolRegistry:
     def __init__(self):
         self._tools: dict[str, Tool] = {}
@@ -1027,6 +1068,30 @@ class ToolRegistry:
         if not t:
             return f"ERROR: unknown tool {name}"
         # keep only declared parameters; models sometimes send junk keys like "" for no-arg tools
-        allowed = set((t.parameters or {}).get("properties", {}).keys())
-        clean = {k: v for k, v in (args or {}).items() if k in allowed}
+        props = (t.parameters or {}).get("properties", {}); allowed = set(props.keys()); required = list((t.parameters or {}).get("required", []))
+        args = dict(args or {})
+        for k in [k for k in list(args) if k not in allowed]:          # map common alternate names onto the declared ones
+            target = ARG_ALIASES.get(k, "") if k in ARG_ALIASES else ""
+            if k == "id":
+                target = next((p for p in allowed if p.endswith("_id") and p not in args), "")
+            if target and target in allowed and target not in args:
+                args[target] = args.pop(k)
+        clean = {k: v for k, v in args.items() if k in allowed}
+        for k, v in list(clean.items()):                               # "#168", "task 168", "5" -> 168 / 5 where an integer is expected
+            typ = (props.get(k) or {}).get("type")
+            if typ == "integer" and isinstance(v, str):
+                m = re.search(r"-?\d+", v)
+                if m:
+                    clean[k] = int(m.group(0))
+            elif typ == "number" and isinstance(v, str):
+                try:
+                    clean[k] = float(v.replace(",", ""))
+                except ValueError:
+                    pass
+            elif typ == "boolean" and isinstance(v, str):
+                clean[k] = v.strip().lower() in ("true", "yes", "1", "on")
+        missing = [r for r in required if r not in clean]
+        if missing:
+            return (f"ERROR: {name} needs {', '.join(missing)}. It takes: "
+                    + ", ".join(f"{p} ({(props.get(p) or {}).get('type', 'any')}{', required' if p in required else ''})" for p in props))
         return t.fn(**clean, _agent=agent) if "_agent" in t.fn.__code__.co_varnames else t.fn(**clean)

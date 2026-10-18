@@ -214,7 +214,7 @@ class BrainStore:
         returns rows from the wrong query (seen as tuple/None errors in the dashboard)."""
         c = getattr(self._local, "conn", None)
         if c is None:
-            c = sqlite3.connect(str(self.db_path), timeout=15)
+            c = sqlite3.connect(str(self.db_path), timeout=60)          # many agents write at once: queue, do not fail
             c.row_factory = sqlite3.Row
             self._local.conn = c
         return c

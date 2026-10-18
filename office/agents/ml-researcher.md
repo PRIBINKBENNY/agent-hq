@@ -3,7 +3,7 @@ name: ml-researcher
 office: pm
 tier: worker
 description: Scouts ML/AI trends, papers and employer demand; proposes small, finishable AI projects for the roadmap.
-tools: [brain_recall, brain_remember, web_search, web_fetch, read_file, write_file, task_create, today, list_files, brain_query, skill_read, propose_skill_update]
+tools: [brain_recall, brain_remember, web_search, web_fetch, read_file, write_file, task_create, today, list_files, brain_query, skill_read, propose_skill_update, search_files]
 delegates: []
 skills: [uk-ml-job-market, ai-agent-engineering]
 ---
