@@ -224,14 +224,16 @@ def mark_seen(uid: str, factory: Optional[Callable] = None):
 
 
 # ----------------------------------------------------------------- SMTP
-def check_sendable(to: str, subject: str, body: str) -> str:
-    """The deterministic gate every send passes. Returns the clean address or raises MailError."""
+def check_sendable(to: str, subject: str, body: str, allow_self: bool = False) -> str:
+    """The deterministic gate every send passes. Returns the clean address or raises MailError.
+    allow_self: only for a draft Pribin approved himself (e.g. a test to his own inbox); never for agent replies,
+    which would otherwise answer their own messages in a loop."""
     if not configured():
         raise MailError("Gmail not configured: set GMAIL_ADDRESS and GMAIL_APP_PASSWORD in .env")
     addr = valid_address(to)
     if not addr:
         raise MailError(f"'{to}' is not an email address; the draft needs a real recipient address")
-    if addr == address():
+    if addr == address() and not allow_self:
         raise MailError("refusing to email ourselves")
     if AUTOMATED.search(addr):
         raise MailError(f"refusing to email an automated address ({addr})")
@@ -250,7 +252,7 @@ def check_sendable(to: str, subject: str, body: str) -> str:
 
 def send(to: str, subject: str, body: str, in_reply_to: Optional[str] = None, references: Optional[str] = None,
          agent: str = "mail-assistant", mode: str = "approved", factory: Optional[Callable] = None) -> dict:
-    addr = check_sendable(to, subject, body)
+    addr = check_sendable(to, subject, body, allow_self=(mode == "approved"))
     msg = EmailMessage()
     msg["From"] = address(); msg["To"] = addr; msg["Subject"] = subject.strip()
     msg["Date"] = email.utils.formatdate(localtime=True); msg["Message-ID"] = email.utils.make_msgid(domain="agent-hq.local")
@@ -281,6 +283,8 @@ def can_autoreply(msg: dict, known_contact: Callable[[str], bool]) -> tuple[bool
     addr = msg.get("from_email") or ""
     if not addr or msg.get("automated"):
         return False, "automated or unidentified sender"
+    if addr == address():
+        return False, "our own message"
     if blocked(addr):
         return False, "sender is on MAIL_BLOCKLIST"
     if not (msg.get("in_reply_to") or previously_emailed(addr)):

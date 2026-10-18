@@ -141,3 +141,16 @@ def test_draft_to_company_name_cannot_be_sent(gmail, tmp_path, monkeypatch):
     with pytest.raises(mail.MailError, match="not an email address"):
         tools.send_approved_email(m.id)
     assert FakeSMTP.sent == []
+
+
+def test_self_send_only_when_pribin_approved(gmail):
+    with pytest.raises(mail.MailError, match="ourselves"):
+        mail.send("me@gmail.com", "loop", "x", mode="autoreply")
+    r = mail.send("me@gmail.com", "Test to my own inbox", "Approved test.", mode="approved")
+    assert r["sent"] and r["to"] == "me@gmail.com"
+    own = {"from_email": "me@gmail.com", "automated": False, "in_reply_to": "<x>"}
+    import os; os.environ["MAIL_AUTOREPLY"] = "1"
+    try:
+        assert mail.can_autoreply(own, lambda a: True) == (False, "our own message")
+    finally:
+        os.environ.pop("MAIL_AUTOREPLY", None)
