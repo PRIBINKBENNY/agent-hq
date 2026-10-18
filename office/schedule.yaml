@@ -127,24 +127,6 @@
   command: ./office/publish.sh
   priority: 2
   title: Publish the public portfolio repo from the dev repo
-- name: market-pulse
-  every: hourly
-  agent: market-researcher
-  priority: 2
-  hours: 08-16
-  title: Market pulse (DEMO desk)
-  task: 'Market pulse: live quotes for the watchlist, flag notable moves, store one fact per notable move. Keep
-    it to 10 lines.'
-- name: positions-manage
-  every: hourly
-  agent: trader
-  priority: 3
-  hours: 08-16
-  title: Manage open DEMO positions
-  task: 'Manage task: review open positions, trail stops per the rules, close only on a stored exit rule. Report
-    briefly.
-
-    '
 - name: daily-optimisation
   every: daily
   at: 07:00
@@ -161,11 +143,49 @@
   priority: 3
   title: 'COO: weekly deep review'
   task: 'Weekly deep review: rank agents by value per token, propose at most 3 brief changes, write workspace/ops/weekly-review.md.'
-- name: signal-scan
+
+# ---- trading desk, round the clock (DEMO). The watch and the sweep are scripts: no model, no token cost.
+- name: trading-watch
   every: hourly
-  agent: strategy-analyst
-  priority: 3
-  hours: 08-16
-  title: Signal scan (approved strategies)
-  task: 'Signal scan: call signal_scan once; for each proposal create a Risk review task with every field; if none,
-    say so in one line.'
+  priority: 5
+  title: Trading watch (all markets)
+  command: python office/trading_watch.py
+- name: strategy-lab-sweep
+  every: daily
+  at: '02:00'
+  window_hours: 4
+  priority: 2
+  title: Strategy lab sweep (all markets, walk-forward)
+  command: python office/trading_lab.py
+- name: market-pulse-am
+  every: weekdays
+  at: '07:30'
+  agent: market-researcher
+  priority: 2
+  title: Market pulse, London open (DEMO desk)
+  task: 'Market pulse for the London open: read trading/watch-last.json and trading/lab-sweep.md (top lines), then live quotes for
+    the markets with approved strategies plus GOLD, US500, EURUSD, BTCUSD. Flag notable moves and scheduled news that could hit
+    them today; store one fact per notable move (namespace trading). 10 lines.'
+- name: market-pulse-mid
+  every: weekdays
+  at: '13:00'
+  agent: market-researcher
+  priority: 2
+  title: Market pulse, New York open (DEMO desk)
+  task: 'Market pulse for the New York open: same as the morning pulse, focused on US indices, USD pairs, gold and oil. 10 lines.'
+- name: market-pulse-pm
+  every: weekdays
+  at: '18:00'
+  agent: market-researcher
+  priority: 2
+  title: Market pulse, evening (DEMO desk)
+  task: 'Evening market pulse: what moved today across currencies, indices, commodities and crypto, open positions (if any), and
+    what the overnight session (Asia) could bring. Store one fact per notable move. 10 lines.'
+- name: crypto-pulse
+  every: daily
+  at: '11:00'
+  agent: market-researcher
+  priority: 2
+  title: Crypto pulse (DEMO desk, every day)
+  task: 'Crypto pulse: BTCUSD, ETHUSD, SOLUSD, XRPUSD, ADAUSD, LTCUSD live quotes and notable moves; crypto trades every day, so
+    this also covers weekends. Store one fact per notable move (namespace trading). 8 lines.'

@@ -221,6 +221,24 @@ positions. Every open and close is journaled with its strategy and reason; the l
 compares realised results with expectations and retires what fails on the evidence, changing one thing
 at a time. The Trading tab shows strategies, the journal's performance report and today's limits.
 
+
+**Round the clock, every market.** The desk covers 37 Capital.com demo markets (office/markets.py): 10 currency
+pairs, 8 stock indices, 5 commodities, 6 cryptocurrencies and 8 shares. Two scripts do the heavy lifting with no
+language model and no token cost:
+
+- **Nightly lab sweep** (`office/trading_lab.py`, 02:00): walk-forward tests every strategy family on every
+  market and writes `trading/lab-sweep.md`. It approves only what passes the same gate as before (the
+  playbook's principles check and a stable out-of-sample result); near misses become candidates for the
+  trading-learner. It never downgrades an approved strategy; it flags it for the learner's weekly review.
+- **Hourly watch** (`office/trading_watch.py`, every hour, every day): scans every approved strategy, skips
+  markets Capital reports as closed (crypto trades at weekends), proposes each fresh signal once, and only then
+  wakes the strategy-analyst, risk-officer and trader. Open positions get a "manage" task for the trader.
+
+Market research runs at the London open, the New York open and the evening on weekdays, plus a daily crypto
+pulse. All trading agents run on gpt-oss 120B and are marked cloud-only: they never fall back to the small
+local model. Every safety rule is unchanged: DEMO only, 1% risk per trade, reward/risk at least 1.5, two trades a
+day, the daily loss limit, and the risk-officer's approval before any order.
+
 ## Trading desk (Capital.com demo)
 
 The trading office runs on a free Capital.com demo account: real markets, real prices, virtual money.

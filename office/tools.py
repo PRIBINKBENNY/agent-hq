@@ -1217,7 +1217,8 @@ DESK_RULES = {"risk_pct_per_trade": 1.0, "min_rr": 1.5, "max_trades_per_day": 2,
 def _bars(symbol: str, resolution: str = "HOUR", max_points: int = 1000) -> list[dict]:
     """Bars from Capital.com (epic, e.g. GOLD, VODL) or Yahoo (ticker with . or ^ or =, e.g. VOD.L, ^FTSE, GC=F).
     resolution: MINUTE_15 | HOUR | HOUR_4 | DAY."""
-    if any(ch in symbol for ch in ".^=") and len(symbol) > 2:
+    if symbol.startswith("yf:") or (any(ch in symbol for ch in ".^=-") and len(symbol) > 2):   # Yahoo ticker (yf:AAPL, BTC-USD, GC=F, ^FTSE)
+        symbol = symbol.removeprefix("yf:")
         import yfinance as yf
         interval = {"MINUTE_5": "5m", "MINUTE_15": "15m", "MINUTE_30": "30m", "HOUR": "60m", "HOUR_4": "60m", "DAY": "1d", "WEEK": "1wk"}.get(resolution, "60m")
         period = {"5m": "60d", "15m": "60d", "30m": "60d", "60m": "730d", "1d": "5y", "1wk": "10y"}[interval]

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -353,9 +354,10 @@ def _spawn(task: dict, engine: str = "auto") -> subprocess.Popen:
     log = LOG_DIR / f"task-{task['id']}.log"
     if task["owner"] == "command":
         # a script job: detail is the shell command, run from the project root with the venv on PATH
-        cmd = ["/bin/zsh", "-c", f"({task.get('detail') or 'true'}) && {sys.executable} -c \"import sys; sys.path.insert(0,'brain'); "
+        py = shlex.quote(sys.executable)          # the project path has spaces ("ai agent employess"): quote it
+        cmd = ["/bin/zsh", "-c", f"({task.get('detail') or 'true'}) && {py} -c \"import sys; sys.path.insert(0,'brain'); "
                f"from store import BrainStore; BrainStore().task_update({task['id']}, agent='scheduler', status='done', result='command finished')\" "
-               f"|| {sys.executable} -c \"import sys; sys.path.insert(0,'brain'); from store import BrainStore; "
+               f"|| {py} -c \"import sys; sys.path.insert(0,'brain'); from store import BrainStore; "
                f"BrainStore().task_update({task['id']}, agent='scheduler', status='failed', result='command failed, see office/logs/task-{task['id']}.log')\""]
         with open(log, "w") as lf:
             return subprocess.Popen(cmd, cwd=str(ROOT), stdout=lf, stderr=subprocess.STDOUT,
@@ -422,7 +424,13 @@ def tick(brain: BrainStore, engine: str = "auto") -> dict:
         # every cloud model is cooling: with the uncapped local model allowed, keep one run going on this Mac
         effective = 1 if os.environ.get("OFFICE_LEAD_LOCAL_FALLBACK", "0") == "1" else 0
     now = time.time(); skip: list[int] = []
-    while len(running_ids()) < effective:
+    # scripts (trading watch, lab sweep, eval, publish) use no model quota: start them at once, outside the parallel limit
+    for t in brain.task_list(limit=50, status="queued"):
+        if t.get("owner") == "command" and t["id"] not in _running:
+            brain.task_update(t["id"], agent="scheduler", status="running")
+            _running[t["id"]] = {"proc": _spawn(t, "auto"), "task": t, "engine": "command"}; info["started"].append(t["id"])
+    agent_runs = lambda: sum(1 for r in _running.values() if r.get("engine") != "command")
+    while agent_runs() < effective:
         nxt = brain.task_claim_next(exclude=skip)
         if not nxt:
             break

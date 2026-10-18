@@ -234,6 +234,7 @@ class Brief:
     description: str = ""
     model: Optional[str] = None     # pin a specific model (optional)
     local_ok: bool = False          # may run on the local 3B model when every cloud provider is cooling down
+    cloud_only: bool = False        # never runs on the local model, even when OFFICE_LEAD_LOCAL_FALLBACK=1 (trading decisions)
 
 
 def load_brief(name: str) -> Brief:
@@ -252,6 +253,7 @@ def load_brief(name: str) -> Brief:
         tools=list(meta.get("tools", [])),
         delegates=list(meta.get("delegates", [])),
         local_ok=bool(meta.get("local_ok", False)),
+        cloud_only=bool(meta.get("cloud_only", False)),
         system=m.group(2).strip(),
         description=meta.get("description", ""),
         model=meta.get("model"),
@@ -667,7 +669,7 @@ class Agent:
                 self._say(f"all remote models cooling down, waiting {wait:.0f}s for {soonest[0]}:{soonest[1]}")
                 time.sleep(max(0.5, wait + 0.5))
                 return soonest
-        if self.brief.tier == "lead" and remote_all and not self.brief.local_ok and os.environ.get("OFFICE_LEAD_LOCAL_FALLBACK", "0") != "1":
+        if remote_all and (self.brief.cloud_only or (self.brief.tier == "lead" and not self.brief.local_ok and os.environ.get("OFFICE_LEAD_LOCAL_FALLBACK", "0") != "1")):
             raise EngineError("no capable model available: every cloud provider is cooling down and lead agents do not run on the local 3B model. Retry later.")
         return usable[-1] if usable else chain[-1]
 
