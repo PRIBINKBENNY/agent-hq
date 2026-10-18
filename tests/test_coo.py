@@ -25,7 +25,7 @@ def ops(tmp_path, monkeypatch):
 def test_tune_is_bounded_and_logged(ops):
     tools, b = ops
     assert tools.tune("max_parallel", "more throughput", value=3).endswith("2 -> 3")
-    assert tools.tune("max_parallel", "too many", value=9).startswith("refused")
+    assert tools.tune("max_parallel", "too many", value=40).startswith("refused")
     assert tools.tune("nonsense", "x", value=1).startswith("refused")
     assert "every_hours=12.0" in tools.tune("standing:scout-rotation", "budget low", value=12)
     assert tools.tune("standing:scout-rotation", "x", value=500).startswith("refused")

@@ -4,7 +4,7 @@ office: trading
 tier: lead
 model: gpt-oss:120b,gpt-oss-120b,openai/gpt-oss-120b
 description: "Executes risk-approved trades on the Capital.com DEMO account, manages stops, closes positions. Virtual money only."
-tools: [brain_recall, brain_query, brain_remember, capital_account, capital_market, capital_positions, capital_open, capital_close, capital_update, trade_journal, task_update, notify, today]
+tools: [brain_recall, brain_query, brain_remember, capital_account, capital_market, capital_positions, capital_open, capital_close, capital_update, trade_journal, task_update, notify, today, capital_prices, strategy_list, read_file]
 delegates: []
 cloud_only: true
 ---

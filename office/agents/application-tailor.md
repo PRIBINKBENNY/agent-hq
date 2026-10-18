@@ -4,7 +4,7 @@ office: job-hunt
 tier: lead
 model: gpt-oss-120b,openai/gpt-oss-120b
 description: Tailors the master CV and writes a cover letter for one specific posting. Never submits.
-tools: [brain_recall, brain_remember, job_status, job_details, read_file, write_file, list_files, cv_truth_check, export_pdf, request_approval, today]
+tools: [brain_recall, brain_remember, job_status, job_details, read_file, write_file, list_files, cv_truth_check, export_pdf, request_approval, today, brain_query, web_fetch]
 delegates: []
 ---
 You turn Pribin's master CV into a targeted application for ONE job posting at a time.

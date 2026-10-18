@@ -86,6 +86,7 @@ import push  # noqa: E402
 import linkedin  # noqa: E402
 import mail  # noqa: E402
 
+os.environ.pop("BRAIN_EMBED_URL", None)   # the dashboard serves the shared model; it never borrows it
 PORT = int(os.environ.get("DASHBOARD_PORT", "8787"))
 HTML_PATH = ROOT / "office" / "static" / "dashboard.html"
 brain = BrainStore()
@@ -288,7 +289,8 @@ async def api_run(request: Request):
     log = ROOT / "office" / "logs" / f"run-{rid}.log"
     cmd = [sys.executable, str(ROOT / "office" / "run.py"), "--agent", agent, "--engine", engine, task]
     with open(log, "w") as lf:
-        p = subprocess.Popen(cmd, cwd=str(ROOT), stdout=lf, stderr=subprocess.STDOUT)
+        p = subprocess.Popen(cmd, cwd=str(ROOT), stdout=lf, stderr=subprocess.STDOUT,
+                             env={**os.environ, "BRAIN_EMBED_URL": f"http://127.0.0.1:{PORT}/api/embed"})   # share the loaded model
     _procs[rid] = p
     return JSONResponse({"started": True, "pid": p.pid, "log": str(log)})
 
@@ -507,6 +509,20 @@ async def api_trading(_: Request):
     return JSONResponse(data)
 
 
+async def api_embed(request: Request):
+    """Shared embedding model for agent processes (they set BRAIN_EMBED_URL); one copy in memory instead of 31."""
+    body = await request.json(); texts = [str(t) for t in (body.get("texts") or [])][:64]
+    if body.get("model") and body["model"] != brain.embedder.model_name:
+        return JSONResponse({"error": "model mismatch"}, status_code=409)
+    def run():
+        if body.get("query"):
+            v = brain.embedder.embed_query(texts[0]) if texts else None
+            return [] if v is None else [v.tolist()]
+        v = brain.embedder.embed(texts); return [] if v is None else v.tolist()
+    vecs = await asyncio.to_thread(run)
+    return JSONResponse({"vectors": vecs})
+
+
 async def favicon(_: Request):
     svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#1f3a5f"/>'
            '<circle cx="16" cy="16" r="9" fill="none" stroke="#e8eef7" stroke-width="2.5"/><circle cx="16" cy="16" r="3.5" fill="#f2b84b"/></svg>')
@@ -692,6 +708,7 @@ app = Starlette(middleware=[Middleware(AuthMiddleware)], routes=[
     Route("/api/push/test", api_push_test, methods=["POST"]),
     Route("/", index),
     Route("/favicon.ico", favicon),
+    Route("/api/embed", api_embed, methods=["POST"]),
     Route("/api/state", api_state),
     Route("/api/events", api_events),
     Route("/api/run", api_run, methods=["POST"]),

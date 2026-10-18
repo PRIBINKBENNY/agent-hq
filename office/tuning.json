@@ -1,13 +1,15 @@
 {
- "max_parallel": 3,
+ "max_parallel": 31,
  "run_token_budget": 60000,
  "max_turns": 20,
  "standing_budget_fraction": 0.25,
  "task_wall_seconds": 1500,
- "standing_per_hour": 6,
- "notes": "Bounded knobs the COO may change: max_parallel 1-4, run_token_budget 30000-120000, max_turns 10-30, standing_budget_fraction 0.1-0.6, task_wall_seconds 600-3600, standing_per_hour 1-8 (round-the-clock pacing of standing work)",
+ "standing_per_hour": 0,
+ "notes": "unlimited=true is Pribin's 'all 31 agents at once' mode (no parallel cap, no pacing, no budget brake; only the memory brake min_free_gb). Bounded knobs the COO may change: max_parallel 1-31, run_token_budget 30000-120000, max_turns 10-30, standing_budget_fraction 0.1-0.6, task_wall_seconds 600-3600, standing_per_hour 0-8 (0 = off), min_free_gb 0.3-3.0. The COO must not lower max_parallel or turn pacing back on while unlimited is true.",
  "paused": false,
  "paused_reason": "",
  "paused_at": null,
- "paused_until": null
+ "paused_until": null,
+ "unlimited": true,
+ "min_free_gb": 0.8
 }

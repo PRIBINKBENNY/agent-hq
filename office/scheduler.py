@@ -116,6 +116,22 @@ def set_paused(flag: bool, reason: str = "", hours: float | None = None) -> dict
     return paused()
 
 
+def unlimited() -> bool:
+    """Pribin's 'every agent at once' mode: no parallel cap, no pacing, no budget brake (memory brake only)."""
+    return bool(_knob("unlimited", False))
+
+
+def free_memory_gb() -> float:
+    """Memory macOS can hand out right now (free + inactive + speculative pages)."""
+    try:
+        out = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout
+        page = int(re.search(r"page size of (\d+)", out).group(1))
+        pages = sum(int(re.search(rf"{k}:\s+(\d+)", out).group(1)) for k in ("Pages free", "Pages inactive", "Pages speculative"))
+        return pages * page / 1073741824
+    except Exception:
+        return 99.0
+
+
 def running_ids() -> list[int]:
     return [tid for tid, r in _running.items() if r["proc"].poll() is None]
 
@@ -185,6 +201,8 @@ def standing_rate_ok(st: dict, now_ts: float) -> bool:
     """Round-the-clock pacing: at most `standing_per_hour` standing items are started per rolling hour, so the day's
     free-tier allowance is spread across 24 hours instead of being burnt in a 3 a.m. burst (then nothing by noon)."""
     cap = int(_knob("standing_per_hour", 3))
+    if cap <= 0 or unlimited():
+        return True                                        # pacing switched off
     recent = [t for t in st.get("standing_starts", []) if now_ts - t < 3600]
     st["standing_starts"] = recent
     return len(recent) < cap
@@ -193,7 +211,7 @@ def standing_rate_ok(st: dict, now_ts: float) -> bool:
 def enqueue_standing_work(brain: BrainStore) -> list[str]:
     """Keep every office busy, round the clock: when the queue is short, add the standing item that has waited longest.
     If nothing is due and nobody is working, start the item closest to due anyway (idle filler), within the hourly pace."""
-    if not STANDING_FILE.exists() or not standing_allowed():
+    if not STANDING_FILE.exists() or (not unlimited() and not standing_allowed()):
         return []
     queued = [t for t in brain.task_list(limit=100, status="queued")]
     now_ts = time.time()
@@ -208,6 +226,7 @@ def enqueue_standing_work(brain: BrainStore) -> list[str]:
     if not standing_rate_ok(st, ts):
         _save_state(st); return []
     idle = not startable and not running_ids()
+    busy_agents = {(t.get("owner") or "") for t in queued} | {(r.get("task") or {}).get("owner", "") for r in _running.values()}
     for it in items:
         if not it.get("enabled", True):
             continue
@@ -225,6 +244,8 @@ def enqueue_standing_work(brain: BrainStore) -> list[str]:
         # idle filler: nothing queued or running -> the item nearest to due may start early, once a third of its interval
         # (and at least an hour) has passed; never for weekly items
         early_ok = idle and every <= 48 and elapsed_h >= max(1.0, every / 3)
+        if unlimited() and it["agent"] not in busy_agents and every <= 48 and elapsed_h >= max(0.5, every / 4):
+            early_ok = True                                # every agent keeps one piece of work going
         if (overdue >= 0 or early_ok) and not any(t.get("source") == "standing:" + it["name"] for t in queued):
             cands.append((elapsed_h / every, it))
     if not cands:
@@ -364,8 +385,9 @@ def _spawn(task: dict, engine: str = "auto") -> subprocess.Popen:
                                     env={**os.environ, "PATH": str(Path(sys.executable).parent) + ":" + os.environ.get("PATH", "")})
     cmd = [sys.executable, str(ROOT / "office" / "run.py"), "--agent", task["owner"], "--engine", engine,
            "--task-id", str(task["id"]), f"{task['title']}\n\n{task.get('detail') or ''}".strip()]
+    env = {**os.environ, "BRAIN_EMBED_URL": os.environ.get("BRAIN_EMBED_URL") or f"http://127.0.0.1:{os.environ.get('DASHBOARD_PORT', '8787')}/api/embed"}
     with open(log, "w") as lf:
-        return subprocess.Popen(cmd, cwd=str(ROOT), stdout=lf, stderr=subprocess.STDOUT)
+        return subprocess.Popen(cmd, cwd=str(ROOT), stdout=lf, stderr=subprocess.STDOUT, env=env)
 
 
 def tick(brain: BrainStore, engine: str = "auto") -> dict:
@@ -414,6 +436,8 @@ def tick(brain: BrainStore, engine: str = "auto") -> dict:
     housekeeping(); tunnel_watch()
     healthy = [p for p, v in budget().items() if v["ok"] and not v.get("down")]
     effective = max(1, min(MAX_PARALLEL, len(healthy))) if budget() else MAX_PARALLEL
+    if unlimited():
+        effective = MAX_PARALLEL                           # no cap from the number of healthy providers
     try:
         from runtime import cloud_available
         ok_cloud, soonest = cloud_available()
@@ -423,6 +447,8 @@ def tick(brain: BrainStore, engine: str = "auto") -> dict:
         info["waiting_for_cloud_until"] = soonest
         # every cloud model is cooling: with the uncapped local model allowed, keep one run going on this Mac
         effective = 1 if os.environ.get("OFFICE_LEAD_LOCAL_FALLBACK", "0") == "1" else 0
+        if unlimited():
+            effective = MAX_PARALLEL
     now = time.time(); skip: list[int] = []
     # scripts (trading watch, lab sweep, eval, publish) use no model quota: start them at once, outside the parallel limit
     for t in brain.task_list(limit=50, status="queued"):
@@ -430,7 +456,10 @@ def tick(brain: BrainStore, engine: str = "auto") -> dict:
             brain.task_update(t["id"], agent="scheduler", status="running")
             _running[t["id"]] = {"proc": _spawn(t, "auto"), "task": t, "engine": "command"}; info["started"].append(t["id"])
     agent_runs = lambda: sum(1 for r in _running.values() if r.get("engine") != "command")
+    min_free = float(_knob("min_free_gb", 0.8)); brake = os.environ.get("OFFICE_MEMORY_BRAKE", "1") != "0"
     while agent_runs() < effective:
+        if brake and agent_runs() and free_memory_gb() < min_free:
+            info["memory_brake"] = round(free_memory_gb(), 2); break    # the Mac is out of memory: wait for a run to finish
         nxt = brain.task_claim_next(exclude=skip)
         if not nxt:
             break

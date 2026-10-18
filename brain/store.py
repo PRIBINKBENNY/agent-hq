@@ -53,9 +53,27 @@ class Embedder:
                     self._model = TextEmbedding(model_name=self.model_name, cache_dir=str(cache))
         return self._model
 
+    def _remote(self, texts: list[str], query: bool) -> Optional[np.ndarray]:
+        """Agent processes borrow the dashboard's loaded model (same model, same vectors) instead of loading
+        their own copy (~200 MB each). Falls back to the local model if the dashboard does not answer."""
+        url = os.environ.get("BRAIN_EMBED_URL")
+        if not url:
+            return None
+        try:
+            import httpx
+            r = httpx.post(url, json={"texts": texts, "query": query, "model": self.model_name}, timeout=30)
+            if r.status_code == 200:
+                return np.array(r.json()["vectors"], dtype=np.float32)
+        except Exception:
+            pass
+        return None
+
     def embed(self, texts: list[str]) -> Optional[np.ndarray]:
         if not self.available or not texts:
             return None
+        v = self._remote(texts, False)
+        if v is not None:
+            return v
         model = self._load()
         vecs = np.array(list(model.embed(texts)), dtype=np.float32)
         norms = np.linalg.norm(vecs, axis=1, keepdims=True)
@@ -65,6 +83,9 @@ class Embedder:
     def embed_query(self, text: str) -> Optional[np.ndarray]:
         if not self.available:
             return None
+        v = self._remote([text], True)
+        if v is not None:
+            return v[0]
         model = self._load()
         vec = np.array(list(model.query_embed(text)), dtype=np.float32)[0]
         n = np.linalg.norm(vec)

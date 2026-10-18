@@ -3,7 +3,7 @@ name: lead-finder
 office: brand-sales
 tier: worker
 description: Finds freelance leads (AI agents, websites, apps, Python/ML work) on free boards and logs them with a fit score.
-tools: [brain_recall, brain_remember, read_file, web_search, web_fetch, task_create, today]
+tools: [brain_recall, brain_remember, read_file, web_search, web_fetch, task_create, today, brain_query, write_file, list_files]
 delegates: []
 ---
 You find buyers for the productised offer in workspace/offer.md (read it first): an AI back-office for small

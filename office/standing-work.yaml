@@ -176,3 +176,110 @@
     message from a client, lead, recruiter or contact: brain_recall the context, then mail_reply with a short, specific answer
     (auto-sent only inside existing known-contact threads when MAIL_AUTOREPLY is on; otherwise it becomes an approval).
     Record one brain event per handled message (tags contact:<slug>, email). Report: messages seen, replied, awaiting approval, skipped.'
+
+# ---- every agent has standing work (Pribin, 2026-10-18: all 31 agents working at once). Outgoing actions stay approval-gated.
+- name: tailor-best-role
+  agent: application-tailor
+  every_hours: 12
+  priority: 3
+  title: 'Tailor: best open role'
+  task: 'Pick the highest-fit job in the job portal (job_status) that is still "found" and has no tailored CV yet. Tailor the
+    master CV and write the cover letter, run cv_truth_check, export the PDF, then request_approval. Never submit.'
+- name: proposal-best-lead
+  agent: proposal-writer
+  every_hours: 24
+  priority: 3
+  title: 'Proposal: best new lead'
+  task: 'Check proposals/ first. Take the best freelance lead in the brain that has no proposal yet and write one (offer.md
+    prices), then request_approval. If every lead already has a proposal, say so and stop.'
+- name: qa-sweep
+  agent: fact-checker
+  every_hours: 12
+  priority: 2
+  title: 'QA: sweep unchecked drafts'
+  task: 'list_files applications/, posts/, proposals/ and outbox/; fact_check the newest drafts that have no QA verdict yet
+    (at most 3). Record each verdict on its approval.'
+- name: build-roadmap-task
+  agent: code-builder
+  every_hours: 12
+  priority: 3
+  title: 'Build: next roadmap task'
+  task: 'Take the oldest open coding task in workspace/roadmap.md, implement it in its project folder with tests, run them,
+    commit locally, and report what changed.'
+- name: bug-sweep
+  agent: debugger
+  every_hours: 12
+  priority: 2
+  title: 'Debug: one failing test'
+  task: 'Run the tests in each project under workspace/projects/. Fix the root cause of ONE failure, prove it with the test,
+    commit. If everything passes, say so.'
+- name: agent-workshop
+  agent: agent-builder
+  every_hours: 24
+  priority: 2
+  title: 'Agent workshop'
+  task: 'Advance workspace/projects/agent-templates one step: a reusable, tested agent or MCP tool template that a client
+    could use (README, code, tiny test, commit). Free stack only.'
+- name: app-milestone
+  agent: app-developer
+  every_hours: 24
+  priority: 2
+  title: 'App: one milestone'
+  task: 'Advance the app project on the roadmap one milestone (or start a small Tauri or Flutter demo in workspace/projects/
+    if none exists): build, run, commit.'
+- name: site-improve
+  agent: web-builder
+  every_hours: 24
+  priority: 2
+  title: 'Website: one improvement'
+  task: 'Improve Pribin''s portfolio site in workspace/projects/portfolio-site one step (create it if missing): content from the
+    brain only, build it, commit.'
+- name: release-hygiene
+  agent: release-manager
+  every_hours: 24
+  priority: 2
+  title: 'Release: commit and push finished work'
+  task: 'For each project under workspace/projects/ with finished, tested, uncommitted or unpushed work: review the diff,
+    commit cleanly, update the changelog, push to Pribin''s GitHub (private unless told otherwise).'
+- name: studio-planning
+  agent: studio-lead
+  every_hours: 12
+  priority: 2
+  title: 'Studio: scope the next job'
+  task: 'Review the roadmap and the client pipeline; scope the next job into concrete tasks for the builders (task_create),
+    each small enough to finish in one run.'
+- name: market-deep-dive
+  agent: market-researcher
+  every_hours: 6
+  priority: 2
+  title: 'Market deep dive (DEMO desk)'
+  task: 'Read trading/lab-sweep.md; pick one market with an approved or candidate strategy and research it: recent moves,
+    volatility, scheduled events this week. Store facts in the brain (namespace trading). 10 lines.'
+- name: candidate-analysis
+  agent: strategy-analyst
+  every_hours: 12
+  priority: 2
+  title: 'Strategy analysis: near-miss candidates'
+  task: 'From trading/lab-sweep.md pick two candidate strategies; for each, run backtest_strategy with ONE sensible change
+    and explain what holds it back. Hand findings to the trading-learner with task_create. Never save or approve strategies.'
+- name: risk-review
+  agent: risk-officer
+  every_hours: 12
+  priority: 2
+  title: 'Risk review'
+  task: 'Open positions, desk limits and exposure by asset class; flag risk concerns in the approved and candidate
+    strategies (correlation, drawdown, gaps). Store findings in the brain. No orders.'
+- name: execution-check
+  agent: trader
+  every_hours: 24
+  priority: 2
+  title: 'Execution readiness check (DEMO)'
+  task: 'For each approved strategy: capital_market its epic and confirm it is tradeable, the minimum size and stop distance
+    fit the desk rules, and note anything that would block an order. Store notes. Place no orders.'
+- name: desk-ledger
+  agent: portfolio-tracker
+  every_hours: 12
+  priority: 2
+  title: 'Desk ledger'
+  task: 'Reconcile treasury_status, trade_journal and capital_positions; update trading/ledger.md with balances, open risk
+    and the week so far. Notify Pribin only if something does not reconcile.'

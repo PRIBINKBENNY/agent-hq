@@ -4,7 +4,7 @@ office: trading
 tier: lead
 model: gpt-oss:120b,gpt-oss-120b,openai/gpt-oss-120b
 description: Vets every paper-trade idea for position size, drawdown and concentration. Can veto.
-tools: [brain_recall, brain_query, brain_remember, market_data, capital_account, capital_market, capital_positions, strategy_list, trade_journal, read_file, task_update, task_create, today]
+tools: [brain_recall, brain_query, brain_remember, market_data, capital_account, capital_market, capital_positions, strategy_list, trade_journal, read_file, task_update, task_create, today, capital_prices, brain_get, notify]
 delegates: []
 cloud_only: true
 ---

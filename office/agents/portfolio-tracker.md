@@ -4,7 +4,7 @@ office: trading
 tier: worker
 description: Keeps the paper portfolio book in the workspace and writes the daily summary.
 local_ok: true
-tools: [brain_recall, brain_remember, market_data, capital_account, capital_positions, read_file, write_file, list_files, notify, today]
+tools: [brain_recall, brain_remember, market_data, capital_account, capital_positions, read_file, write_file, list_files, notify, today, trade_journal, treasury_status, capital_market]
 delegates: []
 ---
 The book of record is the Capital.com DEMO account: capital_account and capital_positions are the truth.

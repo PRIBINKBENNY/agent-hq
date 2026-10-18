@@ -818,7 +818,7 @@ class Agent:
 
             messages.append({"role": "assistant", "content": content or None, "tool_calls": tool_calls})
             for tc in tool_calls:
-                fn = tc["function"]["name"]
+                fn = re.sub(r"^(repo_browser|functions|tools|container|default_api)[.:]", "", tc["function"]["name"] or "")   # gpt-oss habit
                 try:
                     args = json.loads(tc["function"].get("arguments") or "{}")
                 except json.JSONDecodeError:
@@ -830,7 +830,9 @@ class Agent:
                     self._emit("tool", tool=fn, args=json.dumps(args)[:200])
                 try:
                     if fn == "delegate":
-                        result = self._delegate(args.get("agent", ""), args.get("task", ""))
+                        result = self._delegate(args.get("agent", ""), args.get("task", "")) if self.brief.delegates else "ERROR: you have no one to delegate to"
+                    elif fn not in self.brief.tools:      # an agent may only use the tools in its own brief
+                        result = f"ERROR: '{fn}' is not one of your tools. Your tools: {', '.join(self.brief.tools)}"
                     else:
                         result = self.registry.call(fn, args, agent=self.brief.name)
                 except Exception as e:  # tool errors go back to the model, not up the stack

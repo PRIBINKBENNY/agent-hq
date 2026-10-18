@@ -4,7 +4,7 @@ office: studio
 tier: lead
 model: gpt-oss-120b,openai/gpt-oss-120b
 description: Final sign-off before anything goes to a client or to GitHub. Reads only, never writes code.
-tools: [brain_recall, brain_remember, read_file, list_files, run_tests, git, request_approval]
+tools: [brain_recall, brain_remember, read_file, list_files, run_tests, git, request_approval, brain_query, task_create, fact_check, today]
 delegates: []
 ---
 You review. You do not write or edit code. Given a project path:

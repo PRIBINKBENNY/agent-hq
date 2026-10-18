@@ -111,3 +111,72 @@ def test_script_jobs_survive_a_project_path_with_spaces(tmp_path, monkeypatch):
     scheduler._spawn(t)
     script = seen["cmd"][2]; import shlex as sh
     assert sh.quote(sys.executable) in script and script.count(sh.quote(sys.executable)) == 2
+
+
+def test_agents_can_only_call_their_own_tools_and_odd_prefixes_are_cleaned():
+    import runtime as rt
+    from runtime import Agent, Brief, ToolRegistry
+    reg = ToolRegistry(); called = []
+    reg.register("list_files", "l", {"type": "object", "properties": {}})(lambda: called.append("list_files") or "a.md")
+    reg.register("capital_open", "o", {"type": "object", "properties": {}})(lambda: called.append("capital_open") or "ORDER")
+    seq = iter([{"choices": [{"message": {"content": "", "tool_calls": [
+                    {"id": "1", "function": {"name": "repo_browser.list_files", "arguments": "{}"}},
+                    {"id": "2", "function": {"name": "capital_open", "arguments": "{}"}}]}}], "usage": {}},
+                {"choices": [{"message": {"content": "done"}}], "usage": {}}])
+    import pytest as _p
+    mp = _p.MonkeyPatch(); mp.setattr(rt, "_call_model", lambda *a, **k: next(seq)); mp.setattr(rt, "model_chain", lambda b, e: [("groq", "m")])
+    try:
+        res = Agent(Brief("job-scout", "o", "worker", ["list_files"], [], "s"), reg, engine="auto", verbose=False).run("x")
+    finally:
+        mp.undo()
+    assert called == ["list_files"]                                  # alias cleaned, foreign tool refused
+    assert any("not one of your tools" in c["result_preview"] for c in res.tool_calls)
+
+
+def test_every_agent_has_standing_work_and_real_tools():
+    import yaml, runtime as rt, tools
+    st = yaml.safe_load(open(ROOT / "office" / "standing-work.yaml")); have = {i["agent"] for i in st}
+    names = set(tools.registry.names())
+    for b in rt.list_agents():
+        assert b.name in have, b.name
+        assert set(b.tools) <= names, (b.name, set(b.tools) - names)
+
+
+def test_unlimited_mode_ignores_caps_but_keeps_the_memory_brake(tmp_path, monkeypatch):
+    import json as _j, scheduler, runtime, store
+    class NoEmbed(store.Embedder):
+        def __init__(self): self.model_name = "none"; self.available = False; self._model = None
+    b = store.BrainStore(tmp_path / "b.db", embedder=NoEmbed()); scheduler._reconciled = True; scheduler._running.clear(); scheduler._last_sweep = time.time()
+    tf = tmp_path / "t.json"; tf.write_text(_j.dumps({"unlimited": True, "max_parallel": 31, "min_free_gb": 0.8})); monkeypatch.setattr(scheduler, "TUNING_FILE", tf)
+    monkeypatch.delenv("OFFICE_MAX_PARALLEL", raising=False)
+    for name in ("STANDING_FILE", "SCHEDULE_FILE"): monkeypatch.setattr(scheduler, name, tmp_path / f"{name}.yaml")
+    monkeypatch.setattr(scheduler, "STATE_FILE", tmp_path / "st.json")
+    monkeypatch.setattr(scheduler, "budget", lambda: {"groq": {"ok": True, "usable": True}})          # only ONE healthy provider
+    monkeypatch.setattr(scheduler, "_notify", lambda *a: None); monkeypatch.setattr(scheduler, "housekeeping", lambda: {})
+    monkeypatch.setattr(scheduler, "check_approvals", lambda brain: 0); monkeypatch.setattr(runtime, "cloud_available", lambda: (True, 0))
+    class P:
+        returncode = None
+        def poll(self): return None
+    monkeypatch.setattr(scheduler, "_spawn", lambda task, eng: P())
+    for i in range(10): b.task_create(f"t{i}", "x", owner=f"agent{i}")
+    monkeypatch.setattr(scheduler, "free_memory_gb", lambda: 5.0)
+    assert len(scheduler.tick(b)["started"]) == 10                                   # all at once, not capped at 1 provider
+    scheduler._running.clear()
+    for i in range(5): b.task_create(f"u{i}", "x", owner=f"other{i}")
+    monkeypatch.setattr(scheduler, "free_memory_gb", lambda: 0.4)
+    scheduler._running[999] = {"proc": P(), "task": {"owner": "x"}, "engine": "auto"}
+    info = scheduler.tick(b); assert info["started"] == [] and info["memory_brake"] == 0.4       # Mac out of memory: wait
+    scheduler._running.clear()
+
+
+def test_agents_borrow_the_dashboards_embedding_model(monkeypatch):
+    import store, numpy as np, httpx
+    sent = {}
+    class R:
+        status_code = 200
+        def json(self): return {"vectors": [[0.6, 0.8]]}
+    monkeypatch.setattr(httpx, "post", lambda url, json=None, timeout=None: sent.update(url=url, body=json) or R())
+    monkeypatch.setenv("BRAIN_EMBED_URL", "http://127.0.0.1:8787/api/embed")
+    e = store.Embedder(); e.available = True
+    e._load = lambda: (_ for _ in ()).throw(AssertionError("must not load a local model"))
+    v = e.embed_query("hello"); assert np.allclose(v, [0.6, 0.8]) and sent["body"]["query"] is True

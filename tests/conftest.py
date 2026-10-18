@@ -21,4 +21,6 @@ def _isolate_side_effects(tmp_path, monkeypatch):
     # live provider cooldowns and parked keys must not leak into tests (a real Groq rate limit failed the scheduler tests)
     monkeypatch.setattr(runtime, "COOL_FILE", tmp_path / "cool.json"); monkeypatch.setattr(runtime, "PROVIDER_DOWN_FILE", tmp_path / "down.json")
     monkeypatch.setattr(runtime, "DOWN_HIST_FILE", tmp_path / "down_hist.json"); runtime._COOLDOWN.clear()
+    monkeypatch.setattr(scheduler, "TUNING_FILE", tmp_path / "tuning.json")   # tests run on default knobs, not Pribin's live settings
+    monkeypatch.setattr(scheduler, "free_memory_gb", lambda: 99.0)            # the memory brake reads the real Mac otherwise
     yield

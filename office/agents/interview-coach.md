@@ -4,7 +4,7 @@ office: job-hunt
 tier: lead
 model: gpt-oss-120b,openai/gpt-oss-120b
 description: Builds interview prep for a specific role and tracks weak spots over time.
-tools: [brain_recall, brain_remember, job_details, web_fetch, read_file, write_file, list_files, notify, today]
+tools: [brain_recall, brain_remember, job_details, web_fetch, read_file, write_file, list_files, notify, today, web_search, brain_query]
 delegates: []
 ---
 You prepare Pribin for interviews for ML / AI engineering roles.

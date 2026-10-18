@@ -947,8 +947,8 @@ def linkedin_post(approval_id: int, path: str, _agent="unknown"):
 
 
 # ---------------------------------------------------------------- COO: oversight and self-optimisation (bounded)
-KNOB_BOUNDS = {"max_parallel": (1, 4), "run_token_budget": (30000, 120000), "max_turns": (10, 30), "standing_budget_fraction": (0.1, 0.6), "task_wall_seconds": (600, 3600),
-               "standing_per_hour": (1, 8)}
+KNOB_BOUNDS = {"max_parallel": (1, 31), "run_token_budget": (30000, 120000), "max_turns": (10, 30), "standing_budget_fraction": (0.1, 0.6), "task_wall_seconds": (600, 3600),
+               "standing_per_hour": (0, 8), "min_free_gb": (0.3, 3.0)}
 TUNING_FILE = ROOT / "office" / "tuning.json"
 STANDING_FILE = ROOT / "office" / "standing-work.yaml"
 AGENTS_DIR = ROOT / "office" / "agents"

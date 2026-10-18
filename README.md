@@ -76,6 +76,13 @@ spreading them across providers that still have budget, and a budget governor pa
 when a provider's daily allowance drops below 25%, so the free tiers are never exhausted by routine
 work. Scheduled jobs and anything you ask for always take priority over standing work.
 
+**Unlimited mode (on).** With `"unlimited": true` in `office/tuning.json` every agent works at once: no parallel
+cap, no hourly pacing, no budget brake, and every one of the 31 agents has standing work, so none sits idle. The
+only brake left is the Mac's memory: a new run waits while free memory is below `min_free_gb` (0.8 GB), and
+`OFFICE_MEMORY_BRAKE=0` turns even that off. Agents borrow the dashboard's loaded search model through
+`/api/embed` instead of loading their own copy, which cuts each run from about 285 MB to about 100 MB. Expect the
+free engines to rate-limit under this load; runs wait for the next window or fall back as configured.
+
 **Round the clock.** The office never idles: when nothing is queued or running, the standing item
 nearest to due starts early (after at least a third of its interval). What keeps that from burning the
 day's free allowance in one night-time burst is pacing: at most `standing_per_hour` standing items
