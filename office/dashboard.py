@@ -110,7 +110,10 @@ def state() -> dict:
     day_start = time.mktime(time.strptime(time.strftime("%Y-%m-%d"), "%Y-%m-%d"))
     events = read_tail(2000)
     runs_today = {e["run_id"] for e in events if e.get("type") == "start" and e.get("depth") == 0 and e["ts"] >= day_start}
-    pending = [m.to_dict() for m in brain.recent(limit=50, kind="approval") if "pending" in m.tags]
+    import ceo as _ceo
+    pend_m = [m for m in brain.recent(limit=50, kind="approval") if "pending" in m.tags]
+    ranked = sorted(((m, *_ceo.rank_approval(m)) for m in pend_m), key=lambda x: -x[1])        # most valuable first
+    pending = [{**m.to_dict(), "rank": round(sc, 1), "why": why} for m, sc, why in ranked]
     memories = [m.to_dict() for m in brain.recent(limit=12, namespace="*")]
     return {
         "roster": roster(),
@@ -349,8 +352,16 @@ async def api_applied(request: Request):
               next((t for t in m.tags if t not in ("application", "pending", "approved", "rejected", "qa-pass", "qa-fail", "qa-queued", "email", "cv")), "unknown")
     ev = brain.remember(f"Pribin applied: {m.content[:160]}", agent="pribin", kind="event", importance=4,
                         tags=["status:applied", f"company:{company}", "application"])
+    for j in brain.recent(limit=300, kind="job"):           # keep the job portal in step with what Pribin pressed
+        jm = j.meta or {}; slug = (jm.get("slug") or jm.get("company") or "").lower().replace(" ", "-")
+        if company and company != "unknown" and company.lower() in (slug, (jm.get("company") or "").lower()) and jm.get("status") not in ("applied", "interview", "offer"):
+            brain.update(j.id, agent="pribin", meta={**jm, "status": "applied", "status_at": time.strftime("%Y-%m-%d %H:%M")}, add_tags=["status:applied"])
     brain.update(mid, agent="pribin", content=m.content.replace("PENDING APPROVAL", "APPLIED", 1),
                  tags=[t for t in m.tags if t != "pending"] + ["approved", "applied"])
+    if company and company != "unknown":                    # a referral converts far better than a cold application
+        brain.task_create(f"Warm path into {company}", f"Pribin just applied to {company} ({m.content[:160]}). Find 1-2 relevant people there "
+                          "(team lead, recruiter, an alum) and draft short, specific connection notes. request_approval; never send.",
+                          owner="networker", created_by="pribin", priority=4, source="applied")
     t = brain.task_create(f"Applied to {company}: log + follow-up", f"Pribin applied to {company} today ({m.content[:200]}). "
                           "tracker: set stage applied in pipeline/jobs.md with a follow-up date 7 days out. mail-assistant: draft the follow-up email dated then.",
                           owner="chief-of-staff", created_by="pribin", priority=3, source="applied")
@@ -525,6 +536,23 @@ async def api_embed(request: Request):
         v = brain.embedder.embed(texts); return [] if v is None else v.tolist()
     vecs = await asyncio.to_thread(run)
     return JSONResponse({"vectors": vecs})
+
+
+async def api_outcomes(request: Request):
+    import ceo
+    days = int(request.query_params.get("days", "30"))
+    return JSONResponse(await asyncio.to_thread(ceo.outcomes, days))
+
+
+async def api_deal(request: Request):
+    """Pribin records what happened to an approved proposal: sent, won, lost, paid (value optional)."""
+    import ceo
+    body = await request.json()
+    try:
+        r = await asyncio.to_thread(ceo.deal_set, int(body.get("id")), str(body.get("stage")), body.get("value"), str(body.get("note") or ""))
+    except (ValueError, KeyError) as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=400)
+    return JSONResponse(r)
 
 
 async def favicon(_: Request):
@@ -713,6 +741,8 @@ app = Starlette(middleware=[Middleware(AuthMiddleware)], routes=[
     Route("/", index),
     Route("/favicon.ico", favicon),
     Route("/api/embed", api_embed, methods=["POST"]),
+    Route("/api/outcomes", api_outcomes),
+    Route("/api/deal", api_deal, methods=["POST"]),
     Route("/api/state", api_state),
     Route("/api/events", api_events),
     Route("/api/run", api_run, methods=["POST"]),

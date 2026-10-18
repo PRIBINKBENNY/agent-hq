@@ -32,11 +32,13 @@
     '
 - name: lead-hunt
   agent: lead-finder
-  every_hours: 12
-  priority: 2
-  title: 'Lead-finder: two new leads'
-  task: 'Find 2 new freelance leads for the offer in workspace/offer.md that are not already in the brain. Log them;
-    for fit >= 4 create a proposal task.
+  every_hours: 3
+  hours: 07-22
+  priority: 4
+  title: 'Lead-finder: fresh leads (speed wins)'
+  task: 'Find new freelance leads posted in the LAST 24 HOURS for the offer in workspace/offer.md (letting agents and other
+    small UK businesses first), not already in the brain. Log them; for fit >= 4 create the proposal task at priority 5
+    immediately, so a proposal is drafted within the hour.
 
     '
 - name: roadmap-sprint

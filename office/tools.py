@@ -133,7 +133,7 @@ def scorecard(days: int = 7):
     card = {
         "window_days": days,
         "jobs_found": count(lambda m: m.kind == "job"),
-        "applications_tailored": count(lambda m: m.kind == "event" and "tailored" in m.content.lower()),
+        "applications_tailored": count(lambda m: (m.kind == "event" and "tailored" in m.content.lower()) or (m.kind == "job" and "status:tailored" in m.tags)),
         "applications_approved": count(lambda m: m.kind == "approval" and "approved" in m.tags and ("application" in m.tags or "cv" in m.content.lower())),
         "applications_marked_applied": count(lambda m: "status:applied" in m.tags),
         "proposals_drafted": count(lambda m: m.kind == "approval" and "proposal" in m.content.lower()),
@@ -1002,6 +1002,15 @@ def ops_metrics(hours: int = 24):
                        "budget": budget, "knobs": {k: v for k, v in knobs.items() if k != "notes"}, "knob_bounds": KNOB_BOUNDS, "standing": standing})
 
 
+@registry.register("outcome_metrics", "The CEO dashboard: applications -> responses -> interviews -> offers, proposals -> sent -> won -> paid, "
+                   "pipeline and revenue in GBP, approvals waiting, and tokens per outcome. Judge work by these, not by activity.", {
+    "type": "object", "properties": {"days": {"type": "integer", "default": 30}}})
+def outcome_metrics(days: int = 30):
+    import ceo
+    o = ceo.outcomes(int(days)); o.pop("approved_proposals", None)
+    return json.dumps(o)
+
+
 @registry.register("tune", "Change a bounded office knob (max_parallel, run_token_budget, max_turns, standing_budget_fraction, task_wall_seconds, standing_per_hour) "
                    "or a standing-work item's every_hours / enabled. Takes effect within a minute. Out-of-bounds values are refused.", {
     "type": "object", "properties": {
@@ -1716,3 +1725,46 @@ def apply_skill_update(approval_id: int, agent: str = "pribin") -> str:
     brain.remember(f"Skill guide '{slug}' updated (approved by Pribin, approval #{m.id}); every agent using it now follows the new version.",
                    agent=agent, kind="decision", importance=3, tags=["skill-update", f"skill:{slug}"])
     return f"skill guide {slug} updated"
+
+
+# ---------------------------------------------------------------- application pack: everything the CV tailor needs in ONE call
+CV_TYPES = {"llm": r"\b(llm|large language|rag|retrieval|agent|genai|generative|prompt|nlp|langchain)\b",
+            "cv": r"\b(computer vision|vision|image|video|detection|yolo|opencv|segmentation|robot)",
+            "data": r"\b(data scien|analyst|analytics|statistic|sql|dashboard|bi\b)",
+            "ml": r"."}
+
+
+def _cv_type(text: str) -> str:
+    t = (text or "").lower()
+    return next(k for k, pat in CV_TYPES.items() if re.search(pat, t))
+
+
+@registry.register("application_pack", "ONE call with everything for tailoring a job application: the master CV (source of truth), the base "
+                   "CV for this role type if one exists, and the job posting (fetched once and cached on the job). Use it instead of "
+                   "read_file/job_details/brain_recall for applications.", {
+    "type": "object", "properties": {"job_id": {"type": "integer", "description": "the job's brain id (from the task or the job portal)"}},
+    "required": ["job_id"]})
+def application_pack(job_id: int, _agent="unknown"):
+    try:
+        j = brain.get(int(job_id))
+    except KeyError:
+        return "no such job id; ask for the job id or use job_status to find it"
+    meta = dict(j.meta or {})
+    posting = meta.get("posting_text")
+    if not posting:
+        url = meta.get("url") or (re.search(r"https?://\S+", j.content).group(0).rstrip(".)") if re.search(r"https?://\S+", j.content) else "")
+        posting = job_details(url, 4000) if url else j.content
+        if posting and not str(posting).startswith(("ERROR", "error", "fetch failed")):
+            brain.update(j.id, agent=_agent, meta={**meta, "posting_text": str(posting)[:6000]})     # never fetched twice
+    kind = _cv_type(f"{j.content} {posting}")
+    base = WORKSPACE / "cv" / "base" / f"{kind}.md"
+    master = (WORKSPACE / "cv" / "master-cv.md").read_text()
+    company = meta.get("company") or "unknown"; slug = re.sub(r"[^a-z0-9]+", "-", company.lower()).strip("-")
+    role_slug = re.sub(r"[^a-z0-9]+", "-", (meta.get("title") or "role").lower()).strip("-")[:50]
+    return json.dumps({
+        "job_id": j.id, "company": company, "title": meta.get("title"), "fit": meta.get("fit"), "role_type": kind,
+        "save_to": f"applications/{slug}/{role_slug}/", "posting": str(posting)[:4000],
+        "base_cv": base.read_text() if base.exists() else None,
+        "base_cv_note": None if base.exists() else f"no base CV for '{kind}' roles yet: after this tailoring, also write the CV to cv/base/{kind}.md (minus company-specific lines) so the next {kind} role starts from it",
+        "master_cv": master,
+    })

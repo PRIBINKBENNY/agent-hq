@@ -225,11 +225,18 @@ def enqueue_standing_work(brain: BrainStore) -> list[str]:
     st = _load_state(); now = datetime.now(); ts = now.timestamp(); cands = []
     if not standing_rate_ok(st, ts):
         _save_state(st); return []
+    try:
+        from ceo import REVENUE_AGENTS, INTERNAL_AGENTS
+    except Exception:
+        REVENUE_AGENTS, INTERNAL_AGENTS = set(), set()
+    revenue_waiting = any((t.get("owner") or "") in REVENUE_AGENTS for t in startable)
     idle = not startable and not running_ids()
     busy_agents = {(t.get("owner") or "") for t in queued} | {(r.get("task") or {}).get("owner", "") for r in _running.values()}
     for it in items:
         if not it.get("enabled", True):
             continue
+        if it["agent"] in INTERNAL_AGENTS and revenue_waiting:
+            continue                                   # revenue first: internal work waits while money work is queued
         if it.get("weekdays") and now.weekday() >= 5:
             continue
         if it.get("requires_env") and not (os.environ.get(str(it["requires_env"])) or "").strip():
@@ -255,8 +262,10 @@ def enqueue_standing_work(brain: BrainStore) -> list[str]:
     for _, it in cands[:MAX_PARALLEL - len(startable)]:
         if not standing_rate_ok(st, ts):
             break
+        prio = int(it.get("priority", 2))
+        prio = max(prio, 4) if it["agent"] in REVENUE_AGENTS else (1 if it["agent"] in INTERNAL_AGENTS else prio)   # money work is claimed first
         brain.task_create(it.get("title", it["name"]), it["task"], owner=it["agent"], created_by="scheduler",
-                          priority=int(it.get("priority", 2)), source="standing:" + it["name"])
+                          priority=prio, source="standing:" + it["name"])
         st["standing:" + it["name"]] = ts; st.setdefault("standing_starts", []).append(ts); out.append(it["name"])
     _save_state(st)
     return out

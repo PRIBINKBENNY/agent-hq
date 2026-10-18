@@ -91,6 +91,25 @@ Tasks waiting for a provider's cooldown no longer block the rest of the queue. H
 actually holds is set by the free tiers you connect: Groq alone is roughly one run every 20 minutes;
 adding Gemini and NVIDIA keys (both free, no card) roughly triples it.
 
+## The CEO layer: from busy to profitable
+
+The office is judged by outcomes, not activity (`office/ceo.py`):
+
+- **Approval digest** at 08:15 and 17:45: one phone notification with everything waiting, most valuable first
+  (client replies, then proposals by value, then applications by fit, posts, internal changes last). The dashboard
+  and phone list approvals in the same order and say why each one matters.
+- **Revenue first:** applications, proposals, leads, replies, follow-ups and referrals are claimed first; internal work
+  (docs, release tidying, templates, demo apps) waits while any money task is queued.
+- **Fast lead-to-proposal loop:** the lead finder looks for posts from the last 24 hours every three hours and hands
+  each strong lead straight to the proposal writer, who leads with the featured package (an AI enquiry assistant for
+  UK letting agents, £450) and attaches the proof in `workspace/portfolio/` (a 17-second demo video and a one-page case
+  study).
+- **Outcome dashboard** (Ops tab, `/api/outcomes`, the `outcome_metrics` tool for the COO and chief): applications ->
+  responses -> interviews -> offers; proposals -> sent -> won -> paid; pipeline and revenue in GBP; tokens per outcome.
+  Record what happened to each approved proposal in the Deals panel (sent, won, lost, paid).
+- **Cheaper, better applications:** `application_pack` gives the CV tailor the master CV, a base CV for the role type and
+  the cached posting in one call, with a fixed 7-step procedure; marking "I applied" starts a referral search at that company.
+
 ## Skills: current practice, kept up to date
 
 `office/skills/` holds 13 short, dated, sourced guides to how things are done now: the UK ML job market, CVs and

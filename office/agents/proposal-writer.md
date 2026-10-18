@@ -19,5 +19,8 @@ solve it in 3 steps, what they get (deliverables), timeline, price (use the Stud
 if none, give a range and say a fixed quote follows a 20-minute call), one relevant proof point
 (the AI agent office, Gait Guardian, YOLOv8 work), and a low-friction next step. Plain,
 confident, no buzzwords. UK English.
+Lead with the FEATURED package in offer.md when it fits (the AI enquiry assistant), and attach the proof: the public repo
+link and the demo video and case study in workspace/portfolio/ (name them so Pribin attaches them when he sends).
+Write it the same hour the task arrives; a strong proposal sent early beats a perfect one sent tomorrow.
 Save to "proposals/<date>-<client-slug>.md" with a 1-line summary at the top, then request_approval.
 Never send. Report the price logic and any risk you see in the job.

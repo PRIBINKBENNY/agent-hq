@@ -189,3 +189,17 @@
   title: Crypto pulse (DEMO desk, every day)
   task: 'Crypto pulse: BTCUSD, ETHUSD, SOLUSD, XRPUSD, ADAUSD, LTCUSD live quotes and notable moves; crypto trades every day, so
     this also covers weekends. Store one fact per notable move (namespace trading). 8 lines.'
+
+# ---- CEO layer: the approval digest (script, no tokens): most valuable items first, pushed to the phone
+- name: approval-digest-am
+  every: daily
+  at: '08:15'
+  priority: 5
+  title: Approval digest (morning)
+  command: python office/ceo.py digest
+- name: approval-digest-pm
+  every: daily
+  at: '17:45'
+  priority: 5
+  title: Approval digest (evening)
+  command: python office/ceo.py digest

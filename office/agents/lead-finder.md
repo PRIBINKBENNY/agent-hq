@@ -18,5 +18,9 @@ Process: brain_recall "leads" (kind lead) to skip known ones -> run 3-5 searches
 -> open promising ones with web_fetch -> score fit 1-5 (skills match, budget stated, realistic
 timeline, no scam signs) -> brain_remember each fit >= 3 as kind="lead", tags ["lead", platform],
 source=URL, content: "<what they need> for <who> (<budget or n/a>, <platform>). Fit n/5. Why: ... Link: <url>".
-For fit >= 4, task_create "Write proposal for <lead>" owner proposal-writer.
+For fit >= 4, task_create "Write proposal for <lead>" owner proposal-writer, priority 5, with the link, the client's
+exact words about the problem, budget and the posting time in the detail. Speed wins freelance work: the first good
+proposals are read, later ones often are not. Prefer posts from the last 24 hours; skip anything older than 7 days.
+Niche focus (the featured package in offer.md): UK letting and estate agents drowning in enquiries; then clinics,
+recruiters, trades and small e-commerce.
 Report a ranked list. Never contact anyone.

@@ -204,6 +204,8 @@
         <div class="panel"><h3>Signals and decisions</h3><div class="list" id="trade-recent"></div></div>
       </div>
       <div class="pane" data-pane="ops">
+        <div class="panel"><h3>CEO dashboard · outcomes, 30 days <span class="sp" id="ceo-sp"></span></h3><div class="list" id="ceo"></div></div>
+        <div class="panel"><h3>Deals · approved proposals <span class="sp">record what happened</span></h3><div class="list" id="deals"></div></div>
         <div class="panel"><h3>Scorecard · this week <span class="sp" id="score-sp"></span></h3><div class="list" id="scorecard"></div></div>
         <div class="panel"><h3>Ops · 7 days <span class="sp" id="ops-sp"></span></h3><div class="list" id="ops"></div></div>
         <div class="panel"><h3>Run history <span class="sp">click to expand</span></h3><div class="list" id="runs"></div></div>
@@ -405,7 +407,7 @@ async function refreshState() {
       const isApp = a.tags.includes("application") || /cv|cover letter|application/i.test(a.content);
       const isPost = /linkedin/i.test(a.content) && !a.tags.includes("posted");
       const postBtns = isPost ? paths.filter(p => p.includes("posts/")).map(p => `<button class="ok" onclick="postLinkedIn(${a.id},'${esc(p)}')">Post ${esc(p.split("/").pop().replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(".md", ""))}</button>`).join("") : "";
-      return `<div class="appr" id="appr-${a.id}"><div class="who">#${a.id} · ${esc(a.agent)} · ${esc(a.created)}</div><div>${qa}${esc(a.content.replace(/^(QA: \w+ - )?PENDING APPROVAL from [\w-]+: /, ""))}</div>
+      return `<div class="appr" id="appr-${a.id}"><div class="who">#${a.id} · ${esc(a.agent)} · ${esc(a.created)}${a.why ? ` · <b>${esc(a.why)}</b>` : ""}</div><div>${qa}${esc(a.content.replace(/^(QA: \w+ - )?PENDING APPROVAL from [\w-]+: /, ""))}</div>
       <button class="more" onclick="toggleApproval(${a.id})">Show details</button><div class="det"></div>
       <div class="btns"><button class="ok" onclick="decide(${a.id},'approved')">${(a.tags.includes("email") && s.mail && s.mail.configured) ? "Approve &amp; send" : "Approve"}</button>${isApp ? `<button class="ok" onclick="applied(${a.id})">I applied</button>` : ""}${postBtns}<button class="no" onclick="decide(${a.id},'rejected')">Reject</button>${[...new Set(paths)].map(p => `<button class="view" onclick="viewFile('${esc(p)}')">view ${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
     : `<div class="empty">Nothing waiting. Agents park applications, emails and posts here.</div>`;
@@ -422,7 +424,29 @@ function renderTasks(tasks) {
     : `<div class="empty">No tasks yet. Runs queue here when the office is busy; the scheduler adds daily jobs.</div>`;
 }
 async function taskAct(id, action) { await fetch("/api/tasks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action }) }); refreshState(); }
+async function refreshCEO() {
+  let o; try { o = await (await fetch("/api/outcomes")).json(); } catch (e) { return; }
+  const j = o.jobs || {}, f = o.freelance || {}, b = o.brand || {}, e = o.efficiency || {};
+  const row = (k, v) => `<span class="k">${esc(k)}</span><span>${esc(v ?? "–")}</span>`;
+  $("#ceo").innerHTML = `<div class="kv">${[
+    row("Revenue (paid)", "£" + (f.revenue_gbp || 0)), row("Won, not yet paid", "£" + Math.max(0, (f.won_gbp || 0) - (f.revenue_gbp || 0))), row("Pipeline (sent + won)", "£" + (f.pipeline_gbp || 0)),
+    row("Proposals drafted / sent / won", `${f.proposals_drafted} / ${f.sent} / ${f.won}`),
+    row("Applications sent", j.applied), row("Responses / interviews / offers", `${j.responses} / ${j.interviews} / ${j.offers}`),
+    row("Interview rate", j.interview_rate_pct == null ? "–" : j.interview_rate_pct + "%"),
+    row("Posts drafted / published", `${b.posts_drafted} / ${b.posts_published}`), row("Approvals waiting", o.approvals_waiting),
+    row("Tokens on revenue work", e.revenue_work_share_pct == null ? "–" : e.revenue_work_share_pct + "%"),
+    row("Tokens per application", e.tokens_per_application ? Math.round(e.tokens_per_application / 1000) + "k" : "–")].join("")}</div>`;
+  $("#ceo-sp").textContent = f.revenue_gbp ? `£${f.revenue_gbp} earned` : "no revenue yet";
+  const appr = o.approved_proposals || [];
+  $("#deals").innerHTML = appr.length ? appr.map(m => `<div class="task"><div><div>${esc(m.text)}${m.value ? ` · £${m.value}` : ""}${m.stage ? ` <span class="st done">${esc(m.stage)}</span>` : ""}</div>
+    <div class="btns">${["sent", "won", "lost", "paid"].map(sg => `<button onclick="deal(${m.id},'${sg}')">${sg[0].toUpperCase() + sg.slice(1)}</button>`).join("")}</div></div></div>`).join("")
+    : `<div class="empty">No approved proposals yet. When you send one, record it here: sent, won, lost, paid.</div>`;
+}
+async function deal(id, stage) { const v = stage === "won" || stage === "paid" ? prompt("Value in £ (leave blank to use the proposal price)", "") : null;
+  const r = await (await fetch("/api/deal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, stage, value: v ? Number(v) : null }) })).json();
+  toast(r.error ? r.error : `Recorded: ${r.client} ${r.stage} £${r.value}`); refreshCEO(); }
 async function refreshStats() {
+  refreshCEO();
   const s = await (await fetch("/api/stats")).json();
   const c = s.scorecard || {}, t = c.targets_per_week || {};
   const rows = ["applications_tailored","applications_marked_applied","contacts_logged","proposals_drafted","posts_approved","mock_interviews","commits_on_github","jobs_found","leads_found","fabrications_caught"];
