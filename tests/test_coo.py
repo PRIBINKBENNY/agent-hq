@@ -72,3 +72,41 @@ def test_git_push_undoes_a_fresh_repo_when_the_first_commit_fails(tmp_path, monk
     monkeypatch.setattr(tools, "_run", fake_run)
     out = tools.git_push("proj", message="first")
     assert out.startswith("ERROR: commit failed") and not (proj / ".git").exists()     # no half-made repo left behind
+
+
+def test_a_broken_brief_never_stops_the_office(tmp_path, monkeypatch):
+    import runtime as rt
+    d = tmp_path / "agents"; d.mkdir()
+    (d / "good.md").write_text("---\nname: good\ntier: lead\ntools: [today]\n---\nDo good work.\n")
+    (d / "bad.md").write_text("---\nname: bad\ndescription: Finds paths: people to connect with\n---\nx\n")   # the 2026-10-18 crash
+    monkeypatch.setattr(rt, "AGENTS_DIR", d)
+    names = [b.name for b in rt.list_agents()]
+    assert names == ["good"] and "bad" in rt.BRIEF_ERRORS
+
+
+def test_brief_proposals_change_instructions_only_and_roll_back(tmp_path, monkeypatch):
+    import tools, store, runtime as rt
+    class NoEmbed(store.Embedder):
+        def __init__(self): self.model_name = "none"; self.available = False; self._model = None
+    b = store.BrainStore(tmp_path / "b.db", embedder=NoEmbed()); monkeypatch.setattr(tools, "brain", b)
+    ad = tmp_path / "agents"; ad.mkdir(); pd = tmp_path / "props"; pd.mkdir()
+    for mod in (tools, rt): monkeypatch.setattr(mod, "AGENTS_DIR", ad)
+    monkeypatch.setattr(tools, "PROPOSALS_DIR", pd)
+    head = "---\nname: networker\ntier: lead\ncloud_only: true\ntools: [today, request_approval]\nskills: [linkedin]\n---\n"
+    (ad / "networker.md").write_text(head + "Old instructions. request_approval before anything goes out.\n")
+    bad_brief = "---\nname: networker\ndescription: Finds paths: people\ntools: [today]\nmax_turns: 12\n---\nNew, shorter instructions; request_approval first.\n"
+    (pd / "p.md").write_text("# proposal\n\n## Full proposed brief\n\n" + bad_brief)
+    m = b.remember("APPROVED from coo: brief change for networker at workspace/ops/proposals/p.md", agent="coo", kind="approval",
+                   tags=["approved", "brief-proposal", "agent:networker"])
+    out = tools.apply_proposal(m.id)
+    text = (ad / "networker.md").read_text()
+    assert "Brief updated" in out or "updated" in out.lower() or "applied" in out.lower()
+    assert text.startswith(head) and "New, shorter instructions" in text and "max_turns" not in text   # settings kept, body replaced
+    assert rt.load_brief("networker").cloud_only and "request_approval" in rt.load_brief("networker").tools
+
+
+def test_coo_cannot_undo_unlimited_mode(tmp_path, monkeypatch):
+    import tools, json as _j
+    tf = tmp_path / "t.json"; tf.write_text(_j.dumps({"unlimited": True, "max_parallel": 31, "standing_per_hour": 0})); monkeypatch.setattr(tools, "TUNING_FILE", tf)
+    assert tools.tune("max_parallel", "save quota", value=1).startswith("refused: unlimited")
+    assert tools.tune("standing_per_hour", "pace", value=4).startswith("refused: unlimited")

@@ -132,6 +132,7 @@ def state() -> dict:
         "cloud": (lambda r: {"available": r[0], "until": r[1]})(__import__("runtime").cloud_available()),
         "treasury": _treasury_state(),
         "mail": mail.status(),
+        "brief_errors": dict(__import__("runtime").BRIEF_ERRORS),
         "now": time.time(),
     }
 

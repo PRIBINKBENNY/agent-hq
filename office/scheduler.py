@@ -251,7 +251,7 @@ def enqueue_standing_work(brain: BrainStore) -> list[str]:
         # idle filler: nothing queued or running -> the item nearest to due may start early, once a third of its interval
         # (and at least an hour) has passed; never for weekly items
         early_ok = idle and every <= 48 and elapsed_h >= max(1.0, every / 3)
-        if unlimited() and it["agent"] not in busy_agents and every <= 48 and elapsed_h >= max(0.5, every / 4):
+        if unlimited() and it["agent"] not in busy_agents and every <= 48 and elapsed_h >= max(0.5, min(every / 4, 2.0)):   # idle at most 2h
             early_ok = True                                # every agent keeps one piece of work going
         if (overdue >= 0 or early_ok) and not any(t.get("source") == "standing:" + it["name"] for t in queued):
             cands.append((elapsed_h / every, it))

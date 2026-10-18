@@ -50,6 +50,8 @@ def main():
         print("Agent HQ doctor")
         import scheduler as _sch
         pz = _sch.paused(); print(("  INFO OFFICE PAUSED: " + pz.get("reason", "")) if pz.get("paused") else "  OK   office running (not paused)")
+        from runtime import list_agents as _la, BRIEF_ERRORS as _be
+        _n = len(_la()); ok(not _be, f"agent briefs: {_n} load" + (f"; BROKEN: {_be}" if _be else ""))
         ok(bool(active_providers()), f"providers with keys: {', '.join(active_providers()) or 'none (Ollama only)'}")
         from runtime import provider_down as _pd
         from runtime import provider_down_repeated as _pdr

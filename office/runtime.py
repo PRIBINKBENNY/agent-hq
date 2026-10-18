@@ -264,8 +264,18 @@ def load_brief(name: str) -> Brief:
     )
 
 
+BRIEF_ERRORS: dict[str, str] = {}
+
+
 def list_agents() -> list[Brief]:
-    return [load_brief(p.stem) for p in sorted(AGENTS_DIR.glob("*.md"))]
+    """Every loadable brief. A broken file is skipped and reported (BRIEF_ERRORS), never fatal for the whole office."""
+    out = []; BRIEF_ERRORS.clear()
+    for p in sorted(AGENTS_DIR.glob("*.md")):
+        try:
+            out.append(load_brief(p.stem))
+        except Exception as e:
+            BRIEF_ERRORS[p.stem] = f"{type(e).__name__}: {str(e)[:160]}"
+    return out
 
 
 # --------------------------------------------------------------------------- #

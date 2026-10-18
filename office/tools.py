@@ -1039,6 +1039,13 @@ def tune(knob: str, reason: str, value: float | None = None, enabled: bool | Non
         return f"standing:{name} now every_hours={it.get('every_hours')} enabled={it.get('enabled', True)}"
     if knob not in KNOB_BOUNDS:
         return f"refused: unknown knob (allowed: {', '.join(KNOB_BOUNDS)})"
+    try:
+        _cur = json.loads(TUNING_FILE.read_text())
+    except Exception:
+        _cur = {}
+    if _cur.get("unlimited") and value is not None and (
+            (knob == "max_parallel" and float(value) < float(_cur.get("max_parallel", 31))) or (knob == "standing_per_hour" and float(value) > 0)):
+        return "refused: unlimited mode is Pribin's decision; max_parallel cannot be lowered and pacing cannot be re-enabled while it is on"
     lo, hi = KNOB_BOUNDS[knob]
     if value is None or not (lo <= float(value) <= hi):
         return f"refused: {knob} must be between {lo} and {hi}"
@@ -1104,9 +1111,28 @@ def apply_proposal(approval_id: int, _agent="unknown"):
     target = AGENTS_DIR / f"{agent}.md"
     if not agent or not target.exists() or f"name: {agent}" not in body:
         return "refused: proposal does not match an existing agent"
+    # A proposal may change the INSTRUCTIONS only. The settings block (model, tier, tools, skills, cloud_only, ...)
+    # is kept exactly as it is; tool or model changes are Pribin's to make. The result must load, or nothing changes.
+    from runtime import load_brief
+    old_text = target.read_text()
+    om = _re.match(r"^---\n(.*?)\n---\n", old_text, _re.S); nm = _re.match(r"^---\n(.*?)\n---\n(.*)$", body, _re.S)
+    new_instructions = (nm.group(2) if nm else body).strip()
+    if not om or not new_instructions or len(new_instructions) > 8000:
+        return "refused: the proposal has no usable instructions (empty or over 8000 characters)"
+    if not _re.search(r"request_approval|approval", new_instructions, _re.I) and "request_approval" in old_text:
+        return "refused: the new instructions drop the approval step this agent had"
+    merged = old_text[:om.end()] + new_instructions + "\n"
     bdir = AGENTS_DIR / ".backups"; bdir.mkdir(exist_ok=True)
-    shutil.copy(target, bdir / f"{agent}-{time.strftime('%Y%m%d-%H%M%S')}.md")
-    target.write_text(body)
+    backup = bdir / f"{agent}-{time.strftime('%Y%m%d-%H%M%S')}.md"; shutil.copy(target, backup)
+    target.write_text(merged)
+    try:
+        nb = load_brief(agent)
+        missing = [t for t in nb.tools if t not in registry.names()]
+        if missing:
+            raise ValueError(f"unknown tools {missing}")
+    except Exception as e:
+        shutil.copy(backup, target)                          # roll back: a broken brief would stop the whole office
+        return f"refused and rolled back: the result did not load ({str(e)[:160]})"
     brain.update(m.id, agent=_agent, add_tags=["applied"])
     brain.remember(f"Brief updated for {agent} from proposal {prop.name} (approved by Pribin). Backup kept in office/agents/.backups/.",
                    agent=_agent, kind="event", importance=4, tags=["ops", "brief-applied", f"agent:{agent}"])
