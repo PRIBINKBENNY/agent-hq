@@ -154,7 +154,13 @@ def budget() -> dict:
         if minute is None:
             minute = frac("x-ratelimit-remaining-tokens", "x-ratelimit-limit-tokens")
         down = prov in _provider_down()
-        out[prov] = {"day": day, "minute": minute, "down": down, "ok": not down and (day is None or day > STANDING_BUDGET_FRACTION) and (minute is None or minute > 0.15)}
+        try:
+            from runtime import provider_usable
+            usable = provider_usable(prov)
+        except Exception:
+            usable = not down
+        out[prov] = {"day": day, "minute": minute, "down": down, "usable": usable,
+                     "ok": usable and (day is None or day > STANDING_BUDGET_FRACTION) and (minute is None or minute > 0.15)}
     return out
 
 
@@ -412,7 +418,9 @@ def tick(brain: BrainStore, engine: str = "auto") -> dict:
     except Exception:
         ok_cloud, soonest = True, 0
     if not ok_cloud:
-        info["waiting_for_cloud_until"] = soonest; effective = 0        # queue, do not burn runs that will fail
+        info["waiting_for_cloud_until"] = soonest
+        # every cloud model is cooling: with the uncapped local model allowed, keep one run going on this Mac
+        effective = 1 if os.environ.get("OFFICE_LEAD_LOCAL_FALLBACK", "0") == "1" else 0
     now = time.time(); skip: list[int] = []
     while len(running_ids()) < effective:
         nxt = brain.task_claim_next(exclude=skip)

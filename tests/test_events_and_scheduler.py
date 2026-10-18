@@ -357,3 +357,23 @@ def test_phone_link_redirector_is_opt_in_and_updates_gh_pages(tmp_path, monkeypa
     r = scheduler.publish_phone_link("https://x.trycloudflare.com")
     assert r["ok"] and r["link"] == "https://someone.github.io/agent-hq/"
     put = calls[-1]; assert "PUT" in put and "branch=gh-pages" in put and "sha=abc123" in put and "repos/Someone/agent-hq/contents/index.html" in put
+
+
+def test_no_cloud_but_local_fallback_keeps_one_run_going(tmp_path, monkeypatch):
+    import time, runtime
+    b = _brain(tmp_path); scheduler._reconciled = True; scheduler._running.clear(); scheduler._last_sweep = time.time()
+    monkeypatch.setenv("OFFICE_MAX_PARALLEL", "3"); monkeypatch.setattr(scheduler, "MAX_PARALLEL", 3)
+    for name in ("STANDING_FILE", "SCHEDULE_FILE"): monkeypatch.setattr(scheduler, name, tmp_path / f"{name}.yaml")
+    monkeypatch.setattr(scheduler, "STATE_FILE", tmp_path / "st.json"); monkeypatch.setattr(scheduler, "budget", lambda: {})
+    monkeypatch.setattr(scheduler, "_notify", lambda *a: None); monkeypatch.setattr(scheduler, "housekeeping", lambda: {})
+    monkeypatch.setattr(scheduler, "check_approvals", lambda brain: 0); monkeypatch.setattr(runtime, "cloud_available", lambda: (False, time.time() + 600))
+    class P:
+        returncode = None
+        def poll(self): return None
+    monkeypatch.setattr(scheduler, "_spawn", lambda task, eng: P())
+    for i in range(3): b.task_create(f"t{i}", "x", owner="coo")
+    monkeypatch.delenv("OFFICE_LEAD_LOCAL_FALLBACK", raising=False)
+    assert scheduler.tick(b)["started"] == []                                       # strict: wait for the cloud
+    monkeypatch.setenv("OFFICE_LEAD_LOCAL_FALLBACK", "1")
+    assert len(scheduler.tick(b)["started"]) == 1 and len(scheduler.tick(b)["started"]) == 0   # one local run at a time
+    scheduler._running.clear()

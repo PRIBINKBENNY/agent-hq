@@ -384,6 +384,8 @@ async function refreshState() {
     $("#agent").innerHTML = roster.map(a => `<option value="${esc(a.name)}" ${a.name === "chief-of-staff" ? "selected" : ""}>${esc(a.name)}</option>`).join("");
   }
   trace("rooms"); $("#t-agents").textContent = roster.length; $("#t-runs").textContent = s.runs_today;
+  const nRun = (s.running_tasks || []).length + (s.running || []).length;   // scheduler runs plus commands started here
+  $("#t-active").innerHTML = nRun + `<small> of ${s.max_parallel || 2}</small>`;
   $("#t-mem").innerHTML = s.brain.total_memories + `<small>notes</small>`; if (H3()) H3().setBrain(s.brain.total_memories); showTreasury(s.treasury);
   if (H3() && H3().setOffice) {   // the new campus shows live counts on each department's board
     const office = {}; const of = n => (roster.find(a => a.name === n) || {}).office;
@@ -394,7 +396,8 @@ async function refreshState() {
   if (window._lastAppr != null && s.approvals.length > window._lastAppr) toast("New approval waiting for you"); window._lastAppr = s.approvals.length;
   const dg = s.memories.find(m => m.tags.includes("digest")); $("#digest").textContent = dg ? dg.content : "No digest yet today (08:30).";
   const u = s.engine.usage || {}; const budget = s.engine.providers.map(p => { const x = u[p] || {}; const rem = x["x-ratelimit-remaining-tokens-minute"] || x["x-ratelimit-remaining-tokens"]; return rem ? `${p} ${Math.round(rem/1000)}k/min` : p; });
-  $("#t-engine").innerHTML = s.engine.providers.length ? esc(s.engine.providers.join(" → ") + " → ollama") + `<div class="usage">${esc(budget.join(" · "))}</div>` : "ollama · " + esc(s.engine.ollama);
+  const usable = s.engine.providers.filter(p => !s.budget || !s.budget[p] || s.budget[p].usable !== false), resting = s.engine.providers.filter(p => !usable.includes(p));
+  $("#t-engine").innerHTML = (usable.length ? esc(usable.join(" → ") + " → local") : "local only · " + esc(s.engine.ollama)) + `<div class="usage">${esc(resting.length ? "resting: " + resting.join(", ") : budget.join(" · "))}</div>`;
   $("#brain-sp").textContent = `${s.brain.db_size_mb} MB`;
   const bs = $("#brain-sub"); if (bs) bs.textContent = `${s.brain.total_memories} notes · shared memory`;
   $("#approvals").innerHTML = s.approvals.length ? s.approvals.map(a => { const paths = (a.content.match(/(?:workspace\/)?([\w./-]+\/[\w.-]+\.(?:md|txt|py|html|json|pdf))/g) || []).map(p => p.replace(/^workspace\//, ""));

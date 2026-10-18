@@ -47,6 +47,7 @@ let renderer, scene, camera, controls, container, clock, raycaster, mouse;
 let campus = null, figures = {}, depts = {}, brain = null, motes = null, atriumLight, sun, hemi, sky;
 let particles = [], floaters = [], pxSprites = [], nightMats = [], deptLights = [], signs = [];
 const envMats = [];                                    // reflection strength follows daylight
+let slatSpots = [];
 let ticker = null, tradeScreen = null, rackTex = [], hqLabel = null, treasuryBoard = null;
 let opts = {}, lastFrame = 0, hovered = null, labelMode = "active", lightMode = "golden", night = 0;
 let lastUser = -1e9, tween = null, autoFocus = null, lastAuto = 0, officeInfo = { depts: {} }, memories = 0, timeOverride = null;
@@ -392,7 +393,7 @@ export function setRoster(list) {
   const names = Object.keys(byOffice).sort((a, b) => (OFFICE_ORDER.indexOf(a) + 99) % 100 - (OFFICE_ORDER.indexOf(b) + 99) % 100);
   const n = names.length, span = Math.PI * 2 / n, gap = 0.01;
   buildShell();
-  const orchard = [];
+  const orchard = []; slatSpots = [];
   names.forEach((name, i) => {
     const th0 = Math.PI / 2 + i * span + gap, th1 = Math.PI / 2 + (i + 1) * span - gap, mid = (th0 + th1) / 2;
     buildDepartment(name, byOffice[name], th0, th1, mid, span);
@@ -400,6 +401,11 @@ export function setRoster(list) {
     const bench = box(2.6, 0.45, 0.9, M.timber); bench.position.copy(polar(RPOND + 3.4, wedge, 0.55)); bench.rotation.y = wedge + Math.PI / 2; campus.add(bench);
   });
   addTrees(orchard, campus);
+  if (slatSpots.length) {   // every divider's slats as one instanced mesh
+    const slats = new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, H - 1.6, 0.34), M.oak, slatSpots.length); const o = new THREE.Object3D();
+    slatSpots.forEach(([x, y, z, a], i) => { o.position.set(x, y, z); o.rotation.set(0, a, 0); o.updateMatrix(); slats.setMatrixAt(i, o.matrix); });
+    slats.castShadow = true; slats.receiveShadow = true; campus.add(slats);
+  }
   if (officeInfo) setOffice(officeInfo);
 }
 function buildShell() {
@@ -421,8 +427,14 @@ function buildDepartment(name, members, th0, th1, mid, span) {
   for (const th of [mid - door, mid + door]) { const post = box(0.35, H, 0.35, M.frame); post.position.copy(polar(RI, th, FLOOR + H / 2)); campus.add(post); }
   const lintel = box(0.45, 0.5, 2 * door * RI + 0.4, M.frame); lintel.position.copy(polar(RI, mid, FLOOR + 3.6)); lintel.rotation.y = mid; campus.add(lintel);
   // partition at th0: white base, glass above, slim cap
-  const len = RO - RI - 0.8; const base = box(len, 1.1, 0.4, M.white); base.position.copy(polar((RI + RO) / 2, th0 - 0.01, FLOOR + 0.55)); base.rotation.y = th0 + Math.PI / 2; campus.add(base);
-  const pane = new THREE.Mesh(new THREE.BoxGeometry(len, H - 1.1, 0.12), M.glass); pane.position.copy(polar((RI + RO) / 2, th0 - 0.01, FLOOR + 1.1 + (H - 1.1) / 2)); pane.rotation.y = th0 + Math.PI / 2; campus.add(pane);
+  // divider between wings: a white plinth with a planter, oak slats above it, a slim white cap, a white end column
+  const a0 = th0 - 0.01, r0 = RI + 0.6, r1 = RO - 1.0, len = r1 - r0, rc = (r0 + r1) / 2;
+  const base = box(len, 0.9, 0.7, M.white); base.position.copy(polar(rc, a0, FLOOR + 0.45)); base.rotation.y = a0 + Math.PI / 2; campus.add(base);
+  const soil = box(len - 0.4, 0.06, 0.5, M.trunk, false); soil.position.copy(polar(rc, a0, FLOOR + 0.92)); soil.rotation.y = a0 + Math.PI / 2; campus.add(soil);
+  for (let x = 0.8; x < len - 0.5; x += 2.2) { const leaf = new THREE.Mesh(SHARED.blob, LEAVES[Math.round(x) % 3]); leaf.scale.set(0.55, 0.42, 0.4); leaf.position.copy(polar(r0 + x, a0, FLOOR + 1.15)); leaf.castShadow = true; campus.add(leaf); }
+  for (let x = 0.25; x < len; x += 0.62) slatSpots.push(polar(r0 + x, a0, FLOOR + 0.9 + (H - 1.6) / 2).toArray().concat([a0]));
+  const cap = box(len, 0.18, 0.5, M.white); cap.position.copy(polar(rc, a0, FLOOR + H - 0.55)); cap.rotation.y = a0 + Math.PI / 2; campus.add(cap);
+  const col = box(0.7, H, 0.7, M.white); col.position.copy(polar(r0 - 0.2, a0, FLOOR + H / 2)); campus.add(col);
   // warm interior light (brighter at night)
   const lamp = new THREE.PointLight(0xffd8a8, 40, 30, 1.6); lamp.position.copy(polar((RI + RO) / 2, mid, FLOOR + H - 0.8)); campus.add(lamp); deptLights.push(lamp);
   // walkway across the lawn, timber bridge over the pond, light strips on both edges

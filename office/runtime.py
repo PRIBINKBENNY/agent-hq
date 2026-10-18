@@ -84,8 +84,8 @@ PROVIDERS: dict[str, dict] = {
     "ollamacloud": {
         "url": "https://ollama.com/v1/chat/completions", "models_url": "https://ollama.com/v1/models",
         "key_env": "OLLAMA_CLOUD_API_KEY",
-        "lead": _env_list("OLLAMA_CLOUD_LEAD_MODELS", "gpt-oss:120b,glm-5.3-flash,kimi-k2.6"),
-        "worker": _env_list("OLLAMA_CLOUD_WORKER_MODELS", "gpt-oss:20b,glm-5.3-flash"),
+        "lead": _env_list("OLLAMA_CLOUD_LEAD_MODELS", "gpt-oss:120b,nemotron-3-super,gemma4:31b"),          # free tier (GLM, Kimi, DeepSeek are paid)
+        "worker": _env_list("OLLAMA_CLOUD_WORKER_MODELS", "gpt-oss:20b,gemma4:31b,gpt-oss:120b"),
     },
     # no key at all: Kilo Gateway's ":free" routes answer anonymously (about 200 requests/hour per IP, tool calling works).
     # Opt-in with KILO_ENABLED=1 because Kilo logs anonymous prompts and outputs for training.
@@ -298,6 +298,14 @@ def persist_cooldown(provider: str, model: str, until: float):
         pass
 
 
+def provider_usable(prov: str) -> bool:
+    """Not parked, and at least one of its models is out of cooldown."""
+    if prov in provider_down():
+        return False
+    cool = persisted_cooldowns(); now = time.time()
+    return any(max(cool.get(f"{prov}:{m}", 0), _COOLDOWN.get((prov, m), 0)) <= now for m in PROVIDERS[prov]["lead"] + PROVIDERS[prov]["worker"])
+
+
 def cloud_available() -> tuple[bool, float]:
     """(True, 0) if some cloud model can be called now; otherwise (False, soonest_time_it_will_be)."""
     down = provider_down(); cool = persisted_cooldowns(); soonest = None
@@ -447,7 +455,16 @@ def _chat(url: str, headers: dict, payload: dict, timeout: float = 120, provider
     if r.status_code == 413:
         raise RateLimited("payload too large")
     if r.status_code in (401, 402, 403) and provider:
-        mark_provider_down(provider, 6, f"{r.status_code} {r.text[:100]}")
+        if model and re.search(r"(this|the) model|not included in your (free|plan)|model .{0,40}(not available|requires|access)|does not have access to (the )?model", r.text, re.I):
+            # one paid or gated model: bench it for a week, keep the provider's free models working
+            persist_cooldown(provider, model, time.time() + 7 * 86400)
+            _COOLDOWN[(provider, model)] = time.time() + 7 * 86400
+            try:
+                emit("fallback", "runtime", "runtime", model=f"{provider}:{model}", reason=f"{provider}:{model} benched for 7 days: {r.text[:100]}")
+            except Exception:
+                pass
+        else:
+            mark_provider_down(provider, 6, f"{r.status_code} {r.text[:100]}")
     if r.status_code >= 400:
         raise EngineError(f"{r.status_code}: {r.text[:300]}")
     return r.json()

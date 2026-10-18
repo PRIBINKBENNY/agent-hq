@@ -427,3 +427,23 @@ def test_ollama_cloud_wired_and_sambanova_retired():
     assert oc["url"] == "https://ollama.com/v1/chat/completions" and oc["key_env"] == "OLLAMA_CLOUD_API_KEY" and "gpt-oss:120b" in oc["lead"]
     assert rt.PROVIDER_ORDER.index("ollamacloud") < rt.PROVIDER_ORDER.index("kilo") < rt.PROVIDER_ORDER.index("openrouter")
     assert rt.PROVIDERS["router"]["lead"] == [] and rt.PROVIDERS["router"]["url"].endswith("/v1/chat/completions")
+
+
+def test_paid_model_refusal_benches_the_model_not_the_provider(tmp_path, monkeypatch):
+    import httpx, runtime as rt
+    class R:
+        status_code = 402; headers = httpx.Headers({}); text = '{"error":{"message":"this model is not included in your free usage, add usage credits"}}'
+    class C:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def post(self, *a, **k): return R()
+    monkeypatch.setattr(rt.httpx, "Client", C)
+    with pytest.raises(rt.EngineError):
+        rt._chat("https://x/v1/chat/completions", {}, {"model": "kimi-k2.6"}, provider="ollamacloud", model="kimi-k2.6")
+    assert "ollamacloud" not in rt.provider_down() and rt.persisted_cooldowns()["ollamacloud:kimi-k2.6"] > __import__("time").time() + 6 * 86400
+    R.text = '{"message":"Payment required to access this resource. Visit your billing tab."}'
+    with pytest.raises(rt.EngineError):
+        rt._chat("https://x/v1/chat/completions", {}, {"model": "gpt-oss-120b"}, provider="cerebras", model="gpt-oss-120b")
+    assert "cerebras" in rt.provider_down()                                        # account-level: the whole provider
+    assert "gpt-oss:120b" in rt.PROVIDERS["ollamacloud"]["lead"] and "kimi-k2.6" not in rt.PROVIDERS["ollamacloud"]["lead"]
