@@ -261,6 +261,7 @@ function applyEvent(e, live) {
     feed = `<b>${esc(e.agent)}</b> 💰 profitable trade <span class="d">+${esc(Number(e.pnl).toFixed(2))} ${esc(e.currency || "")} · ${esc(e.strategy || "")} · treasury ${esc(e.treasury)} · level ${esc(e.level)}</span>`;
   } else if (a) {
     if (e.type === "start" || a.state === "idle" || a.state === "done" || a.state === "error") a.since = e.ts;
+    a.last = e.ts;                                               // every event: used to clear stale "using a tool" labels
     switch (e.type) {
       case "start": setState(a, "think"); a.model = ""; say(a, "📋 " + e.task, 7000); if (live) goHome(a); feed = `<b>${esc(e.agent)}</b> started · <span class="d">${esc(e.task)}</span>`; break;
       case "think": setState(a, "think"); a.model = e.model; if (!a.bubble || a.bubbleUntil < now) say(a, "💭 thinking…", 4000); feed = `<b>${esc(e.agent)}</b> thinking on <span class="d">${esc(e.model)}</span>`; break;
@@ -386,6 +387,14 @@ async function refreshState() {
     $("#agent").innerHTML = roster.map(a => `<option value="${esc(a.name)}" ${a.name === "chief-of-staff" ? "selected" : ""}>${esc(a.name)}</option>`).join("");
   }
   trace("rooms"); $("#t-agents").textContent = roster.length; $("#t-runs").textContent = s.runs_today;
+  { // labels follow reality: an agent with no running task and no event for 90 s is idle, however its last run ended
+    const busy = new Set((s.tasks || []).filter(t => t.status === "running").map(t => t.owner)), nowS = Date.now() / 1000;
+    Object.values(agents).forEach(a => {
+      if (a.state !== "idle" && !busy.has(a.name) && nowS - (a.last || a.since || 0) > 90) {
+        setState(a, "idle"); a.bubble = null; if (H3()) H3().goHome(a.name);
+      }
+    });
+  }
   const nRun = (s.running_tasks || []).length + (s.running || []).length;   // scheduler runs plus commands started here
   $("#t-active").innerHTML = nRun + `<small> of ${s.max_parallel || 2}</small>`;
   $("#t-mem").innerHTML = s.brain.total_memories + `<small>notes</small>`; if (H3()) H3().setBrain(s.brain.total_memories); showTreasury(s.treasury);
