@@ -250,10 +250,10 @@ def test_continuation_chain_is_capped(monkeypatch, tmp_path):
     @reg.register("ping", "p", {"type": "object", "properties": {}})
     def ping(): return "pong"
     a = Agent(Brief("x", "o", "lead", ["ping"], [], "s"), reg, engine="ollama", verbose=False)
-    assert a.run("Continue: Continue: do thing\n\nCONTINUATION_HOP: 2\n\nORIGINAL TASK:\ndo thing\n\nALREADY DONE (do not redo):\nx").continued_as is not None   # hop 3 allowed
-    assert a.run("Continue: do thing\n\nCONTINUATION_HOP: 3\n\nORIGINAL TASK:\ndo thing\n\nALREADY DONE (do not redo):\nx").continued_as is None   # hop 4 refused
+    assert a.run("Continue: do thing\n\nCONTINUATION_HOP: 1\n\nORIGINAL TASK:\ndo thing\n\nALREADY DONE (do not redo):\nx").continued_as is not None   # hop 2 allowed
+    assert a.run("Continue: Continue: do thing\n\nCONTINUATION_HOP: 2\n\nORIGINAL TASK:\ndo thing\n\nALREADY DONE (do not redo):\nx").continued_as is None   # hop 3 refused
     t = st.BrainStore(db).task_list(limit=5)[0]
-    assert t["title"] == "Continue: do thing" and "CONTINUATION_HOP: 3" in t["detail"]
+    assert t["title"] == "Continue: do thing" and "CONTINUATION_HOP: 2" in t["detail"]
 
 
 def test_repeat_reads_blocked_and_handoff_notes(monkeypatch, tmp_path):

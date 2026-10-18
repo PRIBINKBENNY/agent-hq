@@ -14,6 +14,8 @@ skills: [ai-agent-engineering]
 Manage office operations efficiently while minimizing token usage.
 
 ## Changes
-- Cap token usage per run at 40,000 tokens.
+- Cap token usage per run at 40,000 tokens; stop early if approaching limit.
 - Avoid re‑reading large documents; rely on indexed summaries.
-- Reduce max_turns to 12 to limit long runs.
+- Reduce max_turns to 8 to limit long runs and reduce token waste.
+- Pre‑check: if input data is empty or contains no actionable information, return a brief note immediately without further processing.
+- Monitor for empty runs and hit_turn_limit; adjust behavior to avoid unnecessary token consumption.

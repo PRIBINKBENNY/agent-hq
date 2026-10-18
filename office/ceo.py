@@ -27,6 +27,8 @@ REVENUE_AGENTS = {"application-tailor", "proposal-writer", "lead-finder", "mail-
 INTERNAL_AGENTS = {"docs-writer", "release-manager", "agent-builder", "app-developer", "web-builder", "reviewer", "tester",
                    "debugger", "code-builder", "studio-lead", "project-manager", "content-writer", "linkedin-writer", "ml-researcher"}
 DEAL_STAGES = ("sent", "won", "lost", "paid")
+# work that does not earn directly: oversight and the demo trading desk repeat less often in unlimited mode
+LOW_PRIORITY_AGENTS = INTERNAL_AGENTS | {"coo", "market-researcher", "trading-learner", "strategy-analyst", "risk-officer", "trader", "portfolio-tracker"}
 
 
 def _brain():
@@ -130,7 +132,8 @@ def outcomes(days: int = 30) -> dict:
     applied = max(applied_jobs, len(applied_events))           # "I applied" on an approval records an event, not always the job
     responses = sum(1 for s in st if s in ("interview", "offer", "rejected")); interviews = sum(1 for s in st if s in ("interview", "offer")); offers = st.count("offer")
     approvals = [m for m in b.recent(limit=400, kind="approval", namespace="*") if m.created_at >= since]
-    proposals = [m for m in approvals if "/proposals/" in m.content.lower() or "proposal" in m.content.lower()]
+    proposals = [m for m in approvals if ("/proposals/" in m.content.lower() or "proposal" in m.content.lower())
+                 and not ({"brief-proposal", "skill-update"} & set(m.tags))]          # client proposals only
     deals = [m.meta or {} for m in b.recent(limit=300, kind="deal", namespace="*")]
     by_stage = {s: [d for d in deals if d.get("stage") == s] for s in DEAL_STAGES}
     pipeline = sum(d.get("value", 0) for d in by_stage["sent"] + by_stage["won"]); revenue = sum(d.get("value", 0) for d in by_stage["paid"])
@@ -161,7 +164,8 @@ def outcomes(days: int = 30) -> dict:
         "approved_proposals": [{"id": m.id, "text": re.sub(r"^(APPROVED|SENT) from [\w-]+: ", "", m.content)[:140], "value": price_of(m.content),
                                 "stage": next((d.get("stage") for d in deals if d.get("approval_id") == m.id), None)}
                                for m in b.recent(limit=400, kind="approval", namespace="*")
-                               if ("approved" in m.tags or "sent" in m.tags) and ("/proposals/" in m.content.lower() or "proposal" in m.content.lower())][:15],
+                               if ("approved" in m.tags or "sent" in m.tags) and ("/proposals/" in m.content.lower() or "proposal" in m.content.lower())
+                               and not ({"brief-proposal", "skill-update"} & set(m.tags))][:15],
         "efficiency": {"tokens": tokens, "revenue_work_share_pct": pct(rev_tokens, tokens),
                        "tokens_per_application": (lambda n: round(per_agent.get("application-tailor", 0) / n) if n else None)(
                            len(list((ROOT / "workspace" / "applications").glob("*/*/cv.md")))),   # tailor's tokens per tailored CV

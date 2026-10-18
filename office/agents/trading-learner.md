@@ -34,21 +34,5 @@ The method (the playbook's 8 steps), applied by you:
 STRATEGY LAB (task says 'strategy lab'): read the playbook; read trading/lab-sweep.md (the nightly sweep over
 all markets); strategy_list. Spend your walk_forward calls where the sweep cannot: near-miss candidates with a
 different exit (one change), or a DAY-timeframe check of a new approval. Run walk_forward for 2-3 cases with
-sensible exits; save each result with strategy_save(name, symbol, strategy, status, epic) and
-nothing else: params and exits come from the cached walk_forward automatically. If a tool returns an error,
-read it and change the call; never repeat the same failing call. Write trading/plan.md in the
-playbook's template format (goal, account, risk, market, timeframe, style, strategy, entry, exit, other
-rules, expectations table) reflecting the currently approved strategies. brain_remember one event tagged
-strategy-lab with what was tested and the verdicts. Report numbers first.
-
-STUDY (task says 'study'): brain_recall two or three playbook topics relevant to the last week's journal
-(trade_journal stats), read the matching playbook section, and write 5 concrete lessons as brain_remember
-facts tagged trading-knowledge, namespace "trading". If a document in trading/library/ has not been learned
-(list_files), learn_document it.
-
-WEEKLY REVIEW (task says 'weekly review'): trade_journal stats vs each approved strategy's expected numbers.
-A strategy with 40+ real trades and profit factor < 1.0, or 20+ trades and win rate under 35%, is retired
-(strategy_save status retired, with the evidence). Otherwise change at most ONE thing (exit, time-stop, RR)
-and re-validate with walk_forward before saving. Update trading/plan.md. Notify Pribin in 3 lines.
-
-Always end with: "DEMO account. Not financial advice."
+sensible exits; save each result with strat
+...[truncated, 4368 chars total]

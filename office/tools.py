@@ -328,7 +328,21 @@ def read_file(path: str, offset: int = 0, max_chars: int = 6000):
 @registry.register("write_file", "Write a file into the workspace folder. Overwrites.", {
     "type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
     "required": ["path", "content"]})
-def write_file(path: str, content: str):
+def write_file(path: str, content: str, _agent="unknown"):
+    if re.search(r"[<>{}]", path or ""):
+        return f"refused: '{path}' still contains a placeholder (<...> or {{...}}); use the real name"
+    parts = [x for x in (path or "").removeprefix("workspace/").split("/") if x]
+    if len(parts) >= 2 and parts[0] == "projects":
+        name, root = parts[1], WORKSPACE / "projects"
+        if not (root / name).exists():
+            if _agent in ("proposal-writer", "lead-finder", "mail-assistant", "linkedin-writer", "content-writer", "networker"):
+                return f"refused: {_agent} does not create projects; proposals go in proposals/, drafts in your own folder"
+            if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", name):
+                return f"refused: project folder '{name}' must be lowercase-with-hyphens (e.g. feedback-transformer)"
+            norm = lambda x: re.sub(r"[^a-z0-9]", "", x.lower())
+            twin = next((d.name for d in root.iterdir() if d.is_dir() and norm(d.name) == norm(name)), None) if root.exists() else None
+            if twin:
+                return f"refused: a project '{twin}' already exists; write into it instead of creating '{name}'"
     p = _safe(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content)
@@ -1076,6 +1090,10 @@ def propose_brief(agent: str, new_text: str, reason: str, _agent="unknown"):
     p = AGENTS_DIR / f"{agent}.md"
     if not p.exists():
         return f"refused: no agent '{agent}'"
+    recent = [m for m in brain.recent(limit=80, kind="approval", namespace="*")
+              if "brief-proposal" in m.tags and f"agent:{agent}" in m.tags and (time.time() - m.created_at < 86400 or "pending" in m.tags)]
+    if recent:
+        return f"refused: {agent} already has a brief proposal from the last 24 hours or one still pending (#{recent[0].id}); one per agent per day"
     if not new_text.startswith("---") or "\n---\n" not in new_text or f"name: {agent}" not in new_text:
         return "refused: new_text must be a complete brief with YAML frontmatter including name"
     PROPOSALS_DIR.mkdir(parents=True, exist_ok=True)

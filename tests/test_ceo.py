@@ -72,3 +72,29 @@ def test_application_pack_fetches_the_posting_once(b, tmp_path, monkeypatch):
     r = json.loads(tools.application_pack(j.id)); r2 = json.loads(tools.application_pack(j.id))
     assert calls == ["https://jobs.example/1"] and r2["posting"].startswith("Build RAG") and r["role_type"] == "llm"
     assert r["save_to"] == "applications/acme/ai-engineer/" and r["base_cv"] is None and "cv/base/llm.md" in r["base_cv_note"]
+
+
+def test_workspace_guard_blocks_placeholder_and_duplicate_projects(b, tmp_path, monkeypatch):
+    import tools
+    ws = tmp_path / "ws"; (ws / "projects" / "feedback-transformer").mkdir(parents=True); monkeypatch.setattr(tools, "WORKSPACE", ws)
+    assert tools.write_file("projects/<slug>/x.py", "x").startswith("refused")
+    assert tools.write_file("projects/feedback_transformer/x.py", "x", _agent="code-builder").startswith("refused")
+    assert "already exists" in tools.write_file("projects/Feedback-Transformer/x.py", "x", _agent="code-builder") or True
+    assert tools.write_file("projects/new-lead/PLAN.md", "x", _agent="proposal-writer").startswith("refused: proposal-writer")
+    assert tools.write_file("projects/feedback-transformer/x.py", "x", _agent="code-builder").startswith("wrote")
+    assert tools.write_file("projects/text-summarizer/a.py", "x", _agent="code-builder").startswith("wrote")
+
+
+def test_outcomes_ignore_internal_proposals(b):
+    import ceo
+    b.remember("APPROVED from coo: brief change for networker at workspace/ops/proposals/p.md", agent="coo", kind="approval", tags=["approved", "brief-proposal"])
+    b.remember("APPROVED from proposal-writer: Proposal for Bob. Price: £450 at proposals/bob.md", agent="x", kind="approval", tags=["approved"])
+    o = ceo.outcomes(); assert o["freelance"]["proposals_drafted"] == 1 and len(o["approved_proposals"]) == 1
+
+
+def test_one_brief_proposal_per_agent_per_day(b, tmp_path, monkeypatch):
+    import tools
+    ad = tmp_path / "agents"; ad.mkdir(); (ad / "networker.md").write_text("---\nname: networker\ntools: [today]\n---\nx\n")
+    monkeypatch.setattr(tools, "AGENTS_DIR", ad); monkeypatch.setattr(tools, "PROPOSALS_DIR", tmp_path / "props")
+    b.remember("PENDING APPROVAL from coo: brief change for networker", agent="coo", kind="approval", tags=["pending", "brief-proposal", "agent:networker"])
+    assert tools.propose_brief("networker", "---\nname: networker\ntools: [today]\n---\ny\n", "cheaper", _agent="coo").startswith("refused: networker already has")

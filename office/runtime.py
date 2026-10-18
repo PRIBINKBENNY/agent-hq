@@ -844,7 +844,7 @@ class Agent:
 
             messages.append({"role": "assistant", "content": content or None, "tool_calls": tool_calls})
             for tc in tool_calls:
-                fn = re.sub(r"^(repo_browser|functions|tools|container|default_api)[.:]", "", tc["function"]["name"] or "")   # gpt-oss habit
+                fn = re.sub(r"^(repo_browser|functions|tools|container|default_api)[.:/]", "", tc["function"]["name"] or "")   # gpt-oss habit
                 try:
                     args = json.loads(tc["function"].get("arguments") or "{}")
                 except json.JSONDecodeError:
@@ -927,7 +927,7 @@ class Agent:
             # the model did not produce the report (often it tried to keep calling tools): continue anyway
             remaining = "The previous hop hit its turn limit without a clear report. Finish every step of the ORIGINAL TASK that is not yet done; start from the handoff notes."
         hop = int((re.search(r"CONTINUATION_HOP:\s*(\d+)", task) or [None, "0"])[1]) + 1
-        if hop > 3:
+        if hop > 2:                         # each hop re-reads context: two hand-offs at most, then finish with what exists
             self._say("continuation chain limit (3) reached; not queuing another")
             return None
         root = re.sub(r"^(Continue:\s*)+", "", task.split("\n", 1)[0])[:90]
