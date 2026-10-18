@@ -77,3 +77,15 @@ def test_draft_email_refuses_placeholders(tmp_path, monkeypatch):
     assert tools.draft_email("<company>", "Follow-up", "Dear <name>,").startswith("refused")
     assert tools.draft_email("workspace/outbox/x.md", "Hi", "body").startswith("refused")
     assert "draft saved" in tools.draft_email("jobs@acme.com", "Follow-up on my application", "Dear Acme team, ...", _agent="mail-assistant")
+
+
+def test_both_campus_designs_are_served_and_switchable(client):
+    import dashboard
+    h = {"Authorization": f"Bearer {dashboard.TOKEN}"} if dashboard.TOKEN else {}
+    page = client.get("/", headers=h).text
+    assert "__V3D__" not in page and "office3d-classic.js?v=" in page and "hq-design" in page and 'id="vb-design"' in page
+    for name in ("office3d.js", "office3d-classic.js"):
+        js = client.get(f"/static/{name}", headers=h)
+        assert js.status_code == 200 and "export function setRoster" in js.text and "export function reward" in js.text
+    new = client.get("/static/office3d.js", headers=h).text
+    assert all(f"export function {fn}" in new for fn in ("setOffice", "setLabelMode", "setLighting", "overview", "flyToDept"))

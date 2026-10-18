@@ -90,6 +90,11 @@
   .hint { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--ink-3); background: rgba(8,11,20,.7); padding: 4px 8px; border-radius: 6px; }
   .legend { position: absolute; right: 12px; bottom: 10px; display: flex; gap: 8px; font-size: 11px; color: var(--ink-2); background: rgba(8,11,20,.7); padding: 4px 8px; border-radius: 6px; }
   .legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .viewbar { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 60%; z-index: 3; }
+  .viewbar button { font: 600 11px/1 -apple-system, Inter, system-ui, sans-serif; color: #1b2130; background: rgba(255,255,255,.92); border: 1px solid rgba(0,0,0,.12); border-radius: 999px; padding: 7px 11px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .viewbar button:hover { background: #fff; border-color: rgba(0,0,0,.25); }
+  .viewbar.classic #vb-over, .viewbar.classic #vb-names, .viewbar.classic #vb-light { display: none; }
+  @media (max-width: 700px) { .viewbar { max-width: 96%; top: auto; bottom: 40px; right: 6px; } .viewbar button { padding: 6px 9px; font-size: 10px; } .stage .hint { display: none; } .stage .treasury { transform: scale(.78); transform-origin: top left; } }
 
   .side { display: flex; flex-direction: column; gap: 10px; padding: 10px; border-left: 1px solid var(--line); min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; background: var(--panel); }
   .side * { min-width: 0; } .side .panel, .side .pane { max-width: 100%; } .side .ev .m, .side .mem, .side .task, .side .run, .side .appr { overflow-wrap: anywhere; }
@@ -156,6 +161,12 @@
       <div id="stage3d"></div>
       <div class="hint" id="hint">Drag to orbit · scroll to zoom · right-drag to pan · click an agent for its brief, runs and lessons · agents walk the walkways to the brain and to each other</div>
       <div class="treasury" id="treasury"></div>
+      <div class="viewbar" id="viewbar">
+        <button id="vb-over" title="Fly back to the whole campus">Overview</button>
+        <button id="vb-names" title="Show every name, or only agents who are working">Names: active</button>
+        <button id="vb-light" title="Golden-hour light, or the real London time of day">Light: golden</button>
+        <button id="vb-design" title="Switch between the new campus and the classic ring (your backup)">Design: new</button>
+      </div>
       <div class="legend">
         <span><i style="background:var(--think)"></i>thinking</span><span><i style="background:var(--tool)"></i>tool</span>
         <span><i style="background:var(--deleg)"></i>delegating</span><span><i style="background:var(--done)"></i>done</span><span><i style="background:var(--err)"></i>fallback</span>
@@ -374,6 +385,11 @@ async function refreshState() {
   }
   trace("rooms"); $("#t-agents").textContent = roster.length; $("#t-runs").textContent = s.runs_today;
   $("#t-mem").innerHTML = s.brain.total_memories + `<small>notes</small>`; if (H3()) H3().setBrain(s.brain.total_memories); showTreasury(s.treasury);
+  if (H3() && H3().setOffice) {   // the new campus shows live counts on each department's board
+    const office = {}; const of = n => (roster.find(a => a.name === n) || {}).office;
+    (s.tasks || []).forEach(t => { const o = of(t.owner); if (!o || !["running", "queued"].includes(t.status)) return; office[o] = office[o] || { running: 0, queued: 0 }; office[o][t.status]++; });
+    H3().setOffice({ depts: office, approvals: s.approvals.length, treasury: s.treasury, memories: s.brain.total_memories });
+  }
   $("#t-appr").textContent = s.approvals.length; $("#appr-count").textContent = s.approvals.length ? s.approvals.length + " pending" : ""; $("#tab-appr").textContent = s.approvals.length || "";
   if (window._lastAppr != null && s.approvals.length > window._lastAppr) toast("New approval waiting for you"); window._lastAppr = s.approvals.length;
   const dg = s.memories.find(m => m.tags.includes("digest")); $("#digest").textContent = dg ? dg.content : "No digest yet today (08:30).";
@@ -491,8 +507,22 @@ function connect() {
   es.onerror = () => $("#conn").classList.add("off");
 }
 
+function viewbar() {
+  const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
+  const isNew = window.HQ3D_DESIGN !== "classic"; const vb = $("#viewbar"); vb.classList.toggle("classic", !isNew);
+  $("#vb-design").textContent = "Design: " + (isNew ? "new" : "classic");
+  $("#vb-design").onclick = () => { store("hq-design", isNew ? "classic" : "new"); const u = new URL(location.href); u.searchParams.delete("design"); location.href = u.toString(); };
+  if (!isNew) return;
+  let names = store("hq-names") || "active", light = store("hq-light") || "golden";
+  const apply = () => { $("#vb-names").textContent = "Names: " + names; $("#vb-light").textContent = "Light: " + (light === "live" ? "live time" : "golden"); HQ3D.setLabelMode?.(names); HQ3D.setLighting?.(light); };
+  $("#vb-names").onclick = () => { names = names === "active" ? "all" : "active"; store("hq-names", names); apply(); };
+  $("#vb-light").onclick = () => { light = light === "golden" ? "live" : "golden"; store("hq-light", light); apply(); };
+  $("#vb-over").onclick = () => HQ3D.overview?.();
+  apply();
+}
 function boot() {
   HQ3D.init($("#stage3d"), { onAgentClick: openAgent });
+  viewbar();
   if (roster.length) HQ3D.setRoster(roster);
   refreshState().then(() => { connect(); refreshSchedule(); refreshTrading(); refreshJobs(); });
 }
@@ -503,8 +533,12 @@ setInterval(refreshState, 8000); refreshRuns(); setInterval(refreshRuns, 20000);
 </script>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
 <script type="module">
-  import * as HQ3D from "/static/office3d.js";
-  window.HQ3D = HQ3D; window.dispatchEvent(new Event("hq3d-ready"));
+  // two designs: the new campus (default) and the classic ring kept as a backup; ?design=classic or the stage switch picks
+  let pick = new URLSearchParams(location.search).get("design");
+  if (!pick) { try { pick = localStorage.getItem("hq-design"); } catch (e) {} }
+  const design = pick === "classic" ? "classic" : "new";
+  const HQ3D = await import(design === "classic" ? "/static/office3d-classic.js?v=__V3D__" : "/static/office3d.js?v=__V3D__");
+  window.HQ3D = HQ3D; window.HQ3D_DESIGN = design; window.dispatchEvent(new Event("hq3d-ready"));
 </script>
 </body>
 </html>

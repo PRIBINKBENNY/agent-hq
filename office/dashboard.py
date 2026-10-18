@@ -138,8 +138,8 @@ def _nocache(resp):
 
 async def index(_: Request):
     html = HTML_PATH.read_text()
-    v = str(int((STATIC / "office3d.js").stat().st_mtime)) if (STATIC / "office3d.js").exists() else "0"
-    return _nocache(HTMLResponse(html.replace("/static/office3d.js", f"/static/office3d.js?v={v}")))
+    v = str(int(max((p.stat().st_mtime for p in STATIC.glob("office3d*.js")), default=0)))   # cache-buster for both designs
+    return _nocache(HTMLResponse(html.replace("__V3D__", v)))
 
 
 STATIC = ROOT / "office" / "static"

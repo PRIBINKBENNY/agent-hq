@@ -165,18 +165,31 @@ carries only the address, never the token; the dashboard still asks for the toke
 See `DEPLOY.md`, which also covers running the office on a free cloud VM so it keeps working
 when the Mac is off. While it runs on the Mac, the dashboard keeps the machine awake on mains power.
 
-## The ring campus and the treasury
+## The campus and the treasury
 
-The floor is a daylight 3D campus (Three.js, free from a CDN) built as one circular building, cut open from
-above. Each department is a segment of the ring with its own sign, a glass inner wall with a doorway, a
-parapet in its colour, wood desks facing the courtyard, soft monitors and a wall display of its work (a chart
-and ticker in the Trading Desk, code in the Studio, a kanban in the Project Office, job cards, posts, a
-checklist, a reception counter). The brain stands under an open canopy in the courtyard at the centre, and a
-radial walkway joins every department to it. Agents sit at desks, type while they work, and really use the
-walkways: an agent walks out of its doorway and down its walkway to the brain when it recalls or remembers,
-and crosses the courtyard to another department's walkway and doorway when it delegates, then walks home.
-Labels are dark on white so they read at any zoom. Orbit, zoom and pan with the mouse; hover highlights an
-agent and a click opens its brief, runs and lessons; the Floor button hides the panels.
+The floor is a 3D campus (Three.js, free from a CDN): one circular glass building in the spirit of Apple
+Park, with a white cantilevered roof edge, oak floors and full-height glass, cut open from above. Each
+department is a wing of the ring with a soft rug, wood desks facing the courtyard, desk lamps, a feature wall
+of its work and a signature object: a reception counter at the Front Desk, an interview booth in Job Hunt, a
+stand-up kanban table in the Project Office, bean bags in the Studio, a podcast table in Brand & Sales, live
+moving charts, a ticker and a treasury trophy on the Trading Desk, and blinking server racks in Operations.
+
+The shared brain is the headquarters: a glass atrium on an island in a reflecting pond, its core glowing on a
+plinth with orbiting memory motes (more memories, more motes). Stone walkways and timber bridges join every
+department to it. Agents really use them: an agent walks out of its doorway, along the promenade and over its
+bridge to the atrium when it recalls or remembers, follows the promenade to another wing when it delegates,
+then walks home. A small light travels the same route whenever a memory is written or read.
+
+Readable by design: labels are screen-sized at any zoom, and by default only agents who are working show a
+name tag (the stage's **Names** switch shows everyone). Each department's board shows live counts, for
+example "2 working · 1 queued", and the Front Desk shows approvals waiting for you. **Light** switches between
+golden hour and the real London time of day, with warm interiors at night. Clicking a department's board flies
+into that wing, clicking an agent flies to them and opens their brief, double-click or **Overview** flies back,
+and when nobody has touched the view for a while the camera glides to whoever is working.
+
+**Design: new / classic.** The previous ring design is kept as a backup in `office/static/office3d-classic.js`
+(and the git tag `design-ring-classic`). The **Design** switch on the stage flips between them and remembers
+your choice; `/?design=classic` forces the old one for one visit.
 
 The Trading Desk is the financial hub: every profitable demo trade credits the office treasury, earns
 experience, lifts the office level, and showers gold over the Trading Desk while the brain flashes gold.
