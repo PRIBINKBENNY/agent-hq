@@ -174,6 +174,12 @@ of its work and a signature object: a reception counter at the Front Desk, an in
 stand-up kanban table in the Project Office, bean bags in the Studio, a podcast table in Brand & Sales, live
 moving charts, a ticker and a treasury trophy on the Trading Desk, and blinking server racks in Operations.
 
+The people are motion-captured humanoids (the free Mixamo "X Bot" from the three.js examples, loaded from a
+CDN): real human proportions, a captured idle and walk, and a skeleton the office poses to sit at the desk with
+hands on the keyboard (typing while they work). Each wears an off-white suit trimmed in their department's
+colour. If the model cannot load, the office falls back to simple built-in figures. Wall screens and the
+ticker are curved to follow the building, so nothing pokes through the glass.
+
 The shared brain is the headquarters: a glass atrium on an island in a reflecting pond, its core glowing on a
 plinth with orbiting memory motes (more memories, more motes). Stone walkways and timber bridges join every
 department to it. Agents really use them: an agent walks out of its doorway, along the promenade and over its
