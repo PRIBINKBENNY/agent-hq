@@ -80,13 +80,15 @@ def test_strategy_save_refuses_unproven_and_signal_scan_uses_only_approved(tmp_p
     assert r["limits"]["can_trade"] is True and r["available"] == 10000
 
 
-def test_desk_limits_block_after_two_trades_and_weekly_goal(tmp_path, monkeypatch):
+def test_desk_limits_block_after_five_trades_and_weekly_goal(tmp_path, monkeypatch):
     import tools, time
     monkeypatch.setattr(tools, "JOURNAL_FILE", tmp_path / "j.jsonl"); monkeypatch.setattr(tools, "DESK_STATE", tmp_path / "d.json")
     (tmp_path / "d.json").write_text(json.dumps({"week_start_balance": 1000}))
     assert tools.desk_limits()["can_trade"]
-    tools._journal_write({"event": "open", "epic": "GOLD"}); tools._journal_write({"event": "open", "epic": "GOLD"})
-    lim = tools.desk_limits(); assert not lim["can_trade"] and "2 trades today" in lim["blocks"][0]
+    for _ in range(4): tools._journal_write({"event": "open", "epic": "GOLD"})
+    assert tools.desk_limits()["can_trade"]                                           # 4 of 5 used: still allowed
+    tools._journal_write({"event": "open", "epic": "GOLD"})
+    lim = tools.desk_limits(); assert not lim["can_trade"] and "5 trades today" in lim["blocks"][0]
     (tmp_path / "j.jsonl").write_text(""); tools._journal_write({"event": "close", "epic": "GOLD", "pnl": 35.0})
     lim = tools.desk_limits(); assert lim["week_pct"] == 3.5 and not lim["can_trade"] and "weekly goal" in lim["blocks"][0]
     st = json.loads(tools.trade_journal("stats")); assert st["overall"]["trades"] == 1 and st["overall"]["win_pct"] == 100.0
@@ -105,3 +107,12 @@ def test_profitable_trades_reward_the_office(tmp_path, monkeypatch):
     evs = [json.loads(l) for l in (tmp_path / "ev.jsonl").read_text().splitlines()]
     assert [e["type"] for e in evs] == ["reward"] and evs[0]["pnl"] == 12.5 and evs[0]["level_up"] is True
     assert json.loads(tools.treasury_status())["wins"] == 1
+
+
+
+def test_frequency_is_a_desk_rule_not_a_per_strategy_rule():
+    import strategy as S
+    rep = {"trades": 92, "win_pct": 50.0, "profit_factor": 1.83, "rr": 2.0, "max_drawdown_pct": 3.9, "trades_per_week": 1.1}
+    assert S.principles_check(rep)["passed"]                                      # e.g. META sma: strong, trades about once a week
+    assert not S.principles_check({**rep, "trades_per_week": 0.3})["passed"]     # a strategy that almost never trades is still refused
+    assert not S.principles_check({**rep, "profit_factor": 1.2})["passed"] and S.DESK_MIN_TRADES_PER_WEEK == 4.0

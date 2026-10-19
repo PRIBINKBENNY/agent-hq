@@ -1,7 +1,7 @@
 {
  "max_parallel": 31,
- "run_token_budget": 100000,
- "max_turns": 20,
+ "run_token_budget": 40000,
+ "max_turns": 10,
  "standing_budget_fraction": 0.25,
  "task_wall_seconds": 1500,
  "standing_per_hour": 0,

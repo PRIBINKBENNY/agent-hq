@@ -223,7 +223,10 @@ def _ts(t) -> float:
 
 
 # ----------------------------------------------------------------------------- power principles (from the playbook)
-PRINCIPLES = {"min_trades": 40, "min_win_pct": 50.0, "min_profit_factor": 1.3, "min_rr": 1.5, "max_drawdown_pct": 20.0, "min_trades_per_week": 4.0}
+# Pribin 2026-10-19: the playbook's "4 trades a week" applies to the DESK (all approved strategies together), not to each
+# strategy; a single strategy only needs to trade at least once a fortnight. Profit and risk checks are unchanged.
+PRINCIPLES = {"min_trades": 40, "min_win_pct": 50.0, "min_profit_factor": 1.3, "min_rr": 1.5, "max_drawdown_pct": 20.0, "min_trades_per_week": 0.5}
+DESK_MIN_TRADES_PER_WEEK = 4.0
 
 
 def principles_check(rep: dict, rules: dict | None = None) -> dict:

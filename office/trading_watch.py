@@ -57,11 +57,14 @@ def watch() -> dict:
     if fresh and (scan.get("limits") or {}).get("can_trade", True):
         lines = "\n".join(f"- {p['strategy']}: {p['signal']} {p['epic']} entry {p['entry']} stop {p['stop']} target {p['target']} "
                           f"RR {p['rr']} size for 1% risk {p.get('size_for_1pct_risk')} ({p['reason']})" for p in fresh)
-        tools.brain.task_create(f"Signal fired: {', '.join(p['epic'] + ' ' + p['signal'] for p in fresh)}",
-                                "The hourly watch found fresh signals from APPROVED strategies on open markets:\n" + lines +
-                                "\n\nCheck each against the plan and the desk limits, then hand it to the risk-officer for approval; "
-                                "the trader places it only after that approval. DEMO account.",
-                                owner="strategy-analyst", created_by="scheduler", priority=5, source="trading-watch")
+        valid_until = time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time() + 2 * 3600))
+        tools.brain.task_create(f"Risk review: {', '.join(p['epic'] + ' ' + p['signal'] for p in fresh)} (signal fired)",
+                                "The hourly watch found fresh signals from APPROVED strategies on OPEN markets, within the desk limits:\n" + lines +
+                                f"\n\nVALID UNTIL {valid_until} London time: after that the signal is stale and must NOT be traded.\n"
+                                "Risk officer: check each against the plan (exposure, correlation with open positions, news risk) and either VETO "
+                                "with the reason, or APPROVE by creating ONE task for the trader titled 'Place DEMO order: <epic> <BUY/SELL>' with the "
+                                "exact epic, direction, size, stop, target and the valid-until time. DEMO account.",
+                                owner="risk-officer", created_by="scheduler", priority=5, source="trading-watch")
         out["proposed"] = [f"{p['epic']} {p['signal']}" for p in fresh]
     try:
         pos = json.loads(tools.registry.call("capital_positions", {}, agent="trading-watch")); out["positions"] = len(pos) if isinstance(pos, list) else 0

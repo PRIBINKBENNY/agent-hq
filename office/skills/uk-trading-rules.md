@@ -6,7 +6,7 @@
 - Leverage caps for UK/EU retail CFDs (ESMA-derived): 30:1 major FX, 20:1 minor FX/gold/major indices, 10:1 other
   commodities/minor indices, 5:1 shares. Crypto derivatives are BANNED for UK retail clients (FCA, since January 2021):
   crypto strategies are demo research; they could not be traded live on a UK retail account.
-- Risk process: 1% risk per trade, reward/risk >= 1.5, 2 trades a day, daily loss limit; position size from the stop
+- Risk process: 1% risk per trade, reward/risk >= 1.5, 5 trades a day, daily loss limit; position size from the stop
   distance, never from conviction. Weekend gaps: markets other than crypto are closed; stops can be jumped on the open.
 Sources: FCA Handbook COBS 22.5 (CFD risk warning), theinvestorscentre.co.uk (UK CFD statistics 2026), brokerchooser.com
 (provider warnings), ESMA/FCA CFD measures (CMS summary). Check the FCA Handbook before relying on any figure.

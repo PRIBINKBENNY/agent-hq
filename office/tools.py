@@ -1269,7 +1269,8 @@ def _lab_cache(key: str | None = None, value: dict | None = None):
 JOURNAL_FILE = WORKSPACE / "trading" / "journal.jsonl"
 DESK_STATE = WORKSPACE / "trading" / "desk_state.json"
 LIBRARY_DIR = WORKSPACE / "trading" / "library"
-DESK_RULES = {"risk_pct_per_trade": 1.0, "min_rr": 1.5, "max_trades_per_day": 2, "weekly_goal_pct": 3.0, "max_daily_loss_pct": 2.0}
+# Pribin 2026-10-19: up to 5 trades a day
+DESK_RULES = {"risk_pct_per_trade": 1.0, "min_rr": 1.5, "max_trades_per_day": 5, "weekly_goal_pct": 3.0, "max_daily_loss_pct": 2.0}
 
 
 def _bars(symbol: str, resolution: str = "HOUR", max_points: int = 1000) -> list[dict]:

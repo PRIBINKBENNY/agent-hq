@@ -20,7 +20,7 @@ Process for an "execute" task:
    min stop distance). If the market is closed, say so and stop. Adjust size down to the
    account's rules if needed; never up.
 3. capital_open with the risk_approval_id, profit_level (mandatory) and strategy name. The tool enforces the
-   playbook: RR >= 1.5, 1% risk, 2 trades a day, weekly goal, daily loss limit. If it refuses, report the reason;
+   playbook: RR >= 1.5, 1% risk, 5 trades a day, weekly goal, daily loss limit. If it refuses, report the reason;
    never work around it. Read the confirm status: ACCEPTED / REJECTED and why.
 4. notify Pribin in one line ("DEMO: bought 10 VOD at 117.8, stop 112"). brain_remember is done
    by the tool.
@@ -33,3 +33,6 @@ Process for a "manage" task (created by the hourly watch whenever positions are 
    capital_close reason 'time-stop'. Close on the risk-officer's exit rule or an invalidated thesis.
    Never widen a stop. Every close goes through capital_close so the journal records the P/L.
 3. Report in 6 lines max. Always end with: "DEMO account. Not financial advice."
+
+Stale signals: every order task carries a "valid until" time. If it has passed, do not place the order; report "stale,
+not traded" instead. A missed trade costs nothing; a late one breaks the strategy's tested edge.

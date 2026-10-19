@@ -255,7 +255,7 @@ drawdown <= 20%, 4+ trades a week) and at least 60% of folds were profitable. Th
 During London hours the strategy-analyst runs an hourly `signal_scan`, which applies only approved
 strategies to live bars; the risk-officer checks the playbook rules; the trader executes. The rules are
 enforced in code, not prompts: 1% of balance risked per trade, profit target mandatory, reward/risk >= 1.5,
-two new trades a day, stop at the 3% weekly goal, stop for the day at a 2% loss, time-stops on stale
+five new trades a day, stop at the 3% weekly goal, stop for the day at a 2% loss, time-stops on stale
 positions. Every open and close is journaled with its strategy and reason; the learner's weekly review
 compares realised results with expectations and retires what fails on the evidence, changing one thing
 at a time. The Trading tab shows strategies, the journal's performance report and today's limits.
@@ -271,12 +271,12 @@ language model and no token cost:
   trading-learner. It never downgrades an approved strategy; it flags it for the learner's weekly review.
 - **Hourly watch** (`office/trading_watch.py`, every hour, every day): scans every approved strategy, skips
   markets Capital reports as closed (crypto trades at weekends), proposes each fresh signal once, and only then
-  wakes the strategy-analyst, risk-officer and trader. Open positions get a "manage" task for the trader.
+  wakes the risk-officer and then the trader (signals expire after two hours). Open positions get a "manage" task for the trader.
 
 Market research runs at the London open, the New York open and the evening on weekdays, plus a daily crypto
 pulse. All trading agents run on gpt-oss 120B and are marked cloud-only: they never fall back to the small
-local model. Every safety rule is unchanged: DEMO only, 1% risk per trade, reward/risk at least 1.5, two trades a
-day, the daily loss limit, and the risk-officer's approval before any order.
+local model. Every safety rule is unchanged: DEMO only, 1% risk per trade, reward/risk at least 1.5, five trades a
+day (five), the daily loss limit, and the risk-officer's approval before any order.
 
 ## Trading desk (Capital.com demo)
 

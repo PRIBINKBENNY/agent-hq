@@ -61,8 +61,10 @@ def sweep(only: str = "", points: int = POINTS) -> dict:
                 weakened.append(f"{name} (now PF {rep.get('profit_factor')}, stable {rep.get('stable')}, failed {', '.join(chk['failed']) or 'stability'})")
             rows.append((epic, cls, fam, rep.get("trades"), rep.get("win_pct"), rep.get("profit_factor"), rep.get("max_drawdown_pct"), rep.get("stable"), verdict if was != "approved" else "approved (kept)"))
         time.sleep(0.5)        # be gentle with the free data source
+    desk_tpw = round(sum(float((x.get("report") or {}).get("trades_per_week") or 0) for x in tools._strategies() if x.get("status") == "approved"), 1)
+    weakened.append(f"DESK: approved strategies together trade about {desk_tpw} times a week (target >= {S.DESK_MIN_TRADES_PER_WEEK})") if desk_tpw < S.DESK_MIN_TRADES_PER_WEEK else None
     write_report(rows, approved, candidates, weakened, errors, only)
-    summary = {"tested": len(rows), "approved_new": approved, "candidates_new": candidates, "weakened": weakened, "errors": errors[:10]}
+    summary = {"tested": len(rows), "desk_trades_per_week": desk_tpw, "approved_new": approved, "candidates_new": candidates, "weakened": weakened, "errors": errors[:10]}
     try:
         tools.brain.remember(f"Strategy lab sweep ({only or 'all markets'}): {len(rows)} tests, new approved {approved or 'none'}, "
                              f"candidates {len(candidates)}, weakened {weakened or 'none'}. Report: trading/lab-sweep.md",

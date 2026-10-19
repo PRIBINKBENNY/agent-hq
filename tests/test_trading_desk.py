@@ -54,7 +54,7 @@ def test_watch_wakes_the_desk_once_per_bar_and_skips_closed_markets(watch_env):
     W, b, scan, positions, prop = watch_env
     out = W.watch()
     assert out["proposed"] == ["BTCUSD BUY"] and out["skipped_closed"] == ["GOLD"]
-    tasks = b.task_list(status="queued"); assert len(tasks) == 1 and tasks[0]["owner"] == "strategy-analyst" and "BTCUSD" in tasks[0]["title"]
+    tasks = b.task_list(status="queued"); assert len(tasks) == 1 and tasks[0]["owner"] == "risk-officer" and "BTCUSD" in tasks[0]["title"] and "VALID UNTIL" in tasks[0]["detail"]
     assert W.watch()["proposed"] == []                                   # same bar: not proposed again
     scan["proposals"][0] = prop("btcusd-h1-rsifade", "BTCUSD", "b2")
     assert W.watch()["proposed"] == ["BTCUSD BUY"]                        # next bar fires again
