@@ -335,6 +335,10 @@ def _due(job: dict, last_run: float | None, now: datetime) -> bool:
             lo, hi = [int(x) for x in str(job["hours"]).split("-")]
             if now.weekday() >= 5 or not (lo <= now.hour <= hi):
                 return False
+        if job.get("minute") is not None:                # pinned to a minute past each hour (e.g. just after bars close)
+            if now.minute < int(job["minute"]):
+                return False
+            return last_run is None or datetime.fromtimestamp(last_run).strftime("%Y%m%d%H") != now.strftime("%Y%m%d%H")
         return last_run is None or now.timestamp() - last_run >= 3600
     if every == "weekdays" and now.weekday() >= 5:
         return False

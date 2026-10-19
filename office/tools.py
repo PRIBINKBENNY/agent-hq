@@ -1494,7 +1494,25 @@ def signal_scan(only: str = ""):
     lim = desk_limits(available); out = []
     for s in approved:
         try:
-            bars = _bars(s["symbol"], s["resolution"], 300)
+            # live scanning on Capital.com's own real-time prices for the traded epic (free Yahoo hourly data can lag by hours);
+            # the Yahoo history the strategy was validated on is the fallback
+            bars = []
+            ep = s.get("epic") or ""
+            if ep and not any(ch in ep for ch in ".^=-:"):
+                try:
+                    bars = _bars(ep, s["resolution"], 300)
+                except Exception:
+                    bars = []
+            if len(bars) >= 60:                             # Capital bars are stamped in UTC at the START of the bar:
+                import calendar                              # drop the bar still forming, signals only on completed bars
+                span = {"HOUR": 3600, "HOUR_4": 14400, "DAY": 86400, "MINUTE_15": 900}.get(s["resolution"], 3600)
+                try:
+                    if calendar.timegm(time.strptime(bars[-1]["t"][:19], "%Y-%m-%dT%H:%M:%S")) + span > time.time():
+                        bars = bars[:-1]
+                except Exception:
+                    pass
+            if len(bars) < 60:
+                bars = _bars(s["symbol"], s["resolution"], 300)
             sig = S.latest_signal(bars, s["strategy"], s["params"]); last = bars[-1]
             if sig == 0:
                 out.append({"strategy": s["name"], "symbol": s["symbol"], "epic": s.get("epic") or s["symbol"], "signal": "none", "last_close": last["close"], "bar": last["t"]}); continue

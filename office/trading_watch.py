@@ -61,9 +61,10 @@ def watch() -> dict:
         tools.brain.task_create(f"Risk review: {', '.join(p['epic'] + ' ' + p['signal'] for p in fresh)} (signal fired)",
                                 "The hourly watch found fresh signals from APPROVED strategies on OPEN markets, within the desk limits:\n" + lines +
                                 f"\n\nVALID UNTIL {valid_until} London time: after that the signal is stale and must NOT be traded.\n"
-                                "Risk officer: check each against the plan (exposure, correlation with open positions, news risk) and either VETO "
-                                "with the reason, or APPROVE by creating ONE task for the trader titled 'Place DEMO order: <epic> <BUY/SELL>' with the "
-                                "exact epic, direction, size, stop, target and the valid-until time. DEMO account.",
+                                "Risk officer, follow your process for each signal: check the rules, then brain_remember the verdict as "
+                                "kind='decision', tags ['risk', '<epic>'], content starting 'APPROVE: <BUY/SELL> <size> <epic> stop <x> target <y>' "
+                                "or 'VETO: <rule>'. If APPROVE, task_create 'Execute: <epic> <BUY/SELL>' owner trader with the decision text, its "
+                                "memory id and the VALID UNTIL time. Do it now: the signal expires. DEMO account.",
                                 owner="risk-officer", created_by="scheduler", priority=5, source="trading-watch")
         out["proposed"] = [f"{p['epic']} {p['signal']}" for p in fresh]
     try:

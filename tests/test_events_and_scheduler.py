@@ -377,3 +377,12 @@ def test_no_cloud_but_local_fallback_keeps_one_run_going(tmp_path, monkeypatch):
     monkeypatch.setenv("OFFICE_LEAD_LOCAL_FALLBACK", "1")
     assert len(scheduler.tick(b)["started"]) == 1 and len(scheduler.tick(b)["started"]) == 0   # one local run at a time
     scheduler._running.clear()
+
+
+def test_hourly_job_pinned_to_a_minute_runs_once_per_hour_after_it():
+    from datetime import datetime
+    job = {"every": "hourly", "minute": 2}
+    t = lambda h, m: datetime(2026, 10, 19, h, m)
+    assert scheduler._due(job, None, t(9, 1)) is False and scheduler._due(job, None, t(9, 2)) is True
+    assert scheduler._due(job, t(9, 2).timestamp(), t(9, 50)) is False          # already ran this hour
+    assert scheduler._due(job, t(9, 2).timestamp(), t(10, 2)) is True and scheduler._due(job, t(9, 2).timestamp(), t(10, 0)) is False

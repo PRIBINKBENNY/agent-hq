@@ -147,6 +147,7 @@
 # ---- trading desk, round the clock (DEMO). The watch and the sweep are scripts: no model, no token cost.
 - name: trading-watch
   every: hourly
+  minute: 2
   priority: 5
   title: Trading watch (all markets)
   command: python office/trading_watch.py
