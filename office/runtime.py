@@ -86,8 +86,8 @@ PROVIDERS: dict[str, dict] = {
     "ollamacloud": {
         "url": "https://ollama.com/v1/chat/completions", "models_url": "https://ollama.com/v1/models",
         "key_env": "OLLAMA_CLOUD_API_KEY",
-        "lead": _env_list("OLLAMA_CLOUD_LEAD_MODELS", "gpt-oss:120b,nemotron-3-super,gemma4:31b"),          # free tier (GLM, Kimi, DeepSeek are paid)
-        "worker": _env_list("OLLAMA_CLOUD_WORKER_MODELS", "gpt-oss:20b,gemma4:31b,gpt-oss:120b"),
+        "lead": _env_list("OLLAMA_CLOUD_LEAD_MODELS", "gpt-oss:120b,nemotron-3-super,nemotron-3-ultra,gemma4:31b"),   # free tier (GLM, Kimi, DeepSeek are paid; a 402 benches that model for 7 days)
+        "worker": _env_list("OLLAMA_CLOUD_WORKER_MODELS", "gpt-oss:20b,nemotron-3-nano:30b,gemma4:31b,gpt-oss:120b"),
     },
     # no key at all: Kilo Gateway's ":free" routes answer anonymously (about 200 requests/hour per IP, tool calling works).
     # Opt-in with KILO_ENABLED=1 because Kilo logs anonymous prompts and outputs for training.
@@ -118,7 +118,7 @@ PROVIDERS: dict[str, dict] = {
         "url": "https://openrouter.ai/api/v1/chat/completions", "models_url": "https://openrouter.ai/api/v1/models",
         "key_env": "OPENROUTER_API_KEY", "free_only": True,     # never a paid model here: Pribin's budget is zero
         "lead": _env_list("OPENROUTER_LEAD_MODELS", "nvidia/nemotron-3-super-120b-a12b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3-ultra-550b-a55b:free"),
-        "worker": _env_list("OPENROUTER_WORKER_MODELS", "google/gemma-4-26b-a4b-it:free,nvidia/nemotron-3.5-lightning:free,nvidia/nemotron-3-super-120b-a12b:free"),
+        "worker": _env_list("OPENROUTER_WORKER_MODELS", "nvidia/nemotron-3.5-lightning:free,google/gemma-4-26b-a4b-it:free,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free,nvidia/nemotron-3-super-120b-a12b:free"),
     },
     # free Cloudflare account, no card: Workers AI (10,000 neurons/day); needs the account id in the URL
     "cloudflare": {
@@ -399,6 +399,21 @@ def parse_duration(text: Optional[str]) -> Optional[float]:
     return total if found else None
 
 
+
+LESSON_JUNK = re.compile(r"^(let'?s|we need to|we should|i need to|attempt to|call |calling |use |the response|the answer|next time,? (call|use) \w+\.?$)", re.I)
+LESSON_SIGNAL = re.compile(r"\b(because|when|before|after|instead|so that|rather than|always|never|only|unless|if )\b", re.I)
+
+
+def useful_lesson(lesson: str) -> bool:
+    """A reflection is stored only if it says what to do differently and why; 'Let's call strategy_list.' is noise."""
+    t = (lesson or "").strip().strip('"')
+    if not t or t.upper().startswith("NONE") or len(t) < 50 or len(t) >= 400:
+        return False
+    if LESSON_JUNK.match(t) or not LESSON_SIGNAL.search(t):
+        return False
+    return True
+
+
 class EngineError(Exception):
     pass
 
@@ -593,6 +608,31 @@ def trim_context(messages: list[dict], keep_full: int = 2, stub_chars: int = 260
     return out
 
 
+
+_SECRET_PATTERNS = re.compile(r"(gsk_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{20,}|csk-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}"
+                              r"|xox[baprs]-[A-Za-z0-9-]{20,}|nvapi-[A-Za-z0-9_-]{30,}|eyJ[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}"
+                              r"|(?i:bearer)\s+[A-Za-z0-9._-]{24,}|(?i:(?:api[_-]?key|secret|password|token)\s*[=:]\s*[\"']?)[A-Za-z0-9._-]{16,})")
+
+
+def _env_secrets() -> list[str]:
+    out = []
+    for k, v in os.environ.items():
+        if re.search(r"(KEY|SECRET|TOKEN|PASSWORD)$", k) and v and len(v.strip()) >= 8 and v.strip() not in ("0", "1", ANONYMOUS):
+            out.append(v.strip())
+    return sorted(set(out), key=len, reverse=True)
+
+
+def redact_secrets(text: str) -> str:
+    """Every tool result and final answer passes through here: real key values from .env and anything shaped like a
+    credential become [REDACTED]. An agent that reads .env or a log by mistake cannot leak a key to a model or a file."""
+    if not text:
+        return text
+    for v in _env_secrets():
+        if v in text:
+            text = text.replace(v, "[REDACTED]")
+    return _SECRET_PATTERNS.sub(lambda m: (m.group(0).split()[0] + " [REDACTED]") if m.group(0).lower().startswith("bearer") else "[REDACTED]", text)
+
+
 def model_chain(brief: Brief, engine_pref: str) -> list[tuple[str, str]]:
     """[(engine, model), ...] in the order to try: each active provider's models for this tier, then local."""
     chain: list[tuple[str, str]] = []
@@ -617,7 +657,39 @@ def model_chain(brief: Brief, engine_pref: str) -> list[tuple[str, str]]:
     for c in chain:
         if c not in seen:
             seen.add(c); out.append(c)
-    return out
+    return demote_by_eval(out)
+
+
+EVAL_MIN_TASKS, EVAL_MIN_PASS = 3, 0.6
+
+
+def eval_scores() -> dict[str, tuple[float, int]]:
+    """{'provider:model': (pass_rate, tasks)} from the latest eval run (office/eval/results). Empty if none."""
+    try:
+        files = sorted((ROOT / "office" / "eval" / "results").glob("*.json"))
+        rows = json.loads(files[-1].read_text()).get("rows", []) if files else []
+    except Exception:
+        return {}
+    acc: dict[str, list[int]] = {}
+    for r in rows:
+        if r.get("model"):
+            acc.setdefault(r["model"], []).append(1 if r.get("pass") else 0)
+    return {m: (sum(v) / len(v), len(v)) for m, v in acc.items()}
+
+
+def demote_by_eval(chain: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Models the weekly eval measured below EVAL_MIN_PASS (on at least EVAL_MIN_TASKS tasks) move to the back of the
+    chain, ahead of local only. Unmeasured models keep their place; a better measured model is never skipped for a guess."""
+    scores = eval_scores()
+    if not scores:
+        return chain
+    good, bad, local = [], [], []
+    for eng, m in chain:
+        if eng == "ollama":
+            local.append((eng, m)); continue
+        rate, n = scores.get(f"{eng}:{m}", (None, 0))
+        (bad if rate is not None and n >= EVAL_MIN_TASKS and rate < EVAL_MIN_PASS else good).append((eng, m))
+    return good + bad + local
 
 
 # --------------------------------------------------------------------------- #
@@ -841,7 +913,7 @@ class Agent:
                 self._say(f"done in {turn} turn(s) on {engine}:{model}")
                 secs = round(time.time() - t0, 1)
                 self._log(task, content, f"{engine}:{model}", calls, tok_in, tok_out, secs)
-                self._emit("done", answer=content[:600], model=f"{engine}:{model}", turns=turn, tool_calls=len(calls),
+                content = redact_secrets(content); self._emit("done", answer=content[:600], model=f"{engine}:{model}", turns=turn, tool_calls=len(calls),
                            tokens=tok_in + tok_out, seconds=secs)
                 self._reflect(task, content, calls, engine, model)
                 return RunResult(self.brief.name, task, content, f"{engine}:{model}", turn, calls, tok_in, tok_out, secs)
@@ -868,7 +940,7 @@ class Agent:
                         result = self.registry.call(fn, args, agent=self.brief.name)
                 except Exception as e:  # tool errors go back to the model, not up the stack
                     result = f"ERROR: {type(e).__name__}: {e}"
-                result = str(result)
+                result = redact_secrets(str(result))
                 self._emit("tool_result", tool=fn, preview=result[:160], ok=not result.startswith("ERROR"))
                 if len(result) > TOOL_RESULT_CAP:
                     result = result[:TOOL_RESULT_CAP] + f"\n...[truncated, {len(result)} chars total]"
@@ -916,7 +988,7 @@ class Agent:
         secs = round(time.time() - t0, 1)
         cont = self._continue(task, content, calls)
         self._log(task, content, f"{engine}:{model}", calls, tok_in, tok_out, secs)
-        self._emit("done", answer=content[:600], model=f"{engine}:{model}", turns=MAX_TURNS, tool_calls=len(calls),
+        content = redact_secrets(content); self._emit("done", answer=content[:600], model=f"{engine}:{model}", turns=MAX_TURNS, tool_calls=len(calls),
                    tokens=tok_in + tok_out, seconds=secs, continued_as=cont)
         return RunResult(self.brief.name, task, content, f"{engine}:{model}", MAX_TURNS, calls, tok_in, tok_out, secs, cont)
 
@@ -976,7 +1048,7 @@ class Agent:
                                                   f"Final answer: {answer[:800]}\n\nOne concrete lesson for next time (what to do differently), or NONE."}]
             resp = _call_model(prompt, [], model, engine, "worker")
             lesson = (resp["choices"][0]["message"].get("content") or "").strip()
-            if lesson and not lesson.upper().startswith("NONE") and len(lesson) < 400:
+            if useful_lesson(lesson):
                 _store().remember(f"Lesson ({self.brief.name}): {lesson}", agent=self.brief.name, kind="lesson", importance=2,
                                       tags=["reflection", self.brief.name], ttl_seconds=60 * 86400, namespace="reflection")
                 self._emit("tool", tool="reflect", args=lesson[:160])
@@ -1095,3 +1167,19 @@ class ToolRegistry:
             return (f"ERROR: {name} needs {', '.join(missing)}. It takes: "
                     + ", ".join(f"{p} ({(props.get(p) or {}).get('type', 'any')}{', required' if p in required else ''})" for p in props))
         return t.fn(**clean, _agent=agent) if "_agent" in t.fn.__code__.co_varnames else t.fn(**clean)
+
+
+def content_safety(text: str) -> dict:
+    """Classify inbound text (email, web) with NVIDIA's free content-safety model on OpenRouter. Best effort: no key or
+    an error returns {'checked': False}. Used as a second opinion next to the office's own injection rules."""
+    key = provider_key("openrouter")
+    if not key or key == ANONYMOUS or not text.strip():
+        return {"checked": False}
+    try:
+        r = httpx.post(PROVIDERS["openrouter"]["url"], headers=auth_headers("openrouter", key), timeout=25,
+                       json={"model": "nvidia/nemotron-3.5-content-safety:free", "max_tokens": 120,
+                             "messages": [{"role": "user", "content": text[:6000]}]})
+        label = (r.json()["choices"][0]["message"].get("content") or "").strip()[:160]
+        return {"checked": True, "label": label, "unsafe": "unsafe" in label.lower()}
+    except Exception as e:
+        return {"checked": False, "error": str(e)[:80]}

@@ -16,3 +16,6 @@
 - Writing: define terms, one idea per paragraph, figures with captions that stand alone, no hype words.
 Sources: NeurIPS 2025/2026 paper checklist and LLM policy, ICML 2026 call for papers, arXiv submission guidelines
 (endorsement, categories), TMLR author guide. Venue rules change yearly: check the current call before submitting.
+
+## Plagiarism
+The lab's paper_check runs two more guards: overlap (8-word shingles against every paper text the lab has read) and a web quote search of the paper's most distinctive sentences. Paraphrase passes; copied passages do not, even from your own earlier drafts of other projects. Quote rarely, in quotation marks, with a citation.

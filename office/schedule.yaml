@@ -228,3 +228,17 @@
   priority: 2
   title: Obsidian sync (brain -> vault, Inbox -> brain)
   command: python office/obsidian.py
+- name: mail-watch
+  every: hourly
+  minute: 15
+  priority: 3
+  requires_env: GMAIL_ADDRESS
+  title: Mail watch (IMAP, no tokens; wakes the assistant only for real mail)
+  command: python office/mail_watch.py
+- name: skills-export
+  every: weekly
+  day: friday
+  at: '16:50'
+  command: 'python office/skills_export.py && git add skills && (git commit -q -m "skills weekly export" || true)' 
+  priority: 2
+  title: Export skill guides as SKILL.md (before the Friday publish)

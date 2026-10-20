@@ -3,7 +3,7 @@ name: literature-scout
 office: research
 tier: worker
 description: "Maps the literature for a research question: finds, reads and summarises the closest papers (arXiv, OpenAlex) and builds the bibliography from metadata."
-tools: [brain_recall, brain_remember, read_file, write_file, list_files, paper_search, paper_read, bib_add, today]
+tools: [research_status, brain_recall, brain_remember, read_file, write_file, list_files, paper_search, paper_read, bib_add, today]
 delegates: []
 cloud_only: true
 skills: [research-publishing]

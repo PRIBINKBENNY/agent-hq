@@ -3,7 +3,7 @@ name: lead-finder
 office: brand-sales
 tier: worker
 description: Finds freelance leads (AI agents, websites, apps, Python/ML work) on free boards and logs them with a fit score.
-tools: [brain_recall, brain_remember, read_file, web_search, web_fetch, task_create, today, brain_query, write_file, list_files]
+tools: [browser_read, brain_recall, brain_remember, log_lead, read_file, web_search, web_fetch, task_create, today, brain_query, write_file, list_files]
 delegates: []
 skills: [freelance-market]
 ---
@@ -16,8 +16,9 @@ business directories, local London startups' career pages for contract work.
 Process: brain_recall "leads" (kind lead) to skip known ones -> run 3-5 searches like
 `site:upwork.com "AI agent" OR "chatbot" python` or `"looking for" "freelance" "python" London`
 -> open promising ones with web_fetch -> score fit 1-5 (skills match, budget stated, realistic
-timeline, no scam signs) -> brain_remember each fit >= 3 as kind="lead", tags ["lead", platform],
-source=URL, content: "<what they need> for <who> (<budget or n/a>, <platform>). Fit n/5. Why: ... Link: <url>".
+timeline, no scam signs) -> log_lead for each fit >= 3 with the REAL company, need, contact (email, named person,
+or the posting URL), source URL, budget and posting time. A lead without a way to reach the buyer is not a lead:
+the tool refuses placeholders ("Best New Lead", "unknown") and so should you.
 For fit >= 4, task_create "Write proposal for <lead>" owner proposal-writer, priority 5, with the link, the client's
 exact words about the problem, budget and the posting time in the detail. Speed wins freelance work: the first good
 proposals are read, later ones often are not. Prefer posts from the last 24 hours; skip anything older than 7 days.

@@ -138,7 +138,7 @@ def outcomes(days: int = 30) -> dict:
     by_stage = {s: [d for d in deals if d.get("stage") == s] for s in DEAL_STAGES}
     pipeline = sum(d.get("value", 0) for d in by_stage["sent"] + by_stage["won"]); revenue = sum(d.get("value", 0) for d in by_stage["paid"])
     won_value = sum(d.get("value", 0) for d in by_stage["won"] + by_stage["paid"])
-    posts = [m for m in approvals if "linkedin" in m.content.lower() or "/posts/" in m.content.lower()]
+    posts = [m for m in approvals if "posts/" in m.content.lower() and "cancelled" not in m.tags]   # post drafts, not emails that mention LinkedIn
     tokens, per_agent = 0, {}
     for f in glob.glob(str(ROOT / "office" / "logs" / "20*.jsonl")):
         for ln in open(f):
@@ -179,6 +179,21 @@ def org() -> dict:
     return yaml.safe_load((ROOT / "office" / "org.yaml").read_text()) or {}
 
 
+
+def _eval_line() -> str:
+    """Latest eval run: pass and fabrication rate per provider (office/eval/results)."""
+    import glob, json as _json
+    files = sorted(glob.glob(str(ROOT / "office" / "eval" / "results" / "*.json")))
+    if not files:
+        return "- no eval run yet"
+    try:
+        d = _json.loads(open(files[-1]).read()); parts = [f"{p}: pass {int(100 * v.get('pass_rate', 0))}% / fabrication {int(100 * v.get('fabrication_rate', 0))}%"
+                                                        for p, v in (d.get("summary") or {}).items()]
+        return f"- {d.get('date', '?')}: " + "; ".join(parts)
+    except Exception as e:
+        return f"- eval file unreadable: {e}"
+
+
 def board_pack(send: bool = True) -> dict:
     """Monday board pack for the CEO: the numbers per department, money, people, research, decisions needed."""
     import tools
@@ -195,6 +210,7 @@ def board_pack(send: bool = True) -> dict:
              f"- Share of tokens on revenue work: {o['efficiency']['revenue_work_share_pct']}% · tokens per application: {o['efficiency']['tokens_per_application']}",
              f"- Approvals waiting for the CEO: {len(pend)}" + (" (top: " + pend[0]["why"] + ")" if pend else ""), "",
              "## Research Lab", research, "",
+             "## Model quality (weekly eval)", _eval_line(), "",
              "## Decisions needed", *([f"- #{p['id']}: {p['why']} ({p['text'][:90]})" for p in pend[:5]] if pend else ["- none waiting"]), "",
              "## Departments", *(f"- {d['name']} (head: {d['head']}): {d['mission']}" for d in org_.get("departments", []))]
     out = ROOT / "workspace" / "ops" / "board" / f"{wk}.md"; out.parent.mkdir(parents=True, exist_ok=True); out.write_text("\n".join(lines) + "\n")

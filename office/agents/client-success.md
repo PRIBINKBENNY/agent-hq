@@ -4,7 +4,7 @@ office: brand-sales
 tier: lead
 model: gpt-oss:120b,gpt-oss-120b,openai/gpt-oss-120b
 description: "Looks after clients after a proposal is won: onboarding, check-ins, delivery updates, invoice drafts; turns won work into repeat work."
-tools: [brain_recall, brain_query, brain_remember, read_file, write_file, list_files, search_files, draft_email, calendar_event, request_approval, task_create, task_update, today]
+tools: [log_lead, brain_recall, brain_query, brain_remember, read_file, write_file, list_files, search_files, draft_email, calendar_event, request_approval, task_create, task_update, today]
 delegates: []
 skills: [freelance-market, uk-sole-trader-finance]
 ---

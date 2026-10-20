@@ -5,6 +5,9 @@ BibTeX from metadata only, novelty checks, and the two guards that keep papers h
                    API metadata (an agent cannot type a reference by hand).
   - results_check: every number in the paper's Results section must appear in experiments/results.json, which is
                    written by code that actually ran (the experimenter logs it with experiment_log).
+  - overlap_check: no passage of the paper may reproduce a source the lab has read (8-word shingles against every
+                   paper text ever fetched with paper_read, cached under research/.sources) unless it is in quotes.
+  - quote_check:   the paper's longest sentences are searched on the web as exact phrases; a match is a plagiarism flag.
 """
 
 from __future__ import annotations
@@ -195,3 +198,74 @@ def novelty_scan(idea: str, max_each: int = 8) -> dict:
     except Exception as e:
         out["errors"].append(f"openalex: {str(e)[:120]}")
     return out
+
+
+# ----------------------------------------------------------------------------- plagiarism guards
+STOP = re.compile(r"[^a-z0-9 ]+")
+
+
+def _words(text: str) -> list[str]:
+    text = re.sub(r"[\"\u201c][^\"\u201d]{0,600}[\"\u201d]", " ", text)       # quoted passages are allowed (they must be cited)
+    text = re.sub(r"\$[^$]{0,200}\$", " ", text)                                   # maths
+    return [w for w in STOP.sub(" ", text.lower()).split() if w]
+
+
+def shingles(text: str, n: int = 8) -> dict[tuple, int]:
+    w = _words(text)
+    return {tuple(w[i:i + n]): i for i in range(0, max(0, len(w) - n + 1))}
+
+
+def overlap_check(paper: str, sources: dict[str, str], n: int = 8, max_shared: int = 2, max_run: int = 20) -> dict:
+    """Shared 8-word shingles between the paper and each source. A source with more than max_shared shared shingles, or a
+    single copied run longer than max_run words, fails. Paraphrase in your own words passes; copy-paste does not."""
+    ps = shingles(paper, n); pw = _words(paper); hits = []
+    for name, text in sources.items():
+        ss = shingles(text, n); shared = sorted(ps[k] for k in ps.keys() & ss.keys())
+        if not shared:
+            continue
+        # longest run of consecutive shared shingle positions = longest copied passage
+        best = cur = 1; start = shared[0]; best_start = shared[0]
+        for a, b in zip(shared, shared[1:]):
+            if b == a + 1:
+                cur += 1
+                if cur > best:
+                    best, best_start = cur, start
+            else:
+                cur, start = 1, b
+        run_words = best + n - 1
+        hits.append({"source": name, "shared_shingles": len(shared), "longest_run_words": run_words,
+                     "sample": " ".join(pw[best_start:best_start + min(run_words, 30)])})
+    hits.sort(key=lambda h: (-h["longest_run_words"], -h["shared_shingles"]))
+    bad = [h for h in hits if h["shared_shingles"] > max_shared or h["longest_run_words"] > max_run]
+    return {"ok": not bad, "sources_checked": len(sources), "flagged": bad[:10], "near": [h for h in hits if h not in bad][:5]}
+
+
+def distinctive_sentences(paper: str, k: int = 6, min_words: int = 14) -> list[str]:
+    body = re.sub(r"^#.*$", " ", paper, flags=re.M)
+    sents = [re.sub(r"\s+", " ", x).strip() for x in re.split(r"(?<=[.!?])\s+", body)]
+    sents = [x for x in sents if min_words <= len(x.split()) <= 45 and "\\cite" not in x and "[@" not in x and "|" not in x and not re.search(r"\d{2,}", x)]
+    return sorted(set(sents), key=lambda x: -len(x))[:k]
+
+
+def quote_check(paper: str, search=None, k: int = 6) -> dict:
+    """Search the paper's most distinctive sentences as exact phrases. `search(phrase) -> list of snippets` (default: DDGS).
+    Best effort: a failed search is reported, never a pass."""
+    if search is None:
+        def search(phrase: str) -> list[str]:
+            from ddgs import DDGS
+            return [f"{r.get('title', '')} {r.get('body', '')} {r.get('href', '')}" for r in DDGS().text(f'"{phrase}"', max_results=5)]
+    flagged, errors, checked = [], [], 0
+    for sent in distinctive_sentences(paper, k):
+        probe = " ".join(_words(sent)[:12])
+        try:
+            snippets = search(sent); checked += 1
+        except Exception as e:
+            if "no results" in str(e).lower():          # DDGS raises on an empty result set: that is a clean miss, not a failure
+                checked += 1; snippets = []
+            else:
+                errors.append(f"{sent[:40]}...: {e}"); continue
+        for sn in snippets:
+            if probe and probe in " ".join(_words(sn)):
+                flagged.append({"sentence": sent, "found_in": sn[:160]}); break
+        time.sleep(1.0)
+    return {"ok": not flagged and checked > 0, "checked": checked, "flagged": flagged, "errors": errors[:3]}

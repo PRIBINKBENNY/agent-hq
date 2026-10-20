@@ -2,7 +2,7 @@
 
 - name: ops-review
   agent: coo
-  every_hours: 6
+  every_hours: 12
   priority: 4
   title: 'COO: ops review'
   task: 'Ops review: ops_metrics for 24h; fix stuck/failed tasks, nudge old approvals, manage budget, flag cost
@@ -15,17 +15,18 @@
   task: 'Rotate through these keyword sets, picking the one you used least recently (check brain events tagged scout-rotation):
     (a) "machine learning engineer" (b) "AI engineer" (c) "computer vision engineer" (d) "data scientist" junior
     (e) "MLOps engineer" junior (f) "research engineer" ML. Search days=2, London then Remote UK. Log fit >= 3 that
-    are not already in the brain. For any NEW role with fit >= 4, task_create "Tailor CV for <company> <role>" owner
-    application-tailor (max 2 per run). brain_remember a kind=event tagged scout-rotation naming the keyword set
-    used.
+    are not already in the brain. Do NOT create tailor tasks: Pribin taps "Tailor CV" on the phone for the roles he wants
+    (a tailored pack costs ~140k tokens; most found roles are dismissed). If you logged any NEW role with fit >= 4, notify
+    Pribin once: "<n> new roles worth a look: <company - title> ...". brain_remember a kind=event tagged scout-rotation
+    naming the keyword set used.
 
     '
 - name: warm-paths
   agent: networker
-  every_hours: 12
+  every_hours: 48
   priority: 3
   title: 'Networker: one more company'
-  task: 'Pick ONE company from the brain''s jobs (fit >= 4) that has no contacts yet (brain_query company:<slug>),
+  task: 'Pick ONE company Pribin has APPLIED to or has a tailored pack for (job_status: status applied or tailored) that has no contacts yet (brain_query company:<slug>),
     find up to 3 relevant people and draft connection notes. Request approval. If every company is covered, say
     so.
 
@@ -168,25 +169,7 @@
   title: 'Learner: weekly trading review'
   task: 'Weekly review: journal stats vs expectations per strategy; retire what failed on the evidence, change at
     most one thing and re-validate, update trading/plan.md, notify Pribin.'
-- name: mail-triage
-  agent: mail-assistant
-  every_hours: 2
-  requires_env: GMAIL_ADDRESS
-  priority: 4
-  title: 'Mail: triage the inbox and answer customers'
-  task: 'Mail triage: mail_inbox (unread, last 7 days). Skip newsletters, notifications and anything automated. For each real
-    message from a client, lead, recruiter or contact: brain_recall the context, then mail_reply with a short, specific answer
-    (auto-sent only inside existing known-contact threads when MAIL_AUTOREPLY is on; otherwise it becomes an approval).
-    Record one brain event per handled message (tags contact:<slug>, email). Report: messages seen, replied, awaiting approval, skipped.'
-
 # ---- every agent has standing work (Pribin, 2026-10-18: all 31 agents working at once). Outgoing actions stay approval-gated.
-- name: tailor-best-role
-  agent: application-tailor
-  every_hours: 12
-  priority: 3
-  title: 'Tailor: best open role'
-  task: 'Pick the highest-fit job in the job portal (job_status) that is still "found" and has no tailored CV yet. Tailor the
-    master CV and write the cover letter, run cv_truth_check, export the PDF, then request_approval. Never submit.'
 - name: proposal-best-lead
   agent: proposal-writer
   every_hours: 24
@@ -297,11 +280,13 @@
 # ---- Research Lab (2026-10-20): literature -> gap -> experiments -> paper -> review; Pribin is the author and submits
 - name: research-pipeline
   agent: research-lead
-  every_hours: 24
+  every_hours: 4
+  hours: 17-23
   priority: 3
   title: 'Research pipeline: advance each project one stage'
-  task: 'Research pipeline: read research/STATUS.md, advance each active project one stage by delegating to the right
-    specialist, start a new project from research/BACKLOG.md if fewer than 3 are active, update STATUS.md.'
+  task: 'Research pipeline: call research_status (it reads the real project folders and rewrites research/STATUS.md; never
+    hand-write STATUS.md). Advance each active project one stage by delegating to the right specialist, naming the
+    project by its folder slug exactly. Start a new project from research/BACKLOG.md if fewer than 3 are active.'
 - name: research-backlog
   agent: novelty-analyst
   every_hours: 48
@@ -312,28 +297,28 @@
     research/BACKLOG.md with the closest-work evidence. No project folders yet.'
 - name: lab-literature
   agent: literature-scout
-  every_hours: 24
+  every_hours: 6
   priority: 2
   title: 'Lab: literature for the newest backlog question'
   task: 'Literature: take the newest question in research/BACKLOG.md that has no literature map yet, create research/<slug>/
     (slug from the question), build literature.md and references.bib for it. If every backlog question already has one, say so in one line.'
 - name: lab-experiments
   agent: experimenter
-  every_hours: 12
+  every_hours: 6
   priority: 3
   title: 'Lab: run the next pending experiment'
-  task: 'Experiments: read research/STATUS.md; for the first project at stage "experiments" whose results.json is missing or
+  task: 'Experiments: call research_status; for the first project at stage "experiments" whose results.json is missing or
     incomplete, implement and run the next step of its proposal plan and log the results. If none is at that stage, say so in one line.'
 - name: lab-drafting
   agent: paper-writer
-  every_hours: 24
+  every_hours: 6
   priority: 2
   title: 'Lab: draft or revise where results exist'
-  task: 'Drafting: read research/STATUS.md; for the first project at stage "draft" (logged results, no paper yet) write the
+  task: 'Drafting: call research_status; for the first project at stage "draft" (logged results, no paper yet) write the
     paper; for any project with a review.md that has blocking issues, revise. Run paper_check. If nothing needs writing, say so in one line.'
 - name: lab-review
   agent: peer-reviewer
-  every_hours: 24
+  every_hours: 6
   priority: 2
   title: 'Lab: review the next draft'
   task: 'Review: read research/STATUS.md; review the first project at stage "review" that has no review.md newer than its
@@ -374,3 +359,31 @@
   title: 'Data: next pipeline or the office analytics dataset'
   task: 'Data task: take the oldest open data task from the roadmap or the Studio; if none, advance the office-analytics
     dataset (clean, documented tables from office/logs for the Research Lab and the COO) one step, with a test and a README.'
+- name: cv-refresh
+  agent: application-tailor
+  every_hours: 168
+  priority: 2
+  title: 'Tailor: keep the master CV current'
+  task: 'Weekly: read the last 20 logged jobs (job_status) and list the skills and keywords they ask for most. Compare with
+    workspace/cv/master-cv.md and propose, in a file workspace/cv/master-cv-suggestions.md, up to 5 truthful edits (only
+    things Pribin has actually done; cv_truth_check them). Do not tailor for any job: Pribin taps Tailor CV himself.'
+- name: outbox-hygiene
+  agent: mail-assistant
+  every_hours: 72
+  requires_env: GMAIL_ADDRESS
+  priority: 2
+  title: 'Mail: sent emails still waiting for a reply'
+  task: 'List the emails we sent (office/logs/mail_sent.jsonl via read_file) older than 7 days with no reply in the inbox
+    (mail_inbox unread_only false, since_days 14). For each, if no follow-up task exists (task_list), task_create one for
+    yourself is NOT allowed: instead draft the follow-up now with mail_reply (it becomes an approval). Max 3 per run.'
+- name: security-audit
+  agent: compliance-officer
+  every_hours: 720
+  priority: 3
+  title: 'Compliance: monthly OWASP agentic security audit'
+  task: 'Security audit: skill_read agentic-security-audit (the OWASP Top 10 for Agentic Applications). For each of the 10
+    items check the office as it is now: read_brief for 6 agents with outward or shell tools (chief-of-staff, trader,
+    mail-assistant, code-builder, release-manager, lead-finder), search_files for request_approval and tool allowlists,
+    and the handbook. Write workspace/ops/security-audit-<YYYY-MM>.md: item, status (ok / gap), evidence (file:line),
+    fix. For each gap task_create one task for coo with the fix. No web browsing needed; no fabricated findings:
+    every gap must cite a file you read.'

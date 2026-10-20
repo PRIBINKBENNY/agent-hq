@@ -303,7 +303,8 @@ def check_approvals(brain: BrainStore) -> int:
     for m in new:
         _notify("Approval needed", m.content.replace("PENDING APPROVAL from ", ""))
         paths = re.findall(r"(?:workspace/)?((?:applications|posts|proposals|outbox|interviews)/[\w./-]+?\.md|(?:applications|posts|proposals|outbox)/[\w./-]+/)", m.content)
-        if paths and "qa-queued" not in m.tags and m.agent != "fact-checker":
+        internal = bool({"brief-proposal", "skill-update", "hire"} & set(m.tags)) or "ops/proposals/" in m.content
+        if paths and not internal and "qa-queued" not in m.tags and m.agent != "fact-checker":   # QA is for text that leaves the office
             brain.task_create(f"QA check approval #{m.id}",
                               f"Fact-check the text behind approval #{m.id} before Pribin sees it. Files/folders: {', '.join(sorted(set(paths)))}. "
                               f"Approval text: {m.content[:300]}", owner="fact-checker", created_by="scheduler", priority=5, source="qa")

@@ -128,6 +128,9 @@
   .memadd { display: flex; gap: 6px; padding: 7px 9px; border-top: 1px solid var(--line); }
   .memadd input { flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--ink); padding: 5px 8px; border-radius: 6px; font-size: 11.5px; }
   .memadd button { background: var(--panel); border: 1px solid var(--line); color: var(--ink); padding: 5px 9px; border-radius: 6px; cursor: pointer; font-size: 11.5px; }
+.agroup{margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;opacity:.7}
+.stages{display:flex;gap:3px;margin:6px 0}.stg{flex:1;height:6px;border-radius:3px;background:rgba(127,127,127,.25)}.stg.on{background:#3b82f6}.stg.ready{background:#16a34a}
+.trace{margin-top:6px}.trow{display:grid;grid-template-columns:150px 1fr 44px;gap:6px;align-items:center;font-size:11px;line-height:16px}.tname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85}.tbar{position:relative;height:8px;background:rgba(127,127,127,.15);border-radius:4px}.tbar i{position:absolute;top:0;height:8px;border-radius:4px;background:#3b82f6}.tbar i.run{background:#6b7280}.tbar i.bad{background:#dc2626}.tbar i.fallback{background:#f59e0b}.tdur{text-align:right;opacity:.7}
 </style>
 </head>
 <body>
@@ -204,6 +207,7 @@
         <div class="panel"><h3>Signals and decisions</h3><div class="list" id="trade-recent"></div></div>
       </div>
       <div class="pane" data-pane="ops">
+        <div class="panel"><h3>Research Lab · papers by stage <span class="sp" id="research-sp"></span></h3><div class="list" id="research"></div></div>
         <div class="panel"><h3>CEO dashboard · outcomes, 30 days <span class="sp" id="ceo-sp"></span></h3><div class="list" id="ceo"></div></div>
         <div class="panel"><h3>Deals · approved proposals <span class="sp">record what happened</span></h3><div class="list" id="deals"></div></div>
         <div class="panel"><h3>Scorecard · this week <span class="sp" id="score-sp"></span></h3><div class="list" id="scorecard"></div></div>
@@ -358,7 +362,7 @@ function renderJobs() {
       <div class="meta"><span class="st ${esc(j.status)}">${esc(j.status)}</span>${esc(j.location)}${j.salary && j.salary !== "n/a" ? " · " + esc(j.salary) : ""}${j.posted && j.posted !== "n/a" ? " · posted " + esc(j.posted) : ""} · found ${esc(j.found)}${j.contacts ? " · " + j.contacts + " contact" + (j.contacts > 1 ? "s" : "") : ""}</div>
       ${j.needs ? `<div class="needs">Needs: ${esc(j.needs)}</div>` : ""}
       <div class="acts">${j.url ? `<a class="open" href="${esc(j.url)}" target="_blank" rel="noopener">Open posting ↗</a>` : ""}
-        ${j.application ? `<button onclick="viewFile('${esc(j.application.cv)}')">CV</button>${j.application.letter ? `<button onclick="viewFile('${esc(j.application.letter)}')">Letter</button>` : ""}${j.application.pdf ? `<button onclick="window.open('/api/file?path=' + encodeURIComponent('${esc(j.application.pdf)}'))">PDF</button>` : ""}` : `<button onclick="jobAct(${j.id},'tailor')">Tailor CV</button>`}
+        ${j.application ? `${j.url ? `<button class="ok" onclick="jobAct(${j.id},'prefill')">Pre-fill form</button>` : ""}<button onclick="viewFile('${esc(j.application.cv)}')">CV</button>${j.application.letter ? `<button onclick="viewFile('${esc(j.application.letter)}')">Letter</button>` : ""}${j.application.pdf ? `<button onclick="window.open('/api/file?path=' + encodeURIComponent('${esc(j.application.pdf)}'))">PDF</button>` : ""}` : `<button onclick="jobAct(${j.id},'tailor')">Tailor CV</button>`}
         <button onclick="jobAct(${j.id},'prep')">Interview prep</button><button onclick="jobAct(${j.id},'warm')">Warm paths</button>
         ${j.status !== "applied" ? `<button onclick="jobStatus(${j.id},'applied')">I applied</button>` : `<button onclick="jobStatus(${j.id},'interview')">Got interview</button>`}
         ${!["rejected", "dismissed"].includes(j.status) ? `<button onclick="jobStatus(${j.id},'dismissed')">Dismiss</button>` : `<button onclick="jobStatus(${j.id},'found')">Restore</button>`}</div></div>`).join("")
@@ -411,15 +415,18 @@ async function refreshState() {
   $("#t-engine").innerHTML = (usable.length ? esc(usable.join(" → ") + " → local") : "local only · " + esc(s.engine.ollama)) + `<div class="usage">${esc(resting.length ? "resting: " + resting.join(", ") : budget.join(" · "))}</div>`;
   $("#brain-sp").textContent = `${s.brain.db_size_mb} MB`;
   const bs = $("#brain-sub"); if (bs) bs.textContent = `${s.brain.total_memories} notes · shared memory`;
-  $("#approvals").innerHTML = s.approvals.length ? s.approvals.map(a => { const paths = (a.content.match(/(?:workspace\/)?([\w./-]+\/[\w.-]+\.(?:md|txt|py|html|json|pdf))/g) || []).map(p => p.replace(/^workspace\//, ""));
+  $("#approvals").innerHTML = s.approvals.length ? groupApprovals(s.approvals).map((a, i, arr) => { const head = (!i || arr[i - 1].why !== a.why) ? `<div class="agroup">${esc(a.why || "other")} · ${arr.filter(x => x.why === a.why).length}</div>` : ""; const paths = (a.content.match(/(?:workspace\/)?([\w./-]+\/[\w.-]+\.(?:md|txt|py|html|json|pdf))/g) || []).map(p => p.replace(/^workspace\//, ""));
       const qa = a.tags.includes("qa-pass") ? `<span class="st done" style="margin-right:6px">QA pass</span>` : a.tags.includes("qa-fail") ? `<span class="st failed" style="margin-right:6px">QA fail</span>` : a.tags.includes("qa-queued") ? `<span class="st queued" style="margin-right:6px">QA pending</span>` : "";
       const isApp = a.tags.includes("application") || /cv|cover letter|application/i.test(a.content);
       const isPost = /linkedin/i.test(a.content) && !a.tags.includes("posted");
-      const postBtns = isPost ? paths.filter(p => p.includes("posts/")).map(p => `<button class="ok" onclick="postLinkedIn(${a.id},'${esc(p)}')">Post ${esc(p.split("/").pop().replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(".md", ""))}</button>`).join("") : "";
-      return `<div class="appr" id="appr-${a.id}"><div class="who">#${a.id} · ${esc(a.agent)} · ${esc(a.created)}${a.why ? ` · <b>${esc(a.why)}</b>` : ""}</div><div>${qa}${esc(a.content.replace(/^(QA: \w+ - )?PENDING APPROVAL from [\w-]+: /, ""))}</div>
+      const isNet = a.agent === "networker"; const profiles = isNet ? [...new Set((a.content.match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/[\w%-]+/g) || []))] : [];
+      const netBtns = isNet ? paths.filter(p => p.includes("networking/")).map(p => `<button class="view" onclick="copyFile('${esc(p)}')">Copy ${esc(p.split("/").pop().replace(".md", ""))}</button>`).join("") + profiles.map(u => `<button class="ok" onclick="window.open('${esc(u)}','_blank')">Open profile</button>`).join("") : "";
+      const postBtns = isPost ? paths.filter(p => p.includes("posts/")).map(p => `<span class="postset" data-id="${a.id}" data-path="${esc(p)}"><button class="ok" onclick="postLinkedIn(${a.id},'${esc(p)}')">Post ${esc(p.split("/").pop().replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(".md", ""))}</button></span>`).join("") : "";
+      return `${head}<div class="appr" id="appr-${a.id}"><div class="who">#${a.id} · ${esc(a.agent)} · ${esc(a.created)}${a.why ? ` · <b>${esc(a.why)}</b>` : ""}</div><div>${qa}${esc(a.content.replace(/^(QA: \w+ - )?PENDING APPROVAL from [\w-]+: /, ""))}</div>
       <button class="more" onclick="toggleApproval(${a.id})">Show details</button><div class="det"></div>
-      <div class="btns"><button class="ok" onclick="decide(${a.id},'approved')">${(a.tags.includes("email") && s.mail && s.mail.configured) ? "Approve &amp; send" : "Approve"}</button>${isApp ? `<button class="ok" onclick="applied(${a.id})">I applied</button>` : ""}${postBtns}<button class="no" onclick="decide(${a.id},'rejected')">Reject</button>${[...new Set(paths)].map(p => `<button class="view" onclick="viewFile('${esc(p)}')">view ${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
+      <div class="btns"><button class="ok" onclick="decide(${a.id},'approved')">${(a.tags.includes("email") && s.mail && s.mail.configured) ? "Approve &amp; send" : "Approve"}</button>${isApp ? `<button class="ok" onclick="applied(${a.id})">I applied</button>` : ""}${postBtns}${netBtns}<button class="no" onclick="decide(${a.id},'rejected')">Reject</button>${[...new Set(paths)].map(p => `<button class="view" onclick="viewFile('${esc(p)}')">view ${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
     : `<div class="empty">Nothing waiting. Agents park applications, emails and posts here.</div>`;
+  expandPostSets();
   renderTasks(s.tasks || []);
   $("#memories").innerHTML = s.memories.length ? s.memories.map(m => `<div class="mem"><span class="k">${esc(m.kind)}</span>${esc(m.content)}<div class="who">${esc(m.agent)} · ${esc(m.created)}${m.tags.length ? " · " + esc(m.tags.join(", ")) : ""}</div></div>`).join("")
     : `<div class="empty">The brain is empty.</div>`;
@@ -433,6 +440,17 @@ function renderTasks(tasks) {
     : `<div class="empty">No tasks yet. Runs queue here when the office is busy; the scheduler adds daily jobs.</div>`;
 }
 async function taskAct(id, action) { await fetch("/api/tasks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action }) }); refreshState(); }
+const STAGES = ["new", "proposal", "literature", "experiments", "drafting", "review", "ready"];
+async function refreshResearch() {
+  let r; try { r = await (await fetch("/api/research")).json(); } catch (e) { return; }
+  const rows = r.projects || []; const ready = rows.filter(p => p.ready);
+  $("#research-sp").textContent = ready.length ? `${ready.length} ready to submit` : rows.length ? `${rows.length} in progress · none ready yet` : "no projects yet";
+  $("#research").innerHTML = (rows.length ? rows.map(p => { const i = STAGES.indexOf(p.stage); const bar = STAGES.map((st, k) => `<span class="stg${k <= i ? " on" : ""}${st === "ready" && p.ready ? " ready" : ""}" title="${st}"></span>`).join("");
+    return `<div class="task"><div><div><b>${esc(p.project)}</b> ${p.ready ? `<span class="st done">READY TO SUBMIT</span>` : `<span class="st queued">${esc(p.stage)}</span>`}${p.score != null ? ` · reviewer ${p.score}/10` : ""} · ${esc(p.updated)}</div>
+      <div class="stages">${bar}</div><div class="sub">next: ${esc(p.next)}</div>
+      <div class="btns">${p.pdf ? `<button class="ok" onclick="window.open('/api/file?path=${encodeURIComponent(p.pdf)}','_blank')">Open PDF</button>` : ""}${(p.files || []).map(f => `<button class="view" onclick="viewFile('research/${esc(p.project)}/${esc(f)}')">${esc(f)}</button>`).join("")}</div></div></div>`; }).join("")
+    : `<div class="empty">The lab has not started a project yet.</div>`) + (r.backlog ? `<details class="sub"><summary>Backlog of candidate questions</summary><div class="pre">${esc(r.backlog)}</div></details>` : "");
+}
 async function refreshCEO() {
   let o; try { o = await (await fetch("/api/outcomes")).json(); } catch (e) { return; }
   const j = o.jobs || {}, f = o.freelance || {}, b = o.brand || {}, e = o.efficiency || {};
@@ -455,7 +473,7 @@ async function deal(id, stage) { const v = stage === "won" || stage === "paid" ?
   const r = await (await fetch("/api/deal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, stage, value: v ? Number(v) : null }) })).json();
   toast(r.error ? r.error : `Recorded: ${r.client} ${r.stage} £${r.value}`); refreshCEO(); }
 async function refreshStats() {
-  refreshCEO();
+  refreshCEO(); refreshResearch();
   const s = await (await fetch("/api/stats")).json();
   const c = s.scorecard || {}, t = c.targets_per_week || {};
   const rows = ["applications_tailored","applications_marked_applied","contacts_logged","proposals_drafted","posts_approved","mock_interviews","commits_on_github","jobs_found","leads_found","fabrications_caught"];
@@ -472,8 +490,17 @@ async function refreshRuns() {
   const r = await (await fetch("/api/runs")).json();
   $("#runs").innerHTML = r.runs.length ? r.runs.slice(0, 30).map((x, i) => `<div class="run" onclick="this.classList.toggle('open')">
       <div class="hd"><b>${esc(x.agent)}</b><span>${esc(x.ts)}</span><span>${esc((x.model || "").split("/").pop())}</span><span>${(x.tool_calls || []).length} tools</span></div>
-      <div>${esc(String(x.task).slice(0, 110))}</div><div class="ans">${esc(x.answer)}</div></div>`).join("")
+      <div>${esc(String(x.task).slice(0, 110))}</div><div class="ans">${esc(x.answer)}</div>${x.run_id ? `<div class="btns"><button class="view" onclick="event.stopPropagation(); showTrace('${esc(x.run_id)}', this)">Trace</button></div><div class="trace"></div>` : ""}</div>`).join("")
     : `<div class="empty">No runs yet.</div>`;
+}
+async function showTrace(runId, btn) {   // waterfall: one bar per tool call, time left to right, red = error
+  const box = btn.closest(".run").querySelector(".trace"); if (box.innerHTML) { box.innerHTML = ""; return; }
+  let t; try { t = await (await fetch("/api/trace?run_id=" + encodeURIComponent(runId))).json(); } catch (e) { box.textContent = "no trace"; return; }
+  if (t.error) { box.textContent = t.error; return; }
+  const total = Math.max(t.seconds || 0.01, 0.01);
+  box.innerHTML = `<div class="sub">${esc(t.agent)} · ${t.seconds}s · ${t.waterfall.filter(w => w.kind === "tool").length} tool calls</div>` + t.waterfall.map(w => {
+    const left = 100 * w.start / total, width = Math.max(0.6, 100 * (w.end - w.start) / total);
+    return `<div class="trow" title="${esc((w.args || "") + (w.result ? " → " + w.result : ""))}"><span class="tname" style="padding-left:${(w.depth || 0) * 10}px">${esc(w.name)}</span><span class="tbar"><i class="${w.ok ? "" : "bad"} ${w.kind}" style="left:${left}%;width:${width}%"></i></span><span class="tdur">${(w.end - w.start).toFixed(1)}s</span></div>`; }).join("");
 }
 async function viewFile(path) {
   if (path.endsWith(".pdf")) { window.open("/api/file?path=" + encodeURIComponent(path), "_blank"); return; }
@@ -485,9 +512,17 @@ async function viewFile(path) {
   $("#modal").classList.add("open");
 }
 async function applied(id) { await fetch("/api/applied", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) }); refreshState(); refreshStats(); }
-async function postLinkedIn(id, path) {
-  if (!confirm("Publish this variant to your LinkedIn profile now?")) return;
-  const r = await (await fetch("/api/linkedin/post", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, path }) })).json();
+function expandPostSets() {   // a draft file with several variants gets one button per variant: a post is ONE of them
+  document.querySelectorAll(".postset:not([data-done])").forEach(el => { el.dataset.done = 1; const p = el.dataset.path, id = el.dataset.id;
+    fetch("/api/linkedin/variants?path=" + encodeURIComponent(p)).then(r => r.json()).then(v => { if (v.variants > 1) el.innerHTML = Array.from({ length: v.variants }, (_, i) => `<button class="ok" onclick="postLinkedIn(${id},'${p}',${i + 1})">Post variant ${i + 1}</button>`).join(""); }).catch(() => {}); });
+}
+const WHY_ORDER = ["a client or contact is waiting for a reply", "proposal", "job application", "post", "internal change"];
+function groupApprovals(list) { const rank = a => { const w = a.why || "other"; const i = WHY_ORDER.findIndex(k => w.startsWith(k)); return i < 0 ? WHY_ORDER.length : i; }; return [...list].sort((x, y) => rank(x) - rank(y) || (x.why || "").localeCompare(y.why || "") || y.id - x.id); }
+async function copyFile(p) { try { const r = await (await fetch("/api/file?path=" + encodeURIComponent(p))).json(); await navigator.clipboard.writeText(r.content || ""); toast("Copied: paste it into LinkedIn"); } catch (e) { toast("Copy failed: " + e); } }
+
+async function postLinkedIn(id, path, variant) {
+  if (!confirm(`Publish ${variant ? "variant " + variant : "this post"} to your LinkedIn profile now?`)) return;
+  const r = await (await fetch("/api/linkedin/post", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, path, variant }) })).json();
   toast(r.posted ? "Posted to LinkedIn" : (r.error || "failed")); if (r.url && r.posted) window.open(r.url, "_blank"); refreshState();
 }
 async function toggleApproval(id) {

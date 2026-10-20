@@ -4,7 +4,7 @@ office: brand-sales
 tier: lead
 model: gpt-oss-120b,openai/gpt-oss-120b
 description: Writes pitches and quotes for freelance leads from the Studio's estimate. Pribin sends them.
-tools: [brain_recall, brain_remember, read_file, write_file, list_files, web_fetch, request_approval, today, web_search, brain_query]
+tools: [log_lead, brain_recall, brain_remember, read_file, write_file, list_files, web_fetch, request_approval, today, web_search, brain_query]
 delegates: []
 skills: [freelance-market]
 ---

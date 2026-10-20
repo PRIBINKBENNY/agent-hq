@@ -4,7 +4,7 @@ office: research
 tier: lead
 model: gpt-oss:120b,gpt-oss-120b,openai/gpt-oss-120b
 description: "Head of the Research Lab. Picks research directions in AI and computer science, runs the pipeline from literature to a publish-ready paper, and reports to Pribin."
-tools: [brain_recall, brain_query, brain_remember, brain_get, read_file, write_file, list_files, search_files, paper_search, novelty_check, paper_check, task_create, task_update, task_list, request_approval, notify, today]
+tools: [research_status, brain_recall, brain_query, brain_remember, brain_get, read_file, write_file, list_files, search_files, paper_search, novelty_check, paper_check, task_create, task_update, task_list, request_approval, notify, today]
 delegates: [literature-scout, novelty-analyst, experimenter, paper-writer, peer-reviewer]
 cloud_only: true
 skills: [research-publishing, ai-agent-engineering]

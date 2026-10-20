@@ -120,6 +120,11 @@ reports weekly in the board pack. A paper reaching "ready" becomes an approval: 
 Agents never submit anywhere. Directions: agent memory and coordination, evaluation of tool-using agents, small and
 local models, vision for robotics, agent safety.
 
+**Plagiarism guards.** `paper_check` also runs an overlap check (8-word shingles of the paper against every paper text
+the lab has ever read with `paper_read`, cached under `workspace/research/.sources/`; quoted passages are exempt) and a web
+quote search of the paper's most distinctive sentences. Either flag blocks `paper_build`; the writer must rewrite in its
+own words or quote and cite.
+
 ## The CEO layer: from busy to profitable
 
 The office is judged by outcomes, not activity (`office/ceo.py`):
@@ -367,6 +372,29 @@ Your own notes outside that folder are never touched.
 - **`Inbox/`: notes from you to the office.** Drop any `.md` there (optional frontmatter `kind`, `tags`,
   `importance`, `namespace`); within the hour it is stored in the brain, every agent can recall it, and the
   file moves to `Inbox/Done/`.
+
+## October 2026 additions: browser agent, model routing, security, portable skills, traces
+
+- **Browser agent** (`office/browser.py`, Playwright + local Chromium, free). `browser_read` returns what a real browser
+  renders plus an inventory of a page's form fields; `browser_prefill` opens a job application form in a VISIBLE Chromium
+  window that stays open, fills it from the application pack and Pribin's profile, attaches the CV, screenshots, and
+  stops. Nothing is ever submitted by code: Pribin reviews the window and presses the site's own button. Job boards whose
+  terms forbid automated applications are blocked; company career pages and applicant-tracking systems are fine.
+  "Pre-fill form" button on tailored jobs in both apps. Setup: `pip install playwright && python -m playwright install chromium`.
+- **Model routing by measurement.** The weekly eval's pass rate per model reorders the provider chains: a model under
+  60% on three or more tasks moves behind the others. New free models in the chains: Nemotron 3.5 Lightning and
+  Nemotron 3 Nano Omni (OpenRouter), Nemotron 3 Ultra and Nano 30B (Ollama Cloud).
+- **Secrets never leak.** Every tool result and final answer passes `redact_secrets`: the real values of every
+  `*_KEY/_SECRET/_TOKEN/_PASSWORD` in the environment and anything shaped like a credential become `[REDACTED]`.
+- **Content-safety second opinion.** `mail_read` labels each inbound message with NVIDIA's free content-safety model
+  (OpenRouter); a message flagged unsafe is withheld from the agent with a note for Pribin.
+- **Monthly OWASP agentic audit.** The compliance officer checks the office against the OWASP Top 10 for Agentic
+  Applications (guide `agentic-security-audit`) and writes `workspace/ops/security-audit-<month>.md`.
+- **Portable skills.** `python office/skills_export.py` writes every guide as `skills/<slug>/SKILL.md` (Agent Skills
+  format: name + description frontmatter), installable into Claude Code or any SKILL.md reader; refreshed every Friday.
+- **Traces.** `/api/trace?run_id=` returns a run as an OpenTelemetry (OTLP/JSON) trace built from the event log; the
+  dashboard's run history has a "Trace" button that draws the waterfall. `python office/traces.py --export` writes
+  `office/logs/traces/*.json` for Phoenix or Langfuse.
 
 ## Operating it
 

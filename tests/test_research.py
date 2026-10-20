@@ -79,3 +79,35 @@ def test_board_pack_writes_the_weekly_file(tmp_path, monkeypatch):
     monkeypatch.setattr(push, "send", lambda *a, **k: {"sent": 1}); monkeypatch.setattr(tools, "notify", lambda *a: "ok")
     r = ceo.board_pack(); text = (tmp_path / r["file"]).read_text()
     assert "# Board pack" in text and "## Money" in text and "Research Lab (head: research-lead)" in text
+
+
+def test_overlap_check_flags_copied_passage_but_not_paraphrase():
+    import research as R
+    src = ("We propose a shared memory architecture in which each agent writes short factual notes after every task and "
+           "retrieves the most relevant notes before acting, which reduces duplicated work across the team by a large margin.")
+    copied = "Background. " + src + " Our setting differs in scale."
+    para = ("Agents in our office record a brief note when a task ends and look up related notes first; this cut repeated effort.")
+    bad = R.overlap_check(copied, {"2610.1": src})
+    assert not bad["ok"] and bad["flagged"][0]["source"] == "2610.1" and bad["flagged"][0]["longest_run_words"] >= 20
+    good = R.overlap_check(para, {"2610.1": src})
+    assert good["ok"] and not good["flagged"]
+    quoted = 'As they put it, "' + src + '" [@x].'
+    assert R.overlap_check(quoted, {"2610.1": src})["ok"]
+
+
+def test_quote_check_uses_search_and_flags_verbatim_hits():
+    import research as R
+    paper = ("# Title\nIntro text. Our office of forty two agents records every handoff between agents in a shared SQLite brain and "
+             "we measure how recall latency changes the chance that the receiving agent continues correctly without asking again. "
+             "Short line. Another distinctive sentence about measuring handoff fidelity in production logs of a small agent office.")
+    calls = []
+    def search(phrase):
+        calls.append(phrase)
+        return ["Blog: our office of forty two agents records every handoff between agents in a shared sqlite brain and we measure ..."] if "forty two" in phrase else []
+    r = R.quote_check(paper, search=search, k=3)
+    assert calls and not r["ok"] and r["flagged"][0]["sentence"].startswith("Our office of forty two")
+    def nothing(phrase): return []
+    assert R.quote_check(paper, search=nothing, k=3)["ok"]
+    def broken(phrase): raise RuntimeError("rate limited")
+    rr = R.quote_check(paper, search=broken, k=2)
+    assert not rr["ok"] and rr["checked"] == 0 and rr["errors"]

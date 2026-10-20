@@ -4,7 +4,7 @@ office: research
 tier: lead
 model: gpt-oss:120b,gpt-oss-120b,openai/gpt-oss-120b
 description: "Finds the gap: turns a literature map into a precise, testable research question that existing work has not answered, checks its novelty, and writes the proposal with the experiment plan."
-tools: [brain_recall, brain_query, brain_remember, read_file, write_file, list_files, search_files, paper_search, paper_read, novelty_check, bib_add, task_create, today]
+tools: [research_status, brain_recall, brain_query, brain_remember, read_file, write_file, list_files, search_files, paper_search, paper_read, novelty_check, bib_add, task_create, today]
 delegates: []
 cloud_only: true
 skills: [research-publishing, ai-agent-engineering]

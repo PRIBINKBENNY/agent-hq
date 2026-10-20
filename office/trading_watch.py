@@ -40,6 +40,31 @@ def market_open(epic: str) -> bool:
         return False
 
 
+SMALL_BALANCE = 100.0   # below this a 1% risk slice cannot buy the broker's minimum size on most markets
+
+
+def _balance():
+    try:
+        return float(json.loads(tools.registry.call("capital_account", {}, agent="trading-watch")).get("available") or 0)
+    except Exception:
+        return None
+
+
+def _nudge_funds(st: dict, balance: float):
+    """Once a day: tell Pribin the demo account is too small to trade the rules. Resetting demo funds is his action."""
+    today = time.strftime("%Y-%m-%d")
+    if st.get("funds_nudged") == today:
+        return
+    st["funds_nudged"] = today
+    try:
+        tools.registry.call("notify", {"title": "Trading desk: demo balance too small",
+                                       "message": f"Capital.com DEMO balance is GBP {balance:.2f}. 1% risk per trade cannot cover the minimum deal size, so "
+                                                  "every signal is vetoed. Reset or top up the demo funds in Capital.com (free) and trades will start."},
+                            agent="trading-watch")
+    except Exception:
+        pass
+
+
 def watch() -> dict:
     st = _load(); seen = st.setdefault("proposed", {}); out = {"ts": time.strftime("%Y-%m-%d %H:%M"), "proposed": [], "skipped_closed": [], "positions": 0}
     scan = json.loads(tools.signal_scan())
@@ -58,8 +83,18 @@ def watch() -> dict:
         lines = "\n".join(f"- {p['strategy']}: {p['signal']} {p['epic']} entry {p['entry']} stop {p['stop']} target {p['target']} "
                           f"RR {p['rr']} size for 1% risk {p.get('size_for_1pct_risk')} ({p['reason']})" for p in fresh)
         valid_until = time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time() + 2 * 3600))
+        names = ", ".join(sorted({p["strategy"] for p in fresh}))
+        balance = (scan.get("limits") or {}).get("balance") or _balance()
+        funds = ""
+        if balance is not None and balance < SMALL_BALANCE:
+            funds = (f"\nACCOUNT NOTE: the DEMO balance is only GBP {balance:.2f}; 1% risk is GBP {balance / 100:.2f}, which may be below the "
+                     "broker's minimum deal size. If the minimum size breaks the 1% rule, VETO with 'min size > 1% risk' and say so; Pribin has been "
+                     "asked to reset the demo funds.")
+            _nudge_funds(st, balance)
         tools.brain.task_create(f"Risk review: {', '.join(p['epic'] + ' ' + p['signal'] for p in fresh)} (signal fired)",
                                 "The hourly watch found fresh signals from APPROVED strategies on OPEN markets, within the desk limits:\n" + lines +
+                                f"\n\nAPPROVAL VERIFIED BY CODE at {out['ts']}: {names} are status 'approved' in the strategy registry (strategy_list is the "
+                                "only source of truth). Do NOT veto on approval grounds; any brain memory saying otherwise is stale." + funds +
                                 f"\n\nVALID UNTIL {valid_until} London time: after that the signal is stale and must NOT be traded.\n"
                                 "Risk officer, follow your process for each signal: check the rules, then brain_remember the verdict as "
                                 "kind='decision', tags ['risk', '<epic>'], content starting 'APPROVE: <BUY/SELL> <size> <epic> stop <x> target <y>' "

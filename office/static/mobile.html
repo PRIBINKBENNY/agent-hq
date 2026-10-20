@@ -44,6 +44,7 @@
   .pre { white-space:pre-wrap; font: 12px/1.5 ui-monospace, Menlo, monospace; color:var(--ink-2); padding:12px 14px; max-height:50vh; overflow:auto; }
   .row { display:flex; gap:8px; padding: 10px 14px; } .row button { flex:1; background:var(--panel-2); border:1px solid var(--line); color:var(--ink); padding:10px; border-radius:10px; font-size:13px; }
   .kv { display:grid; grid-template-columns:1fr auto auto; gap: 3px 10px; padding: 10px 14px; font-size:13px; } .kv .k { color:var(--ink-2);} .kv .v { text-align:right;} .kv .t { color:var(--ink-3); text-align:right;} .kv .hit{color:var(--done)} .kv .miss{color:var(--tool)}
+.agroup{margin:12px 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;opacity:.7}
 </style>
 </head>
 <body>
@@ -86,16 +87,19 @@ async function refresh() {
   $("#engine").textContent = (s.engine.providers || []).join(" → ") + " → ollama";
   const pz = s.paused || {}; const b = $("#banner"); b.style.display = pz.paused ? "block" : "none"; if (pz.paused) b.textContent = "OFFICE PAUSED" + (pz.reason ? " · " + pz.reason : "") + ". Nothing new starts until you resume.";
   $("#pausebtn").textContent = pz.paused ? "▶ Resume office" : "⏸ Pause office"; $("#pausebtn").dataset.paused = pz.paused ? "1" : "";
-  $("#approvals").innerHTML = s.approvals.length ? s.approvals.map(a => {
+  $("#approvals").innerHTML = s.approvals.length ? groupApprovals(s.approvals).map((a, i, arr) => { const head = (!i || arr[i - 1].why !== a.why) ? `<div class="agroup">${esc(a.why || "other")} · ${arr.filter(x => x.why === a.why).length}</div>` : "";
     const paths = [...new Set((a.content.match(/(?:workspace\/)?([\w./-]+\/[\w.-]+\.(?:md|pdf))/g) || []).map(p => p.replace(/^workspace\//, "")))];
     const qa = a.tags.includes("qa-pass") ? `<span class="st pass">QA pass</span>` : a.tags.includes("qa-fail") ? `<span class="st fail">QA fail</span>` : a.tags.includes("qa-queued") ? `<span class="st queued">QA pending</span>` : "";
     const isApp = a.tags.includes("application") || /cv|cover letter|application/i.test(a.content);
     const isPost = /linkedin/i.test(a.content) && !a.tags.includes("posted");
-    const postBtns = isPost ? paths.filter(p => p.includes("posts/")).map(p => `<button class="ok" onclick="postLinkedIn(${a.id},'${esc(p)}')">Post ${esc(p.split("/").pop().replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(".md", ""))}</button>`).join("") : "";
-    return `<div class="item" id="appr-${a.id}"><div class="who">#${a.id} · ${esc(a.agent)} · ${esc(a.created)}</div>${qa}${esc(a.content.replace(/^(QA: \w+ - )?PENDING APPROVAL from [\w-]+: /, ""))}
+    const isNet = a.agent === "networker"; const profiles = isNet ? [...new Set((a.content.match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/[\w%-]+/g) || []))] : [];
+      const netBtns = isNet ? paths.filter(p => p.includes("networking/")).map(p => `<button class="view" onclick="copyFile('${esc(p)}')">Copy ${esc(p.split("/").pop().replace(".md", ""))}</button>`).join("") + profiles.map(u => `<button class="ok" onclick="window.open('${esc(u)}','_blank')">Open profile</button>`).join("") : "";
+      const postBtns = isPost ? paths.filter(p => p.includes("posts/")).map(p => `<span class="postset" data-id="${a.id}" data-path="${esc(p)}"><button class="ok" onclick="postLinkedIn(${a.id},'${esc(p)}')">Post ${esc(p.split("/").pop().replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(".md", ""))}</button></span>`).join("") : "";
+    return `${head}<div class="item" id="appr-${a.id}"><div class="who">#${a.id} · ${esc(a.agent)} · ${esc(a.created)}</div>${qa}${esc(a.content.replace(/^(QA: \w+ - )?PENDING APPROVAL from [\w-]+: /, ""))}
       <div><button class="more" onclick="toggleApproval(${a.id})">Show details</button></div><div class="det"></div>
-      <div class="btns"><button class="ok" onclick="act('/api/approve',{id:${a.id},decision:'approved'},'Approved')">Approve</button>${isApp ? `<button class="ok" onclick="act('/api/applied',{id:${a.id}},'Marked applied')">I applied</button>` : ""}${postBtns}<button class="no" onclick="act('/api/approve',{id:${a.id},decision:'rejected'},'Rejected')">Reject</button>${paths.map(p => `<button class="view" onclick="view('${esc(p)}')">${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
+      <div class="btns"><button class="ok" onclick="act('/api/approve',{id:${a.id},decision:'approved'},'Approved')">Approve</button>${isApp ? `<button class="ok" onclick="act('/api/applied',{id:${a.id}},'Marked applied')">I applied</button>` : ""}${postBtns}${netBtns}<button class="no" onclick="act('/api/approve',{id:${a.id},decision:'rejected'},'Rejected')">Reject</button>${paths.map(p => `<button class="view" onclick="view('${esc(p)}')">${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
     : `<div class="empty">Nothing waiting.</div>`;
+  expandPostSets();
   const open = s.tasks.filter(t => ["queued","running","blocked"].includes(t.status)); $("#task-sp").textContent = open.length ? open.length + " open" : "";
   $("#tasks").innerHTML = s.tasks.length ? s.tasks.slice(0, 12).map(t => `<div class="item"><span class="st ${esc(t.status)}">${esc(t.status)}</span>${esc(t.title)}<div class="meta">${esc(t.owner)} · ${esc(t.created)}${t.result ? " · " + esc(String(t.result).slice(0, 120)) : ""}</div></div>`).join("") : `<div class="empty">No tasks.</div>`;
   const dg = s.memories.find(m => m.tags.includes("digest")); $("#digest").textContent = dg ? dg.content : "No digest yet today. The Chief of Staff writes one at 08:30."; $("#digest-sp").textContent = dg ? dg.created : "";
@@ -105,7 +109,7 @@ async function refreshJobs() {
   $("#jobs-sp").textContent = jobs.length ? jobs.length + " open" : "";
   $("#jobs").innerHTML = jobs.length ? jobs.map(j => `<div class="item"><span class="st ${esc(j.status)}">${esc(j.status)}</span><b>${esc(j.title)}</b> · ${esc(j.company)} · fit ${j.fit}/5
       <div class="meta">${esc(j.location)}${j.posted && j.posted !== "n/a" ? " · posted " + esc(j.posted) : ""}${j.needs ? "<br>Needs: " + esc(j.needs) : ""}</div>
-      <div class="btns">${j.url ? `<button class="ok" onclick="window.open('${esc(j.url)}','_blank')">Open posting</button>` : ""}${j.application ? `<button class="view" onclick="view('${esc(j.application.cv)}')">CV</button>` : `<button onclick="jobAct(${j.id},'tailor')">Tailor CV</button>`}${j.status !== "applied" ? `<button class="ok" onclick="jobStatus(${j.id},'applied')">I applied</button>` : ""}<button class="no" onclick="jobStatus(${j.id},'dismissed')">Dismiss</button></div></div>`).join("")
+      <div class="btns">${j.url ? `<button class="ok" onclick="window.open('${esc(j.url)}','_blank')">Open posting</button>` : ""}${j.application ? `${j.url ? `<button class="ok" onclick="jobAct(${j.id},'prefill')">Pre-fill form</button>` : ""}<button class="view" onclick="view('${esc(j.application.cv)}')">CV</button>${j.application.pdf ? `<button class="view" onclick="view('${esc(j.application.pdf)}')">PDF</button>` : ""}${j.application.letter ? `<button class="view" onclick="view('${esc(j.application.letter)}')">Letter</button>` : ""}` : `<button onclick="jobAct(${j.id},'tailor')">Tailor CV</button>`}${j.status !== "applied" ? `<button class="ok" onclick="jobStatus(${j.id},'applied')">I applied</button>` : ""}<button class="no" onclick="jobStatus(${j.id},'dismissed')">Dismiss</button></div></div>`).join("")
     : `<div class="empty">No open jobs yet.</div>`;
 }
 async function jobAct(id, action) { const r = await api("/api/jobs", { id, action }); toast(r.task ? `Queued as task #${r.task}` : (r.error || "done")); }
@@ -115,7 +119,12 @@ async function refreshStats() {
   const rows = ["applications_tailored","applications_marked_applied","contacts_logged","proposals_drafted","posts_approved","mock_interviews","commits_on_github"];
   $("#scorecard").innerHTML = `<div class="kv">${rows.map(k => { const v = c[k] ?? "–", tg = t[k]; const cls = tg ? (Number(v) >= Number(tg) ? "hit" : "miss") : ""; return `<span class="k">${esc(k.replace(/_/g," "))}</span><span class="v ${cls}">${esc(v)}</span><span class="t">${tg ? "/ " + esc(tg) : ""}</span>`; }).join("")}</div>`;
 }
-async function postLinkedIn(id, path) { if (!confirm("Publish this variant to LinkedIn now?")) return; const r = await api("/api/linkedin/post", { id, path }); toast(r.posted ? "Posted to LinkedIn" : (r.error || "failed")); refresh(); }
+const WHY_ORDER = ["a client or contact is waiting for a reply", "proposal", "job application", "post", "internal change"];
+function groupApprovals(list) { const rank = a => { const w = a.why || "other"; const i = WHY_ORDER.findIndex(k => w.startsWith(k)); return i < 0 ? WHY_ORDER.length : i; }; return [...list].sort((x, y) => rank(x) - rank(y) || (x.why || "").localeCompare(y.why || "") || y.id - x.id); }
+async function copyFile(p) { try { const r = await (await fetch("/api/file?path=" + encodeURIComponent(p))).json(); await navigator.clipboard.writeText(r.content || ""); toast("Copied: paste it into LinkedIn"); } catch (e) { toast("Copy failed: " + e); } }
+
+async function postLinkedIn(id, path, variant) { if (!confirm(`Publish ${variant ? "variant " + variant : "this post"} to LinkedIn now?`)) return; const r = await api("/api/linkedin/post", { id, path, variant }); toast(r.posted ? "Posted to LinkedIn" : (r.error || "failed")); refresh(); }
+function expandPostSets() { document.querySelectorAll(".postset:not([data-done])").forEach(el => { el.dataset.done = 1; const p = el.dataset.path, id = el.dataset.id; api("/api/linkedin/variants?path=" + encodeURIComponent(p)).then(v => { if (v.variants > 1) el.innerHTML = Array.from({ length: v.variants }, (_, i) => `<button class="ok" onclick="postLinkedIn(${id},'${p}',${i + 1})">Post v${i + 1}</button>`).join(""); }).catch(() => {}); }); }
 async function toggleApproval(id) {
   const card = document.getElementById("appr-" + id); const det = card.querySelector(".det"); const btn = card.querySelector(".more");
   if (card.classList.contains("open")) { card.classList.remove("open"); btn.textContent = "Show details"; return; }

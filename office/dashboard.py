@@ -197,15 +197,28 @@ async def api_linkedin_status(_: Request):
     return JSONResponse(linkedin.status())
 
 
+async def api_post_variants(request: Request):
+    """How many variants a post draft holds (so the apps show one Post button per variant)."""
+    from tools import post_variants, _safe
+    path = request.query_params.get("path") or ""
+    try:
+        p = _safe(path)
+        n = len(post_variants(p.read_text())) if p.exists() and "/posts/" in str(p) else 0
+    except Exception:
+        n = 0
+    return JSONResponse({"path": path, "variants": n})
+
+
 async def api_linkedin_post(request: Request):
     """The 'Post to LinkedIn' button: Pribin posts an approved draft himself from the dashboard or phone."""
     body = await request.json()
     from tools import registry as _reg
-    mid = int(body.get("id")); path = body.get("path") or ""
+    mid = int(body.get("id")); path = body.get("path") or ""; variant = body.get("variant")
     m = brain.get(mid)
     if "approved" not in m.tags:   # pressing the button is the approval
         brain.update(mid, agent="pribin", content=m.content.replace("PENDING APPROVAL", "APPROVED", 1), tags=[t for t in m.tags if t != "pending"] + ["approved"])
-    r = await asyncio.to_thread(_reg.call, "linkedin_post", {"approval_id": mid, "path": path}, "pribin")
+    args = {"approval_id": mid, "path": path, **({"variant": int(variant)} if variant else {})}
+    r = await asyncio.to_thread(_reg.call, "linkedin_post", args, "pribin")
     try:
         return JSONResponse(json.loads(r))
     except Exception:
@@ -394,6 +407,15 @@ async def api_tasks(request: Request):
     return JSONResponse({"error": "unknown action"}, status_code=400)
 
 
+async def api_trace(request: Request):
+    """One run as an OpenTelemetry trace (plus a flat waterfall for the dashboard)."""
+    import traces
+    rid = (request.query_params.get("run_id") or "").strip()
+    if not rid or not rid.replace("-", "").isalnum():
+        return JSONResponse({"error": "run_id?"}, status_code=400)
+    return JSONResponse(await asyncio.to_thread(traces.spans_for_run, rid))
+
+
 async def api_runs(_: Request):
     return JSONResponse(await asyncio.to_thread(_read_runs))
 
@@ -543,6 +565,14 @@ async def api_embed(request: Request):
     return JSONResponse({"vectors": vecs})
 
 
+async def api_research(_: Request):
+    """The lab's projects by stage, with 'ready' = PDF built and reviewer score >= 7 (Pribin submits; the office never does)."""
+    from tools import research_status_table
+    rows = await asyncio.to_thread(research_status_table)
+    backlog = (WORKSPACE / "research" / "BACKLOG.md")
+    return JSONResponse({"projects": rows, "backlog": backlog.read_text()[:4000] if backlog.exists() else ""})
+
+
 async def api_outcomes(request: Request):
     import ceo
     days = int(request.query_params.get("days", "30"))
@@ -687,6 +717,16 @@ async def api_jobs(request: Request):
                               f"Tailor my CV and write a cover letter for job #{jid}: {j.content}. Use job_details once on {meta.get('url', '')}, run cv_truth_check, export PDFs, request approval, then job_status(job_id={jid}, status='tailored').",
                               owner="application-tailor", created_by="pribin", priority=4, source="ui")
         return JSONResponse({"task": t["id"]})
+    if action == "prefill":
+        j = brain.get(jid); meta = j.meta or {}
+        if not meta.get("url"):
+            return JSONResponse({"error": "this job has no application URL"}, status_code=400)
+        t = brain.task_create(f"Pre-fill application form for {meta.get('company', '?')}"[:120],
+                              f"Pre-fill the application form for job #{jid} ({meta.get('title')} at {meta.get('company')}): browser_read {meta.get('url')} "
+                              "to list the fields, then browser_prefill with real values from the application pack and Pribin's profile. Leave the window "
+                              "open and report what was filled and what was left blank. Never submit.",
+                              owner="application-tailor", created_by="pribin", priority=5, source="ui")
+        return JSONResponse({"task": t["id"]})
     if action == "prep":
         j = brain.get(jid); meta = j.meta or {}
         t = brain.task_create(f"Interview prep for {meta.get('company', '?')}"[:120], f"Build the interview prep pack for job #{jid}: {j.content}", owner="interview-coach", created_by="pribin", priority=3, source="ui")
@@ -741,12 +781,15 @@ app = Starlette(middleware=[Middleware(AuthMiddleware)], routes=[
     Route("/linkedin/callback", linkedin_callback),
     Route("/api/linkedin/status", api_linkedin_status),
     Route("/api/linkedin/post", api_linkedin_post, methods=["POST"]),
+    Route("/api/linkedin/variants", api_post_variants),
     Route("/api/push/subscribe", api_push_subscribe, methods=["POST"]),
     Route("/api/push/test", api_push_test, methods=["POST"]),
     Route("/", index),
     Route("/favicon.ico", favicon),
     Route("/api/embed", api_embed, methods=["POST"]),
     Route("/api/outcomes", api_outcomes),
+    Route("/api/research", api_research),
+    Route("/api/trace", api_trace),
     Route("/api/deal", api_deal, methods=["POST"]),
     Route("/api/state", api_state),
     Route("/api/events", api_events),

@@ -4,7 +4,7 @@ office: research
 tier: lead
 model: gpt-oss:120b,gpt-oss-120b,openai/gpt-oss-120b
 description: "Runs the experiments in a research proposal on free compute: writes the code, runs it with seeds, and logs the real results."
-tools: [brain_recall, brain_remember, read_file, write_file, list_files, search_files, run_python, run_shell, run_tests, experiment_log, task_create, today]
+tools: [research_status, brain_recall, brain_remember, read_file, write_file, list_files, search_files, run_python, run_shell, run_tests, experiment_log, task_create, today]
 delegates: []
 cloud_only: true
 skills: [python-engineering, testing-and-quality, research-publishing]
