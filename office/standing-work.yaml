@@ -338,3 +338,39 @@
   title: 'Lab: review the next draft'
   task: 'Review: read research/STATUS.md; review the first project at stage "review" that has no review.md newer than its
     paper.md. If none, say so in one line.'
+# ---- new hires 2026-10-20 (Pribin): client success, books, compliance, support, data
+- name: client-care
+  agent: client-success
+  every_hours: 24
+  priority: 4
+  title: 'Client success: onboarding, check-ins, follow-ups'
+  task: 'Client care: for every deal in the brain (sent, won, paid) do the next step in your process: onboarding for new wins,
+    the weekly check-in, the delivery handover, or the 14-day follow-up. Draft only; request approval for each email.'
+- name: books
+  agent: bookkeeper
+  every_hours: 24
+  priority: 3
+  title: 'Books: reconcile deals, invoices, monthly P&L'
+  task: 'Books: reconcile deals in the brain against workspace/finance/ledger.csv, draft any missing invoice for approval,
+    update this month''s P&L, and list anything overdue in 3 lines.'
+- name: compliance-sweep
+  agent: compliance-officer
+  every_hours: 24
+  priority: 3
+  title: 'Compliance sweep: proposals, outbox, posts, delivered projects'
+  task: 'Compliance sweep: review what is new since your last sweep in proposals/, outbox/, posts/ and delivered projects;
+    record issues with severity and the exact fix; request approval for anything high severity.'
+- name: support-sweep
+  agent: support-agent
+  every_hours: 6
+  priority: 4
+  title: 'Support: client messages and open tickets'
+  task: 'Support sweep: check the inbox for client messages about delivered projects, answer from the project docs (draft for
+    approval), escalate bugs to the debugger, and chase open tickets older than 2 days.'
+- name: data-task
+  agent: data-engineer
+  every_hours: 12
+  priority: 2
+  title: 'Data: next pipeline or the office analytics dataset'
+  task: 'Data task: take the oldest open data task from the roadmap or the Studio; if none, advance the office-analytics
+    dataset (clean, documented tables from office/logs for the Research Lab and the COO) one step, with a test and a README.'

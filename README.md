@@ -351,6 +351,23 @@ in `.env`, restart. From then on:
   `MAIL_DAILY_CAP` (20) a day, `MAIL_BLOCKLIST`, no placeholder text, every send logged to
   `office/logs/mail_sent.jsonl` and the brain.
 
+## Obsidian: every note the office has, in your vault
+
+`python office/obsidian.py` (and the hourly `obsidian-sync` job) writes the office's knowledge as plain Markdown into
+one folder of your vault, `Agent HQ/` (vault path: `OBSIDIAN_VAULT` in `.env`, default `~/Movies/ai employee`).
+Your own notes outside that folder are never touched.
+
+- `Brain/<kind>/` one note per memory with frontmatter (id, kind, agent, tags, created) and `[[links]]` to the
+  agent and to any company, contact or project it is tagged with; brain tags become Obsidian tags
+  (`#company/trainline`, `#status/applied`). Incremental: only memories changed since the last sync are rewritten.
+- `Agents/` and `Departments/`: who everyone is, their tools, skill guides and instructions; each department's
+  mission, head, KPIs and members.
+- `Daily/<date>.md`: approvals waiting and what finished today; the approval digest and the Monday board packs.
+- `Research/` the lab's proposals, literature, papers and reviews; `Pipeline/` jobs, clients, roadmap, offer, trading plan.
+- **`Inbox/`: notes from you to the office.** Drop any `.md` there (optional frontmatter `kind`, `tags`,
+  `importance`, `namespace`); within the hour it is stored in the brain, every agent can recall it, and the
+  file moves to `Inbox/Done/`.
+
 ## Operating it
 
 ```bash

@@ -17,12 +17,12 @@ departments:
     name: Studio
     head: studio-lead
     mission: Build client work and demos on free stacks.
-    kpis: [client jobs scoped, builds delivered, review pass rate]
+    kpis: [client jobs scoped, builds delivered, review pass rate, support tickets closed]
   - key: brand-sales
     name: Brand & Sales
     head: proposal-writer
     mission: Win paid freelance work and build Pribin's public profile.
-    kpis: [leads found, proposals sent, proposals won, revenue GBP, posts published]
+    kpis: [leads found, proposals sent, proposals won, revenue GBP, posts published, repeat clients]
   - key: trading
     name: Trading Desk
     head: trading-learner
@@ -37,7 +37,7 @@ departments:
     name: Operations
     head: coo
     mission: Keep the office healthy, cheap and honest.
-    kpis: [tasks done, failure rate, tokens per outcome, approvals waiting]
+    kpis: [tasks done, failure rate, tokens per outcome, approvals waiting, invoices paid, compliance issues open]
   - key: front-desk
     name: Front Desk
     head: chief-of-staff
