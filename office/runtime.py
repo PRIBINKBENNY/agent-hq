@@ -34,7 +34,7 @@ from events import emit  # noqa: E402
 
 AGENTS_DIR = ROOT / "office" / "agents"
 SKILLS_DIR = ROOT / "office" / "skills"          # current-practice guides, changed only through Pribin-approved updates
-UNIVERSAL_SKILLS = ["llm-security"]              # every agent gets these
+UNIVERSAL_SKILLS = ["company-handbook", "llm-security"]   # every agent gets these
 LOG_DIR = ROOT / "office" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 

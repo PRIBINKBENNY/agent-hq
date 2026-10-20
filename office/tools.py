@@ -961,7 +961,7 @@ def linkedin_post(approval_id: int, path: str, _agent="unknown"):
 
 
 # ---------------------------------------------------------------- COO: oversight and self-optimisation (bounded)
-KNOB_BOUNDS = {"max_parallel": (1, 31), "run_token_budget": (30000, 120000), "max_turns": (10, 30), "standing_budget_fraction": (0.1, 0.6), "task_wall_seconds": (600, 3600),
+KNOB_BOUNDS = {"max_parallel": (1, 31), "run_token_budget": (60000, 150000), "max_turns": (10, 30), "standing_budget_fraction": (0.1, 0.6), "task_wall_seconds": (900, 3600),
                "standing_per_hour": (0, 8), "min_free_gb": (0.3, 3.0)}
 TUNING_FILE = ROOT / "office" / "tuning.json"
 STANDING_FILE = ROOT / "office" / "standing-work.yaml"
@@ -1040,7 +1040,7 @@ def tune(knob: str, reason: str, value: float | None = None, enabled: bool | Non
         items = yaml.safe_load(STANDING_FILE.read_text()) or []
         it = next((i for i in items if i["name"] == name), None)
         if not it:
-            return f"refused: no standing item '{name}'"
+            return f"refused: no standing item '{name}'. Existing items: {', '.join(i['name'] for i in items)}. New items are created by Pribin, not by tune."
         if value is not None:
             if not (1 <= float(value) <= 168):
                 return "refused: every_hours must be 1-168"
@@ -1866,3 +1866,219 @@ def search_files(query: str, path: str = ".", max_results: int = 40):
         except Exception:
             continue
     return "\n".join(hits) if hits else f"no matches for '{query}' in {path}"
+
+
+# ---------------------------------------------------------------- Research Lab: search, read, bibliography, guards, build
+RESEARCH_DIR = WORKSPACE / "research"
+
+
+def _rdir(slug: str) -> Path:
+    slug = re.sub(r"[^a-z0-9-]", "", (slug or "").lower())
+    if not slug:
+        raise ValueError("project slug must be lowercase-with-hyphens")
+    d = RESEARCH_DIR / slug; d.mkdir(parents=True, exist_ok=True); (d / "experiments").mkdir(exist_ok=True); return d
+
+
+@registry.register("paper_search", "Search the literature (free: arXiv + OpenAlex). Returns title, authors, year, venue, citations, abstract, url, id. "
+                   "source: both | arxiv | openalex. category: arXiv category (cs.AI, cs.CL, cs.CV, cs.LG, cs.RO). sort: newest | cited | relevance.", {
+    "type": "object", "properties": {"query": {"type": "string"}, "source": {"type": "string", "default": "both"}, "max_results": {"type": "integer", "default": 8},
+                                     "category": {"type": "string", "default": ""}, "since_year": {"type": "integer", "default": 0}, "sort": {"type": "string", "default": "relevance"}},
+    "required": ["query"]})
+def paper_search(query: str, source: str = "both", max_results: int = 8, category: str = "", since_year: int = 0, sort: str = "relevance"):
+    import research as R
+    out, errors = [], []
+    if source in ("both", "arxiv"):
+        try:
+            out += R.arxiv_search(query, int(max_results), category, newest=(sort == "newest"))
+        except Exception as e:
+            errors.append(f"arxiv: {str(e)[:100]}")
+    if source in ("both", "openalex"):
+        try:
+            out += R.openalex_search(query, int(max_results), int(since_year), "cited" if sort == "cited" else ("newest" if sort == "newest" else "relevance"))
+        except Exception as e:
+            errors.append(f"openalex: {str(e)[:100]}")
+    for p in out:
+        p["abstract"] = p.get("abstract", "")[:600]
+    return json.dumps({"results": out, "errors": errors}, ensure_ascii=False)
+
+
+@registry.register("paper_read", "Read an arXiv paper's text (HTML rendering, up to max_chars). arxiv_id like 2610.12345.", {
+    "type": "object", "properties": {"arxiv_id": {"type": "string"}, "max_chars": {"type": "integer", "default": 12000}}, "required": ["arxiv_id"]})
+def paper_read(arxiv_id: str, max_chars: int = 12000):
+    import research as R
+    return R.paper_text(arxiv_id, int(max_chars))
+
+
+@registry.register("novelty_check", "Gather the closest existing work to an idea (arXiv + OpenAlex, last 3 years). You judge the overlap; the tool "
+                   "only collects evidence. Save the verdict with the project's proposal.", {
+    "type": "object", "properties": {"idea": {"type": "string", "description": "one sentence: the contribution, in plain words"}}, "required": ["idea"]})
+def novelty_check(idea: str):
+    import research as R
+    r = R.novelty_scan(idea)
+    slim = lambda ps: [{k: p.get(k) for k in ("title", "year", "venue", "cited_by", "url", "id", "source")} | {"abstract": p.get("abstract", "")[:300]} for p in ps]
+    return json.dumps({"arxiv": slim(r["arxiv"]), "openalex": slim(r["openalex"]), "errors": r["errors"]}, ensure_ascii=False)
+
+
+@registry.register("bib_add", "Add papers to a research project's references.bib FROM METADATA (ids from paper_search: arXiv ids like 2610.12345 or "
+                   "OpenAlex ids like W123). Returns the BibTeX keys to cite. References are never typed by hand.", {
+    "type": "object", "properties": {"slug": {"type": "string"}, "ids": {"type": "array", "items": {"type": "string"}}}, "required": ["slug", "ids"]})
+def bib_add(slug: str, ids: list):
+    import research as R
+    d = _rdir(slug); bib = d / "references.bib"; cur = bib.read_text() if bib.exists() else ""; added = []
+    for pid in ids[:30]:
+        pid = str(pid).strip().replace("https://arxiv.org/abs/", "").replace("https://openalex.org/", "")
+        try:
+            if pid.upper().startswith("W") and pid[1:].isdigit():
+                r = httpx_get_json(f"https://api.openalex.org/works/{pid}?mailto={R.MAILTO}")
+                loc = r.get("primary_location") or {}; src = loc.get("source") or {}
+                p = {"source": "openalex", "id": pid, "doi": (r.get("doi") or "").replace("https://doi.org/", ""), "title": R._clean(r.get("title")),
+                     "authors": [R._clean((a.get("author") or {}).get("display_name")) for a in (r.get("authorships") or [])][:8],
+                     "year": str(r.get("publication_year") or ""), "venue": R._clean(src.get("display_name")), "url": loc.get("landing_page_url") or r.get("doi") or ""}
+            else:
+                hits = R.arxiv_search(f"id_list:{pid}", 1) if False else None
+                import xml.etree.ElementTree as ET
+                rr = __import__("httpx").get(R.ARXIV, params={"id_list": pid.split("v")[0] if re.match(r"\d{4}\.\d{4,5}v\d+$", pid) else pid, "max_results": 1}, headers=R.UA, timeout=30)
+                e = ET.fromstring(rr.text).find("a:entry", R.NS)
+                if e is None or not e.findtext("a:title", default="", namespaces=R.NS).strip():
+                    raise ValueError("not found on arXiv")
+                aid = R._clean(e.findtext("a:id", default="", namespaces=R.NS)).rsplit("/abs/", 1)[-1]
+                p = {"source": "arxiv", "id": aid, "title": R._clean(e.findtext("a:title", default="", namespaces=R.NS)),
+                     "authors": [R._clean(a.findtext("a:name", default="", namespaces=R.NS)) for a in e.findall("a:author", R.NS)][:8],
+                     "year": R._clean(e.findtext("a:published", default="", namespaces=R.NS))[:4], "url": f"https://arxiv.org/abs/{aid}"}
+            key = R.bib_key(p)
+            if key not in R.bib_keys(cur):
+                cur += R.bib_entry(p)
+            added.append({"id": pid, "key": key, "title": p["title"][:80]})
+        except Exception as e:
+            added.append({"id": pid, "error": str(e)[:100]})
+    bib.write_text(cur)
+    return json.dumps({"bib": f"research/{d.name}/references.bib", "entries": added, "total_keys": len(R.bib_keys(cur))})
+
+
+def httpx_get_json(url: str) -> dict:
+    import httpx
+    r = httpx.get(url, timeout=30, headers={"User-Agent": "AgentHQ-research/1.0"}); r.raise_for_status(); return r.json()
+
+
+@registry.register("experiment_log", "Record a finished experiment's REAL results: path to a results JSON file written by the code that ran "
+                   "(e.g. research/<slug>/experiments/results.json). Stores a fingerprint so the paper can only cite logged numbers.", {
+    "type": "object", "properties": {"slug": {"type": "string"}, "results_path": {"type": "string"}, "summary": {"type": "string", "description": "2-4 lines: setup, what was measured, headline"}},
+    "required": ["slug", "results_path", "summary"]})
+def experiment_log(slug: str, results_path: str, summary: str, _agent="unknown"):
+    import research as R
+    d = _rdir(slug); p = _safe(results_path)
+    if not p.exists() or p.suffix != ".json":
+        return f"refused: {results_path} is not a results JSON file produced by your experiment code"
+    try:
+        data = json.loads(p.read_text())
+    except Exception as e:
+        return f"refused: results file is not valid JSON ({e})"
+    if p.resolve().parent != (d / "experiments").resolve() and p.resolve() != (d / "experiments" / "results.json").resolve():
+        (d / "experiments" / "results.json").write_text(json.dumps(data, indent=1))
+    log = d / "experiments" / "log.jsonl"
+    with open(log, "a") as f:
+        f.write(json.dumps({"ts": time.strftime("%Y-%m-%d %H:%M"), "agent": _agent, "fingerprint": R.results_fingerprint(data), "summary": summary[:600]}) + "\n")
+    brain.remember(f"Experiment logged for research/{d.name}: {summary[:300]} (results fingerprint {R.results_fingerprint(data)})",
+                   agent=_agent, kind="event", importance=3, tags=["research", f"project:{d.name}", "experiment"], namespace="research")
+    return f"logged: research/{d.name}/experiments/results.json fingerprint {R.results_fingerprint(data)}"
+
+
+@registry.register("paper_check", "The two honesty guards on a research project's paper: every citation key exists in references.bib, and every number in "
+                   "the Results/Experiments section comes from experiments/results.json. Run before review and before approval.", {
+    "type": "object", "properties": {"slug": {"type": "string"}, "paper": {"type": "string", "default": "paper.md", "description": "paper.md or paper.tex"}}, "required": ["slug"]})
+def paper_check(slug: str, paper: str = "paper.md"):
+    import research as R
+    d = _rdir(slug); pp = d / Path(paper).name
+    if not pp.exists():
+        return f"no {paper} in research/{d.name}"
+    text = pp.read_text(); bib = (d / "references.bib").read_text() if (d / "references.bib").exists() else ""
+    res_p = d / "experiments" / "results.json"; results = json.loads(res_p.read_text()) if res_p.exists() else {}
+    c = R.cite_check(text, bib); r = R.results_check(text, results)
+    words = len(re.findall(r"\w+", text))
+    verdict = {"citations": c, "results": r, "words": words, "has_results_file": res_p.exists(),
+               "ok": c["ok"] and r["ok"] and res_p.exists() and r["has_results_section"]}
+    if not res_p.exists():
+        verdict["note"] = "no logged experiment results: a paper without real results cannot pass review"
+    return json.dumps(verdict)
+
+
+@registry.register("paper_build", "Build the PDF of a research project's paper.md (and keep paper.tex for submission). Refuses if paper_check fails.", {
+    "type": "object", "properties": {"slug": {"type": "string"}}, "required": ["slug"]})
+def paper_build(slug: str):
+    d = _rdir(slug); chk = json.loads(paper_check(slug))
+    if not chk.get("ok"):
+        return "refused: paper_check failed: " + json.dumps({k: chk[k] for k in ("citations", "results", "note") if k in chk})[:500]
+    out = export_pdf(f"research/{d.name}/paper.md")
+    return f"{out}; LaTeX source: research/{d.name}/paper.tex" + ("" if (d / "paper.tex").exists() else " (missing: write it)")
+
+
+# ---------------------------------------------------------------- hiring: a new agent is a proposal Pribin approves
+HIRES_DIR = WORKSPACE / "ops" / "hires"
+
+
+@registry.register("propose_hire", "Propose a NEW agent (employee) for the office. Writes a complete brief draft and asks Pribin to approve; "
+                   "the agent exists only after approval. office: an existing department key (job-hunt, pm, studio, brand-sales, trading, research, ops, front-desk).", {
+    "type": "object", "properties": {"name": {"type": "string", "description": "kebab-case, e.g. client-success"}, "office": {"type": "string"},
+                                     "description": {"type": "string"}, "tools": {"type": "array", "items": {"type": "string"}, "description": "only tools that exist (skill_read('') lists guides; the registry lists tools)"},
+                                     "skills": {"type": "array", "items": {"type": "string"}, "default": []}, "instructions": {"type": "string", "description": "the brief body: job, process, rules, report format"},
+                                     "standing_work": {"type": "string", "description": "the recurring task it will own (one paragraph)"}, "why": {"type": "string", "description": "the business case in 2-3 lines"}},
+    "required": ["name", "office", "description", "tools", "instructions", "standing_work", "why"]})
+def propose_hire(name: str, office: str, description: str, tools: list, instructions: str, standing_work: str, why: str, skills: list | None = None, _agent="unknown"):
+    import yaml
+    slug = re.sub(r"[^a-z0-9-]", "", name.lower().replace(" ", "-"))
+    if not slug or (AGENTS_DIR / f"{slug}.md").exists():
+        return f"refused: '{name}' is empty or already exists"
+    org = yaml.safe_load((ROOT / "office" / "org.yaml").read_text()) or {}; keys = {d["key"] for d in org.get("departments", [])}
+    if office not in keys:
+        return f"refused: office must be one of {sorted(keys)}"
+    missing = [t for t in tools if t not in registry.names()]
+    if missing:
+        return f"refused: unknown tools {missing}"
+    risky = [t for t in tools if t in ("capital_open", "capital_close", "capital_update", "mail_send", "mail_reply", "linkedin_post", "git_push", "tune", "apply_proposal", "office_resume")]
+    if risky:
+        return f"refused: a new hire cannot start with outward or admin tools {risky}; Pribin adds those later if needed"
+    bad_skill = [s for s in (skills or []) if not (SKILLS_DIR / f"{s}.md").exists()]
+    if bad_skill:
+        return f"refused: unknown skill guides {bad_skill}"
+    if len(instructions.strip()) < 200:
+        return "refused: instructions are too short to be a job (write the process, rules and report format)"
+    head = ["---", f"name: {slug}", f"office: {office}", "tier: worker", f'description: "{description.strip()[:200]}"', "tools: [" + ", ".join(tools) + "]",
+            "delegates: []", "skills: [" + ", ".join(skills or []) + "]", "---"]
+    brief = "\n".join(head) + "\n" + instructions.strip() + "\n"
+    HIRES_DIR.mkdir(parents=True, exist_ok=True)
+    f = HIRES_DIR / f"{slug}.md"; f.write_text(f"# Hire proposal: {slug}\n\n**Why:** {why.strip()}\n\n**Standing work:** {standing_work.strip()}\n\n## Brief\n\n```\n{brief}```\n")
+    (HIRES_DIR / f"{slug}.brief.md").write_text(brief); (HIRES_DIR / f"{slug}.standing.txt").write_text(standing_work.strip())
+    m = brain.remember(f"PENDING APPROVAL from {_agent}: hire a new agent '{slug}' in {office} at workspace/ops/hires/{slug}.md. Why: {why.strip()[:200]}",
+                       agent=_agent, kind="approval", importance=5, tags=["pending", "hire", f"agent:{slug}", f"office:{office}"])
+    return f"hire proposal saved to ops/hires/{slug}.md; approval #{m.id} requested. The agent exists only after Pribin approves."
+
+
+def apply_hire(approval_id: int, agent: str = "pribin") -> str:
+    """Install an APPROVED hire: brief into office/agents (validated), standing item appended. Called by the dashboard."""
+    import yaml
+    from runtime import load_brief
+    m = brain.get(int(approval_id))
+    if "hire" not in m.tags or "approved" not in m.tags:
+        return "refused: not an approved hire"
+    if "applied" in m.tags:
+        return "already applied"
+    slug = next((t.split(":", 1)[1] for t in m.tags if t.startswith("agent:")), "")
+    src = HIRES_DIR / f"{slug}.brief.md"
+    if not slug or not src.exists() or (AGENTS_DIR / f"{slug}.md").exists():
+        return "refused: brief draft missing or agent already exists"
+    target = AGENTS_DIR / f"{slug}.md"; target.write_text(src.read_text())
+    try:
+        b = load_brief(slug); missing = [t for t in b.tools if t not in registry.names()]
+        if missing:
+            raise ValueError(f"unknown tools {missing}")
+    except Exception as e:
+        target.unlink(missing_ok=True); return f"refused: the brief does not load ({str(e)[:120]})"
+    st = (HIRES_DIR / f"{slug}.standing.txt").read_text() if (HIRES_DIR / f"{slug}.standing.txt").exists() else ""
+    if st:
+        items = yaml.safe_load(STANDING_FILE.read_text()) or []
+        items.append({"name": f"{slug}-work", "agent": slug, "every_hours": 12, "priority": 2, "title": f"{slug}: standing work", "task": st[:900]})
+        STANDING_FILE.write_text("# Standing work (managed partly by the COO; edits are logged in the brain).\n\n" + yaml.safe_dump(items, sort_keys=False, allow_unicode=True, width=110))
+    brain.update(m.id, agent=agent, add_tags=["applied"])
+    brain.remember(f"Hired: new agent '{slug}' installed (approved by Pribin, approval #{m.id}); review after two weeks on outcomes.",
+                   agent=agent, kind="decision", importance=4, tags=["hire", f"agent:{slug}"])
+    return f"hired: {slug} installed with standing work"

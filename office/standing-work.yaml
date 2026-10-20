@@ -294,3 +294,47 @@
     rotate through uk-ml-job-market, cv-and-applications, ml-interviews, ai-agent-engineering, llm-security,
     python-engineering, web-development, mobile-desktop-apps, linkedin, short-video, freelance-market, uk-trading-rules,
     testing-and-quality (take the four with the oldest updated dates).'
+# ---- Research Lab (2026-10-20): literature -> gap -> experiments -> paper -> review; Pribin is the author and submits
+- name: research-pipeline
+  agent: research-lead
+  every_hours: 24
+  priority: 3
+  title: 'Research pipeline: advance each project one stage'
+  task: 'Research pipeline: read research/STATUS.md, advance each active project one stage by delegating to the right
+    specialist, start a new project from research/BACKLOG.md if fewer than 3 are active, update STATUS.md.'
+- name: research-backlog
+  agent: novelty-analyst
+  every_hours: 48
+  priority: 2
+  title: 'Research backlog: three new candidate questions'
+  task: 'Backlog: find three candidate research questions in the lab directions (agent memory and coordination, agent
+    evaluation, small/local models, vision for robotics, agent safety); novelty_check each; append the survivors to
+    research/BACKLOG.md with the closest-work evidence. No project folders yet.'
+- name: lab-literature
+  agent: literature-scout
+  every_hours: 24
+  priority: 2
+  title: 'Lab: literature for the newest backlog question'
+  task: 'Literature: take the newest question in research/BACKLOG.md that has no literature map yet, create research/<slug>/
+    (slug from the question), build literature.md and references.bib for it. If every backlog question already has one, say so in one line.'
+- name: lab-experiments
+  agent: experimenter
+  every_hours: 12
+  priority: 3
+  title: 'Lab: run the next pending experiment'
+  task: 'Experiments: read research/STATUS.md; for the first project at stage "experiments" whose results.json is missing or
+    incomplete, implement and run the next step of its proposal plan and log the results. If none is at that stage, say so in one line.'
+- name: lab-drafting
+  agent: paper-writer
+  every_hours: 24
+  priority: 2
+  title: 'Lab: draft or revise where results exist'
+  task: 'Drafting: read research/STATUS.md; for the first project at stage "draft" (logged results, no paper yet) write the
+    paper; for any project with a review.md that has blocking issues, revise. Run paper_check. If nothing needs writing, say so in one line.'
+- name: lab-review
+  agent: peer-reviewer
+  every_hours: 24
+  priority: 2
+  title: 'Lab: review the next draft'
+  task: 'Review: read research/STATUS.md; review the first project at stage "review" that has no review.md newer than its
+    paper.md. If none, say so in one line.'

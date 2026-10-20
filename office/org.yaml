@@ -1,0 +1,45 @@
+# Agent HQ organisation. CEO: Pribin K Benny. Departments, heads, missions and the numbers each is judged on.
+ceo: Pribin K Benny
+ceo_office: [chief-of-staff]
+operations: [coo]
+departments:
+  - key: job-hunt
+    name: Job Hunt
+    head: application-tailor
+    mission: Land Pribin's first full-time ML/AI role in London.
+    kpis: [applications sent, response rate, interviews, offers]
+  - key: pm
+    name: Project Office
+    head: project-manager
+    mission: Ship portfolio projects that prove the skills employers ask for.
+    kpis: [milestones shipped, commits on GitHub, projects with tests]
+  - key: studio
+    name: Studio
+    head: studio-lead
+    mission: Build client work and demos on free stacks.
+    kpis: [client jobs scoped, builds delivered, review pass rate]
+  - key: brand-sales
+    name: Brand & Sales
+    head: proposal-writer
+    mission: Win paid freelance work and build Pribin's public profile.
+    kpis: [leads found, proposals sent, proposals won, revenue GBP, posts published]
+  - key: trading
+    name: Trading Desk
+    head: trading-learner
+    mission: Learn to trade with validated strategies on the demo account.
+    kpis: [approved strategies, demo trades, win rate, profit factor, treasury]
+  - key: research
+    name: Research Lab
+    head: research-lead
+    mission: Answer open questions in AI and CS with real experiments and publish-ready papers.
+    kpis: [projects active, experiments logged, papers ready for Pribin, review score]
+  - key: ops
+    name: Operations
+    head: coo
+    mission: Keep the office healthy, cheap and honest.
+    kpis: [tasks done, failure rate, tokens per outcome, approvals waiting]
+  - key: front-desk
+    name: Front Desk
+    head: chief-of-staff
+    mission: Pribin's single point of contact; turns his words into the right tasks.
+    kpis: [digests delivered, approvals cleared, commands routed]

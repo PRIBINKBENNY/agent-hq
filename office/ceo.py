@@ -174,8 +174,49 @@ def outcomes(days: int = 30) -> dict:
     }
 
 
+def org() -> dict:
+    import yaml
+    return yaml.safe_load((ROOT / "office" / "org.yaml").read_text()) or {}
+
+
+def board_pack(send: bool = True) -> dict:
+    """Monday board pack for the CEO: the numbers per department, money, people, research, decisions needed."""
+    import tools
+    o = outcomes(7); b = _brain(); wk = time.strftime("%G-W%V")
+    sc = json.loads(tools.scorecard(7)); tre = json.loads(tools.treasury_status()) if "treasury_status" in tools.registry.names() else {}
+    pend = pending_ranked(); org_ = org(); deals = [m.meta or {} for m in b.recent(limit=200, kind="deal", namespace="*")]
+    rl = ROOT / "workspace" / "ops" / "research-weekly.md"; research = rl.read_text()[:1500] if rl.exists() else "no research report yet"
+    lines = [f"# Board pack {wk} ({time.strftime('%d %b %Y')})", "", "## Money", f"- Revenue (paid): £{o['freelance']['revenue_gbp']}  ·  won not paid: £{max(0, o['freelance']['won_gbp'] - o['freelance']['revenue_gbp'])}  ·  pipeline: £{o['freelance']['pipeline_gbp']}",
+             f"- Proposals drafted/sent/won this week: {o['freelance']['proposals_drafted']}/{o['freelance']['sent']}/{o['freelance']['won']}",
+             f"- Demo treasury: {tre.get('credits', 0)} {tre.get('currency', 'GBP')} · level {tre.get('level', 1)} · wins {tre.get('wins', 0)}", "",
+             "## Job hunt", f"- Found {o['jobs']['found']} · applied {o['jobs']['applied']} · responses {o['jobs']['responses']} · interviews {o['jobs']['interviews']} · offers {o['jobs']['offers']}", "",
+             "## Brand", f"- Posts drafted {o['brand']['posts_drafted']} · approved {o['brand']['posts_approved']} · published {o['brand']['posts_published']}", "",
+             "## Operations", f"- Tasks done {sc.get('tasks_done')} · failed {sc.get('tasks_failed')} · runs {sc.get('agent_runs')} · tokens {sc.get('tokens_used'):,}",
+             f"- Share of tokens on revenue work: {o['efficiency']['revenue_work_share_pct']}% · tokens per application: {o['efficiency']['tokens_per_application']}",
+             f"- Approvals waiting for the CEO: {len(pend)}" + (" (top: " + pend[0]["why"] + ")" if pend else ""), "",
+             "## Research Lab", research, "",
+             "## Decisions needed", *([f"- #{p['id']}: {p['why']} ({p['text'][:90]})" for p in pend[:5]] if pend else ["- none waiting"]), "",
+             "## Departments", *(f"- {d['name']} (head: {d['head']}): {d['mission']}" for d in org_.get("departments", []))]
+    out = ROOT / "workspace" / "ops" / "board" / f"{wk}.md"; out.parent.mkdir(parents=True, exist_ok=True); out.write_text("\n".join(lines) + "\n")
+    res = {"file": str(out.relative_to(ROOT)), "revenue": o["freelance"]["revenue_gbp"], "approvals": len(pend)}
+    if send:
+        try:
+            import push
+            res["push"] = push.send(f"Board pack {wk}", f"Revenue £{o['freelance']['revenue_gbp']}, pipeline £{o['freelance']['pipeline_gbp']}, {o['jobs']['interviews']} interviews, {len(pend)} decisions waiting.", url="/m", tag="board")
+        except Exception as e:
+            res["push_error"] = str(e)[:100]
+        try:
+            tools.notify(f"Board pack {wk}", f"workspace/ops/board/{wk}.md")
+        except Exception:
+            pass
+    return res
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "digest":
+    if len(sys.argv) > 1 and sys.argv[1] == "board":
+        import runtime  # noqa: F401
+        print(json.dumps(board_pack(), indent=1))
+    elif len(sys.argv) > 1 and sys.argv[1] == "digest":
         import runtime  # noqa: F401  (.env for push keys)
         print(json.dumps(digest(), indent=1))
     else:

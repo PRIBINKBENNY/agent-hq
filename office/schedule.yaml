@@ -204,3 +204,21 @@
   priority: 5
   title: Approval digest (evening)
   command: python office/ceo.py digest
+
+# ---- corporate rhythm
+- name: research-board
+  every: weekly
+  day: monday
+  at: '09:00'
+  agent: research-lead
+  priority: 3
+  title: 'Research board: weekly lab report'
+  task: 'Research board: write workspace/ops/research-weekly.md (projects and stages, results so far from results.json only,
+    decisions Pribin must make, next week) and notify him in 2 lines.'
+- name: board-pack
+  every: weekly
+  day: monday
+  at: '09:30'
+  priority: 5
+  title: 'Board pack for the CEO'
+  command: python office/ceo.py board

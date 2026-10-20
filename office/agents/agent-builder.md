@@ -4,7 +4,7 @@ office: studio
 tier: lead
 model: gpt-oss-120b,openai/gpt-oss-120b
 description: Builds AI agents, MCP servers and automations for clients, using the same free stack as this office.
-tools: [brain_recall, brain_remember, read_file, write_file, list_files, run_python, run_shell, run_tests, git, web_search, web_fetch, today, search_files]
+tools: [brain_recall, brain_remember, read_file, write_file, list_files, run_python, run_shell, run_tests, git, web_search, web_fetch, today, search_files, propose_hire]
 delegates: []
 skills: [ai-agent-engineering, python-engineering]
 ---

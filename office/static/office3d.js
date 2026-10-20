@@ -29,9 +29,9 @@ function loadPerson() {
   return personPromise;
 }
 
-const OFFICE_ORDER = ["front-desk", "job-hunt", "pm", "studio", "brand-sales", "trading", "ops"];
+const OFFICE_ORDER = ["front-desk", "job-hunt", "pm", "studio", "brand-sales", "trading", "research", "ops"];
 const ACCENT = { "front-desk": 0xc2558f, "job-hunt": 0x3b6fd6, "pm": 0xd98433, "studio": 0x7a5fcf, "brand-sales": 0xd4a52a, "trading": 0xc94a5c, "ops": 0x2e9c86, "research": 0x3a9bc9, "creative": 0xd06a9c };
-const TITLE = { "front-desk": "Front Desk", "job-hunt": "Job Hunt", "pm": "Project Office", "studio": "Studio", "brand-sales": "Brand & Sales", "trading": "Trading Desk", "ops": "Operations" };
+const TITLE = { "front-desk": "Front Desk", "job-hunt": "Job Hunt", "pm": "Project Office", "studio": "Studio", "brand-sales": "Brand & Sales", "trading": "Trading Desk", "ops": "Operations", "research": "Research Lab" };
 const STATE_COLOR = { idle: 0x9aa3b5, think: 0x3b6fd6, tool: 0xd98433, delegate: 0x7a5fcf, done: 0x2e9c86, error: 0xc94a5c };
 const STATE_WORD = { think: "thinking", tool: "using a tool", delegate: "delegating", done: "done", error: "fallback model" };
 const SKIN = [0xf3cfae, 0xe0b08a, 0xc48e63, 0x9c6a45, 0x6f4a30, 0xf7dcc0];

@@ -91,6 +91,35 @@ Tasks waiting for a provider's cooldown no longer block the rest of the queue. H
 actually holds is set by the free tiers you connect: Groq alone is roughly one run every 20 minutes;
 adding Gemini and NVIDIA keys (both free, no card) roughly triples it.
 
+## The company: departments, heads, rhythm, hiring
+
+`office/org.yaml` is the organisation chart: CEO Pribin; the CEO office (chief-of-staff); operations (COO); and eight
+departments, each with a head, a mission and the numbers it is judged on. Every agent carries the company handbook
+(`office/skills/company-handbook.md`) in its instructions: mission, structure, rhythm, the rules that never bend.
+
+Rhythm: morning digest 08:30; approval digests 08:15 and 17:45; the Monday **board pack** (`workspace/ops/board/`,
+pushed to the phone) with money, job hunt, brand, operations, the research report and the decisions waiting for the
+CEO; the Sunday COO deep review; quarterly OKRs in `workspace/plan-90-days.md`.
+
+Hiring: a new agent starts as a proposal. `propose_hire` (COO, chief-of-staff, agent-builder) writes a complete brief
+with only the tools the job needs (never outward or admin tools), its department and its standing work, and asks for
+approval. Approving on the dashboard installs the agent and its recurring work; it is reviewed after two weeks on
+outcomes. Pribin can also drop a brief into `office/agents/` by hand.
+
+## The Research Lab: questions nobody has answered, papers Pribin can submit
+
+Six agents in `office: research`: the research-lead runs the pipeline; the literature-scout maps the field (arXiv and
+OpenAlex, both free); the novelty-analyst finds the gap, checks it against the closest work and writes the proposal with
+an experiment plan that runs on a Mac; the experimenter writes and runs the code and logs real results; the paper-writer
+drafts the paper in Markdown and LaTeX; the peer-reviewer scores it like a workshop reviewer and blocks it until fixed.
+
+Honesty is enforced in code, not prompts: `references.bib` is built only from API metadata (`bib_add`), every citation
+must exist in it, and every number in the Results section must come from `experiments/results.json` written by code
+that ran (`paper_check`; `paper_build` refuses otherwise). Each project lives in `workspace/research/<slug>/`; the lab
+reports weekly in the board pack. A paper reaching "ready" becomes an approval: Pribin reads, edits, owns and submits.
+Agents never submit anywhere. Directions: agent memory and coordination, evaluation of tool-using agents, small and
+local models, vision for robotics, agent safety.
+
 ## The CEO layer: from busy to profitable
 
 The office is judged by outcomes, not activity (`office/ceo.py`):

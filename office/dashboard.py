@@ -309,6 +309,10 @@ async def api_approve(request: Request):
     follow = None
     if decision == "approved":
         txt = new.lower(); tags = m.tags
+        if "hire" in tags:                              # approved hire: install the agent and its standing work
+            from tools import apply_hire
+            res = await asyncio.to_thread(apply_hire, mid, "pribin")
+            return JSONResponse({"ok": True, "applied": res, "follow_up_task": None})
         if "skill-update" in tags:                      # approved guide: install it now, deterministically
             from tools import apply_skill_update
             res = await asyncio.to_thread(apply_skill_update, mid, "pribin")

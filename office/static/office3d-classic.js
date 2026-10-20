@@ -8,9 +8,9 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-const OFFICE_ORDER = ["front-desk", "job-hunt", "pm", "studio", "brand-sales", "trading", "ops"];
+const OFFICE_ORDER = ["front-desk", "job-hunt", "pm", "studio", "brand-sales", "trading", "research", "ops"];
 const ACCENT = { "front-desk": 0xc2558f, "job-hunt": 0x3b6fd6, "pm": 0xd98433, "studio": 0x7a5fcf, "brand-sales": 0xd4a52a, "trading": 0xc94a5c, "ops": 0x2e9c86, "research": 0x3a9bc9, "creative": 0xd06a9c };
-const TITLE = { "front-desk": "Front Desk", "job-hunt": "Job Hunt", "pm": "Project Office", "studio": "Studio", "brand-sales": "Brand & Sales", "trading": "Trading Desk", "ops": "Operations" };
+const TITLE = { "front-desk": "Front Desk", "job-hunt": "Job Hunt", "pm": "Project Office", "studio": "Studio", "brand-sales": "Brand & Sales", "trading": "Trading Desk", "ops": "Operations", "research": "Research Lab" };
 const STATE_COLOR = { idle: 0x9aa3b5, think: 0x3b6fd6, tool: 0xd98433, delegate: 0x7a5fcf, done: 0x2e9c86, error: 0xc94a5c };
 const SKIN = [0xf3cfae, 0xe0b08a, 0xc48e63, 0x9c6a45, 0x6f4a30, 0xf7dcc0];
 const TOPS = [0x2d3f6b, 0xf2f2f2, 0x6b7a99, 0x8fb0d9, 0xd9c7b0, 0x3f3f4a, 0xb9d3c2, 0xe6b3b3, 0x4a6b8a, 0xf0d9a8];
