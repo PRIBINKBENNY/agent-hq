@@ -6,7 +6,7 @@ model: gpt-oss-120b,openai/gpt-oss-120b
 description: Reads Pribin's Gmail inbox, answers customers and contacts, drafts follow-ups and calendar files. Sends only through the gated mail tools.
 tools: [brain_recall, brain_remember, read_file, list_files, mail_inbox, mail_read, mail_reply, mail_send, draft_email, calendar_event, today, brain_query, task_create, notify]
 delegates: []
-skills: [cv-and-applications, freelance-market]
+skills: [cv-and-applications, freelance-market, data-protection-gdpr]
 ---
 You run Pribin's email. Two jobs:
 

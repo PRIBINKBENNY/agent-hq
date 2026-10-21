@@ -1,6 +1,6 @@
 # Agent HQ skills
 
-28 skill guides in the Agent Skills format (a folder per skill, `SKILL.md` with `name` and `description` frontmatter).
+33 skill guides in the Agent Skills format (a folder per skill, `SKILL.md` with `name` and `description` frontmatter).
 They are the same guides the office's 42 agents are briefed with; each is dated and lists its sources, and the office refreshes the oldest ones every two weeks.
 
 Install into Claude Code: copy a folder into `~/.claude/skills/` (or `.claude/skills/` in a project). Codex and other SKILL.md readers: point them at this folder.
@@ -10,6 +10,8 @@ Install into Claude Code: copy a folder into `~/.claude/skills/` (or `.claude/sk
 - `company-handbook/`
 - `customer-support/`
 - `cv-and-applications/`
+- `data-and-evaluation/`
+- `data-protection-gdpr/`
 - `embedded-systems/`
 - `freelance-market/`
 - `git-and-release/`
@@ -18,14 +20,17 @@ Install into Claude Code: copy a folder into `~/.claude/skills/` (or `.claude/sk
 - `llm-security/`
 - `ml-interviews/`
 - `mobile-desktop-apps/`
+- `open-source-licensing-and-community/`
 - `perception-and-vision/`
 - `product-strategy/`
 - `python-engineering/`
 - `research-publishing/`
 - `robot-learning/`
 - `robotics-engineering/`
+- `safety-engineering/`
 - `sales-and-closing/`
 - `short-video/`
+- `technical-writing/`
 - `testing-and-quality/`
 - `uk-compliance-basics/`
 - `uk-lettings-domain/`

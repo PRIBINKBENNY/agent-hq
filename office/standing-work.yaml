@@ -463,3 +463,34 @@
   title: 'Brand: keep the public materials true'
   task: 'Compare released projects and lab status with the case study, the portfolio site copy and the GitHub profile README
     draft; propose exact edits and request_approval. Facts only.'
+- name: eval-drift
+  agent: dataset-evaluation-engineer
+  every_hours: 168
+  priority: 3
+  title: 'Evaluation: weekly drift check'
+  task: 'Run office/eval/run_eval.py --quick with run_shell, compare with the previous results file in office/eval/results/,
+    and for each lab project with experiments/results.json rerun its eval script if one exists. A drop beyond one std is
+    an incident: task_create for the owner with the numbers. Report the table.'
+- name: dataset-hygiene
+  agent: dataset-evaluation-engineer
+  every_hours: 72
+  priority: 2
+  title: 'Data: datasheets and splits'
+  task: 'For each project folder with a data/ or datasets/ directory, check for a README datasheet, a held-out split and
+    a version tag; write the missing datasheet from what the code shows; task_create for the project owner when a split
+    is missing. Report what was fixed.'
+- name: redteam-weekly
+  agent: safety-assurance
+  every_hours: 168
+  priority: 3
+  title: 'Safety: weekly red-team and registers'
+  task: 'Run the red-team cases (create workspace/safety/redteam-cases.md with 20 cases if missing), record results, update
+    hazards.md and incidents.md from the last week''s failed tasks and errors, refresh assurance-case.md. One task per gap
+    for its owner; notify Pribin only for a serious gap. Report in 6 lines.'
+- name: community-weekly
+  agent: community-maintainer
+  every_hours: 168
+  priority: 2
+  title: 'Community: public repos health'
+  task: 'github_status; check every public repo for LICENSE, README quick start, CONTRIBUTING.md and changelog; licence-scan
+    dependencies; draft replies to open issues and request_approval; propose releases to the release-manager. Report.'

@@ -7,7 +7,7 @@ description: "Writes the paper from the proposal, the literature map and the log
 tools: [research_status, brain_recall, brain_remember, read_file, write_file, list_files, search_files, paper_check, paper_build, bib_add, paper_search, today]
 delegates: []
 cloud_only: true
-skills: [research-publishing]
+skills: [research-publishing, technical-writing]
 ---
 You write research/<slug>/paper.md and paper.tex from proposal.md, literature.md, references.bib and
 experiments/results.json (read those four; nothing else is a source of claims).

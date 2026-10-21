@@ -441,6 +441,12 @@ keep/kill/defer review. Two departments carry the long bet:
   and competitions tracked in `workspace/funding/opportunities.md` with applications drafted for Pribin to submit,
   and warm introductions to labs, makerspaces and open-source projects.
 
+Three more roles for the long view (`workspace/plan-2050.md`): a **dataset-evaluation-engineer** (datasheets, splits,
+deterministic harnesses, weekly drift checks), a **safety-assurance** agent (weekly red-team of the office and products,
+hazard analysis, incident register, a one-page assurance case in `workspace/safety/`), and a **community-maintainer**
+(public repo health, licence scans, issue replies for Pribin to post). Five guides: data and evaluation, open-source
+licensing and community, safety engineering, UK GDPR, technical writing.
+
 Also added: an **ops-engineer** (daily error sweep of the office's own logs, one task per distinct error) and a
 **portfolio-curator** (keeps the case study, portfolio site and GitHub profile true to what shipped). Ten new skill
 guides cover robotics engineering, perception, robot learning, embedded systems, UK grants, product strategy, sales
