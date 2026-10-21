@@ -43,3 +43,13 @@ departments:
     head: chief-of-staff
     mission: Pribin's single point of contact; turns his words into the right tasks.
     kpis: [digests delivered, approvals cleared, commands routed]
+  - key: robotics
+    name: Robotics Lab
+    head: robotics-lead
+    mission: "Build the long-term bet: embodied AI (perception plus learning) on low-cost hardware, simulation-first, every result reproducible."
+    kpis: [sim projects shipped with video, benchmark results with seeds, papers handed to the research lab, hardware readiness]
+  - key: growth
+    name: Growth & Funding
+    head: product-strategist
+    mission: "Keep the three-horizon plan honest and funded: cash now, products next, embodied AI long term."
+    kpis: [monthly strategy review done, grant applications drafted, partnerships opened, products with a paying user]

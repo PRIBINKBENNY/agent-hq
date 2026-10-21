@@ -84,6 +84,13 @@ def digest(send: bool = True) -> dict:
              f"{len(items)} waiting. Most valuable first; about {max(1, round(len(items) * 0.7))} minutes on the dashboard or phone.", ""]
     for i, it in enumerate(items[:15], 1):
         lines.append(f"{i}. #{it['id']} ({it['why']}, waiting {it['age_h']:.0f}h): {it['text']}")
+    try:
+        from tools import outputs_recent
+        today = [o for o in outputs_recent(1) if "ops/approval-digest" not in o["path"]][:25]
+        if today:
+            lines += ["", "## Produced in the last 24h (open from the Outputs panel)", *(f"- {o['path']}" + (f" ({o['agent']})" if o['agent'] else "") for o in today)]
+    except Exception:
+        pass
     out = ROOT / "workspace" / "ops" / "approval-digest.md"; out.parent.mkdir(parents=True, exist_ok=True); out.write_text("\n".join(lines) + "\n")
     res = {"waiting": len(items), "top": items[:3]}
     if send and items:
@@ -118,7 +125,73 @@ def deal_set(approval_id: int, stage: str, value: float | None = None, note: str
         did = existing.id
     else:
         did = b.remember(text, agent=agent, kind="deal", importance=5, tags=["deal", f"deal:{stage}"], meta=meta).id
+    if stage == "won" and not any(t["title"].startswith(f"Draft invoice for {client}") and t["status"] in ("queued", "running", "done")
+                                   for t in b.task_list(limit=300)):
+        b.task_create(f"Draft invoice for {client} (deal #{did})"[:120],
+                      f"Deal #{did} with {client} is WON (GBP {val:,.0f}). brain_get {did} and the proposal it came from (approval #{a.id}) for the "
+                      "agreed scope and price, then invoice_create with the real client name, email and address from those records; line items = the "
+                      "agreed deliverables. Due 14 days. It becomes an approval for Pribin; you never send it.",
+                      owner="bookkeeper", created_by="scheduler", priority=5, source="deal-won")
     return {"deal": did, **meta}
+
+
+def acceptance(days: int = 30) -> dict:
+    """Approved vs rejected approvals per agent: the quality signal Pribin gives with every decision."""
+    b = _brain(); since = time.time() - days * 86400; out: dict[str, dict] = {}
+    for m in b.recent(limit=1500, kind="approval", namespace="*"):
+        if m.created_at < since or m.agent in ("pribin", "scheduler"):
+            continue
+        d = out.setdefault(m.agent, {"approved": 0, "rejected": 0, "reasons": []})
+        if "approved" in m.tags or "sent" in m.tags or "posted" in m.tags:
+            d["approved"] += 1
+        elif "rejected" in m.tags:
+            d["rejected"] += 1
+            if (m.meta or {}).get("reason"):
+                d["reasons"].append(m.meta["reason"][:80])
+    for d in out.values():
+        n = d["approved"] + d["rejected"]; d["accept_rate_pct"] = round(100 * d["approved"] / n) if n else None; d["reasons"] = d["reasons"][-3:]
+    return dict(sorted(out.items(), key=lambda kv: -(kv[1]["approved"] + kv[1]["rejected"])))
+
+
+def analytics(days: int = 14) -> dict:
+    """Numbers for the Ops analytics panel: tasks per day (done/failed), tokens per day by provider, approval latency,
+    accept rate per agent. All from the office's own records; nothing estimated."""
+    import collections, glob, json as _json
+    b = _brain(); since = time.time() - days * 86400; day = lambda ts: time.strftime("%m-%d", time.localtime(ts))
+    days_list = [day(since + i * 86400 + 86400) for i in range(days)]
+    tasks = collections.defaultdict(lambda: {"done": 0, "failed": 0})
+    for t in b.task_list(limit=5000):
+        ts = t.get("finished_at") or t.get("updated_at") or 0
+        if ts >= since and t["status"] in ("done", "failed"):
+            tasks[day(ts)][t["status"]] += 1
+    tokens = collections.defaultdict(lambda: collections.Counter())
+    for f in glob.glob(str(ROOT / "office" / "logs" / "20*.jsonl")):
+        for ln in open(f):
+            try:
+                e = _json.loads(ln)
+            except Exception:
+                continue
+            try:
+                ts = time.mktime(time.strptime(e.get("ts", ""), "%Y-%m-%d %H:%M:%S"))
+            except Exception:
+                continue
+            if ts < since:
+                continue
+            prov = (e.get("model") or "?").split(":")[0]
+            tokens[day(ts)][prov] += int(e.get("tokens_in", 0)) + int(e.get("tokens_out", 0))
+    providers = sorted({p for c in tokens.values() for p in c}, key=lambda p: -sum(c[p] for c in tokens.values()))
+    # approval latency: created -> Pribin's decision (activity 'update' on that memory by pribin)
+    lat = []
+    for m in b.recent(limit=800, kind="approval", namespace="*"):
+        if m.created_at < since or not ({"approved", "rejected"} & set(m.tags)):
+            continue
+        row = b.conn.execute("SELECT MIN(ts) FROM activity WHERE memory_id=? AND agent='pribin' AND action='update' AND ts>=?", (m.id, m.created_at)).fetchone()
+        if row and row[0]:
+            lat.append((row[0] - m.created_at) / 3600)
+    lat.sort(); median = round(lat[len(lat) // 2], 1) if lat else None
+    return {"days": days_list, "tasks": [{"day": d, **tasks[d]} for d in days_list],
+            "tokens": {"providers": providers[:5], "rows": [{"day": d, **{p: tokens[d][p] for p in providers[:5]}} for d in days_list]},
+            "approval_latency_hours_median": median, "approvals_decided": len(lat), "acceptance": acceptance(30)}
 
 
 def outcomes(days: int = 30) -> dict:
@@ -160,6 +233,7 @@ def outcomes(days: int = 30) -> dict:
                       "won": len(by_stage["won"]) + len(by_stage["paid"]), "lost": len(by_stage["lost"]),
                       "pipeline_gbp": round(pipeline), "won_gbp": round(won_value), "revenue_gbp": round(revenue)},
         "brand": {"posts_drafted": len(posts), "posts_approved": sum(1 for m in posts if "approved" in m.tags), "posts_published": sum(1 for m in posts if "posted" in m.tags)},
+        "acceptance": acceptance(days),
         "approvals_waiting": len(pending_ranked()),
         "approved_proposals": [{"id": m.id, "text": re.sub(r"^(APPROVED|SENT) from [\w-]+: ", "", m.content)[:140], "value": price_of(m.content),
                                 "stage": next((d.get("stage") for d in deals if d.get("approval_id") == m.id), None)}
@@ -194,6 +268,30 @@ def _eval_line() -> str:
         return f"- eval file unreadable: {e}"
 
 
+
+def _empty_runs_lines(days: int = 7) -> list[str]:
+    import collections, json as _json
+    since = time.time() - days * 86400; tot = collections.Counter(); emp = collections.Counter()
+    ev = ROOT / "office" / "logs" / "events.jsonl"
+    if not ev.exists():
+        return []
+    with ev.open() as f:
+        for ln in f:
+            if '"done"' not in ln:
+                continue
+            try:
+                e = _json.loads(ln)
+            except Exception:
+                continue
+            if e.get("type") != "done" or float(e.get("ts", 0)) < since or int(e.get("depth", 0)):
+                continue
+            tot[e.get("agent")] += 1
+            if str(e.get("answer", "")).startswith(("No final answer", "Run ended at the turn limit")):
+                emp[e.get("agent")] += 1
+    rows = sorted(((emp[a], tot[a], a) for a in emp if emp[a]), reverse=True)[:8]
+    return [f"- {a}: {n} of {t} runs ({round(100 * n / t)}%)" for n, t, a in rows]
+
+
 def board_pack(send: bool = True) -> dict:
     """Monday board pack for the CEO: the numbers per department, money, people, research, decisions needed."""
     import tools
@@ -211,6 +309,9 @@ def board_pack(send: bool = True) -> dict:
              f"- Approvals waiting for the CEO: {len(pend)}" + (" (top: " + pend[0]["why"] + ")" if pend else ""), "",
              "## Research Lab", research, "",
              "## Model quality (weekly eval)", _eval_line(), "",
+             "## Empty runs (hit the limit with no result, 7 days)", *(_empty_runs_lines() or ["- none"]), "",
+             "## Quality: Pribin's accept rate per agent (30 days)", *([f"- {a}: {d['accept_rate_pct']}% ({d['approved']} approved, {d['rejected']} rejected)" + (f"; last reasons: {' | '.join(d['reasons'])}" if d['reasons'] else "")
+                                                                      for a, d in list(acceptance(30).items())[:12]] or ["- no decisions yet"]), "",
              "## Decisions needed", *([f"- #{p['id']}: {p['why']} ({p['text'][:90]})" for p in pend[:5]] if pend else ["- none waiting"]), "",
              "## Departments", *(f"- {d['name']} (head: {d['head']}): {d['mission']}" for d in org_.get("departments", []))]
     out = ROOT / "workspace" / "ops" / "board" / f"{wk}.md"; out.parent.mkdir(parents=True, exist_ok=True); out.write_text("\n".join(lines) + "\n")

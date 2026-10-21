@@ -396,6 +396,56 @@ Your own notes outside that folder are never touched.
   dashboard's run history has a "Trace" button that draws the waterfall. `python office/traces.py --export` writes
   `office/logs/traces/*.json` for Phoenix or Langfuse.
 
+## Feedback loop, Telegram, memory hygiene, invoices, analytics
+
+- **Reject with a reason.** Rejecting an approval (dashboard, phone or Telegram) asks for one line; it is stored as a
+  lesson for that agent and recalled before its next runs. Your accept rate per agent is in the outcomes, the analytics
+  panel and the Monday board pack.
+- **Telegram bot** (`office/telegram.py`): approvals arrive with Approve / Reject / Post buttons, `/status`, `/approvals`,
+  `/pause`, `/resume`, and any other message becomes a task for the chief of staff. Outbound long-polling, so it works
+  with no tunnel. Setup: `TELEGRAM_BOT_TOKEN` from @BotFather, then `TELEGRAM_CHAT_ID` (the bot tells you yours on the
+  first message); only that chat is ever answered.
+- **Memory hygiene.** `python office/consolidate.py` runs nightly at 03:30: near-duplicate memories are merged into the
+  oldest with provenance (`meta.merged`, `last_seen`), stale low-value events fade after 45 days; approvals, deals, jobs,
+  decisions and the trading library are never touched. Recall now reranks its top candidates with a cross-encoder
+  (MiniLM, 80 MB, loaded once in the dashboard and shared via `/api/rerank`; `BRAIN_RERANK=0` disables).
+- **Invoices.** Marking a deal won queues the bookkeeper to draft a UK sole-trader invoice (`invoice_create`: sequential
+  number, your trading details from `INVOICE_*` in `.env`, optional `STRIPE_PAYMENT_LINK`, ledger row, PDF). Approving
+  it queues the cover email with the PDF attached; that email waits for your approval like any other. Attachments are
+  limited to the office's own documents (invoices, applications, proposals, portfolio).
+- **Analytics** on the Ops tab: tasks finished per day, tokens per day by provider, your decision latency and accept
+  rate per agent (`/api/analytics`).
+
+## Looks: dark, light, minimal; campus or plan
+
+The dashboard is built on design tokens (`:root` variables for colour, type scale, spacing, radius, shadow). The
+stage's view bar switches **Theme: dark / light / minimal** and **View: 3D / plan**, both remembered per browser.
+Minimal is monochrome with one accent, bigger type, fewer tiles, and opens on the **plan**: a 2D floor plan of the
+departments with every agent as a dot that changes state and shows what it is saying, the brain as a pulse. The 3D
+loop pauses while the plan shows, so an 8 GB Mac breathes. Panels collapse by clicking their header (remembered);
+the Approvals panel is highlighted while something waits; 3D name tags never overlap (department signs win, then
+hover, speech, working). The phone app follows the system theme, with a Theme button for dark, light or minimal, and
+job cards show one primary action with the rest behind "More". Screenshots: `workspace/portfolio/screens/`.
+
+## Robotics Lab and Growth & Funding: the long-term plan
+
+`workspace/plan-long-term.md` sets three horizons: cash now (job, freelance, the enquiry assistant), repeatable
+products (6 to 18 months), and embodied AI on low-cost hardware (18 months on), with one metric each and a monthly
+keep/kill/defer review. Two departments carry the long bet:
+
+- **Robotics Lab** (robotics-lead, perception-engineer, simulation-engineer, controls-engineer, embedded-engineer):
+  simulation-first in MuJoCo and PyBullet, perception pipelines, imitation and RL baselines with seeds, firmware and
+  drivers for the real arm with a bench procedure for Pribin. Every project ships a reproducible script, tests, a
+  20-second video and a README; results with seeds go to the Research Lab for papers. Roadmap: `workspace/robotics/ROADMAP.md`.
+- **Growth & Funding** (product-strategist, grants-writer, partnerships-scout): the monthly strategy review, UK grants
+  and competitions tracked in `workspace/funding/opportunities.md` with applications drafted for Pribin to submit,
+  and warm introductions to labs, makerspaces and open-source projects.
+
+Also added: an **ops-engineer** (daily error sweep of the office's own logs, one task per distinct error) and a
+**portfolio-curator** (keeps the case study, portfolio site and GitHub profile true to what shipped). Ten new skill
+guides cover robotics engineering, perception, robot learning, embedded systems, UK grants, product strategy, sales
+and closing, UK lettings rules, customer support, and git and release hygiene. Builders have no web tools again.
+
 ## Operating it
 
 ```bash
@@ -466,6 +516,11 @@ Check the pool any time:
 
 ### The only model with no cap is the one on your own Mac
 
+**Switched off on Pribin's Mac (21 Oct 2026).** `OFFICE_LOCAL_MODEL=0` removes the local floor: no chain contains an Ollama
+entry, the scheduler never starts a local run, the eval skips it, and the engine tile reads "waiting for a cloud model"
+when every free tier is cooling. On 8 GB the local model was 3-10x slower than the cloud and starved the dashboard.
+Set it back to 1 (and reinstall Ollama) on a machine with 16 GB or more.
+
 Every hosted free tier is metered. The one genuinely uncapped engine is Ollama on this machine, so the
 office uses it as the floor, not the ceiling: workers fall back to it as soon as every cloud model is
 cooling down, and with `OFFICE_LEAD_LOCAL_FALLBACK=1` lead agents do too, after waiting up to ten minutes
@@ -476,6 +531,11 @@ locally and only one local run at a time; the dashboard labels every run with th
 and nothing outgoing bypasses the approval gates whichever model wrote it.
 
 ### Free-tier realities and the guards built for them
+
+**Backup keys.** Any provider accepts several keys: `<KEY_ENV>_2` to `_5`, or a comma-separated list. When a key is
+rate-limited the runtime rests it for the provider's retry-after and sends the same request with the next key at once;
+when every key is resting the normal model cooldown applies. Free accounts of the same provider multiply the daily
+allowance without a card.
 
 - **~8,000 tokens per minute per model** is the binding Groq limit, not the request count. The runtime
   trims old tool results before every call, parses every wait format Groq returns, keeps a cooldown per

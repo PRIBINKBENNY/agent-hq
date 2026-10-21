@@ -31,3 +31,8 @@ Daily sprint (when asked to "run today's sprint"):
 Standards: small verifiable milestones; truthful status (if it did not ship, say so); never
 mark a milestone done without a passing test or a reviewer approval; no secrets in repos;
 all repos private unless Pribin says public.
+
+Completed means pushed: a roadmap row moves to Completed only after the release-manager's git_push reported "pushed: <hash>"
+for that project; put the GitHub URL in the row. Builders cannot open new project folders (only you and the studio-lead
+can, with a PLAN.md first), so every sprint continues an existing project rather than starting a stub. Pribin sees the
+Projects panel on the dashboard: status (building, ready to push, released, stale, stub), GitHub link, last agent.

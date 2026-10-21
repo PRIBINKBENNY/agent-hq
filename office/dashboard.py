@@ -123,7 +123,7 @@ def state() -> dict:
         "runs_today": len(runs_today),
         "engine": {"providers": active_providers(), "groq": bool(active_providers()),
                    "lead_models": [f"{p}:{provider_models(p, 'lead')[0]}" for p in active_providers() if provider_models(p, 'lead')],
-                   "ollama": OLLAMA_MODEL, "usage": read_usage()},
+                   "ollama": OLLAMA_MODEL if os.environ.get("OFFICE_LOCAL_MODEL", "1") != "0" else "off", "usage": read_usage(), "keys": _key_state()},
         "running": [rid for rid, p in _procs.items() if p.poll() is None],
         "tasks": brain.task_list(limit=40),
         "scheduler_busy": scheduler.busy(),
@@ -254,6 +254,14 @@ async def api_push_test(_: Request):
     return JSONResponse(await asyncio.to_thread(push.send, "Agent HQ", "Notifications are working.", "/m", "test"))
 
 
+
+def _key_state():
+    try:
+        from runtime import key_state
+        return key_state()
+    except Exception:
+        return {}
+
 async def api_state(_: Request):
     return JSONResponse(await asyncio.to_thread(state))
 
@@ -318,7 +326,13 @@ async def api_approve(request: Request):
     decision = body.get("decision", "approved")
     m = brain.get(mid)
     new = m.content.replace("PENDING APPROVAL", decision.upper(), 1)
-    brain.update(mid, agent="pribin", content=new, tags=[t for t in m.tags if t != "pending"] + [decision])
+    reason = (body.get("reason") or "").strip()[:400]
+    brain.update(mid, agent="pribin", content=new, tags=[t for t in m.tags if t != "pending"] + [decision],
+                 meta={**(m.meta or {}), **({"reason": reason} if reason else {})})
+    if decision == "rejected" and reason and m.agent not in ("pribin", "scheduler"):
+        # Pribin's reason is the most valuable lesson an agent can get: it is recalled before that agent's next runs
+        brain.remember(f"Lesson ({m.agent}): Pribin rejected approval #{mid} because: {reason}. Do not repeat this.",
+                       agent="pribin", kind="lesson", importance=4, tags=["reflection", m.agent, "pribin-feedback"], namespace="reflection")
     follow = None
     if decision == "approved":
         txt = new.lower(); tags = m.tags
@@ -330,6 +344,21 @@ async def api_approve(request: Request):
             from tools import apply_skill_update
             res = await asyncio.to_thread(apply_skill_update, mid, "pribin")
             return JSONResponse({"ok": True, "applied": res, "follow_up_task": None})
+        if "invoice" in tags:                           # approved invoice: mark the ledger, then the mail-assistant drafts the cover email
+            inv = (m.meta or {}); path = inv.get("path", ""); pdf = path[:-3] + ".pdf" if path.endswith(".md") else path
+            try:
+                led = WORKSPACE / "finance" / "ledger.csv"
+                if led.exists() and inv.get("invoice"):
+                    led.write_text("\n".join((ln.replace(",draft,", ",approved,", 1) if ln.endswith(f",{inv['invoice']}") or f",{inv['invoice']}" in ln else ln) for ln in led.read_text().splitlines()) + "\n")
+            except Exception:
+                pass
+            to = inv.get("client_email") or ""
+            detail = (f"Pribin APPROVED invoice {inv.get('invoice')} for {inv.get('client')} (GBP {inv.get('total')}). "
+                      + (f"Draft the cover email to {to} with draft_email(to, subject 'Invoice {inv.get('invoice')} from Pribin K Benny', a short friendly body "
+                         f"with the amount, due date and payment details from workspace/{path}, attach='{pdf}'). Sending waits for his approval." if to else
+                         "No client email is on record: ask Pribin (notify) for the address, do not guess."))
+            follow = brain.task_create(f"Email invoice {inv.get('invoice')} to {inv.get('client')}"[:120], detail, owner="mail-assistant", created_by="pribin", priority=5, source="invoice")
+            return JSONResponse({"ok": True, "follow_up_task": follow["id"], "agent": m.agent})
         if "brief-proposal" in tags:
             detail = f"Pribin APPROVED brief proposal #{mid}. Apply it with apply_proposal(approval_id={mid}) and confirm which agent changed."
         elif "email" in tags or "/outbox/" in txt:
@@ -358,7 +387,7 @@ async def api_approve(request: Request):
             recent_same = [t for t in brain.task_list(limit=50) if t["title"] == title]
             if not recent_same:
                 follow = brain.task_create(title, detail, owner="chief-of-staff", created_by="pribin", priority=4, source="approval")
-    return JSONResponse({"ok": True, "follow_up_task": follow["id"] if follow else None})
+    return JSONResponse({"ok": True, "follow_up_task": follow["id"] if follow else None, "agent": m.agent})
 
 
 async def api_applied(request: Request):
@@ -442,6 +471,12 @@ _caffeinate: subprocess.Popen | None = None
 async def _lifespan(app):
     global _caffeinate
     task = asyncio.create_task(_scheduler_loop())
+    try:
+        import telegram
+        if telegram.start_polling():
+            print("telegram bot: polling")
+    except Exception as e:
+        print("telegram bot not started:", e)
     if sys.platform == "darwin" and os.environ.get("HQ_KEEP_AWAKE", "1") == "1":
         try:  # keep the Mac awake (on mains power) for as long as the office runs; no sudo needed
             _caffeinate = subprocess.Popen(["/usr/bin/caffeinate", "-s", "-i", "-w", str(os.getpid())])
@@ -565,12 +600,34 @@ async def api_embed(request: Request):
     return JSONResponse({"vectors": vecs})
 
 
+async def api_rerank(request: Request):
+    """Shared cross-encoder for agent processes (one copy, in the dashboard)."""
+    body = await request.json(); q = str(body.get("query") or ""); docs = [str(d) for d in (body.get("docs") or [])][:60]
+    scores = await asyncio.to_thread(brain.reranker.scores, q, docs, True)
+    return JSONResponse({"scores": scores or []})
+
+
+async def api_outputs(request: Request):
+    from tools import outputs_recent
+    return JSONResponse({"outputs": await asyncio.to_thread(outputs_recent, int(request.query_params.get("days", "7")))})
+
+
+async def api_projects(_: Request):
+    from tools import projects_overview
+    return JSONResponse({"projects": await asyncio.to_thread(projects_overview)})
+
+
 async def api_research(_: Request):
     """The lab's projects by stage, with 'ready' = PDF built and reviewer score >= 7 (Pribin submits; the office never does)."""
     from tools import research_status_table
     rows = await asyncio.to_thread(research_status_table)
     backlog = (WORKSPACE / "research" / "BACKLOG.md")
     return JSONResponse({"projects": rows, "backlog": backlog.read_text()[:4000] if backlog.exists() else ""})
+
+
+async def api_analytics(request: Request):
+    import ceo
+    return JSONResponse(await asyncio.to_thread(ceo.analytics, int(request.query_params.get("days", "14"))))
 
 
 async def api_outcomes(request: Request):
@@ -787,8 +844,12 @@ app = Starlette(middleware=[Middleware(AuthMiddleware)], routes=[
     Route("/", index),
     Route("/favicon.ico", favicon),
     Route("/api/embed", api_embed, methods=["POST"]),
+    Route("/api/rerank", api_rerank, methods=["POST"]),
     Route("/api/outcomes", api_outcomes),
+    Route("/api/analytics", api_analytics),
     Route("/api/research", api_research),
+    Route("/api/projects", api_projects),
+    Route("/api/outputs", api_outputs),
     Route("/api/trace", api_trace),
     Route("/api/deal", api_deal, methods=["POST"]),
     Route("/api/state", api_state),

@@ -210,8 +210,8 @@
   every_hours: 24
   priority: 2
   title: 'App: one milestone'
-  task: 'Advance the app project on the roadmap one milestone (or start a small Tauri or Flutter demo in workspace/projects/
-    if none exists): build, run, commit.'
+  task: 'Advance the ONE app project named in workspace/roadmap.md (today: projects/ai-proposal-mobile) by one milestone: build,
+    run, commit. Never start another app; if the roadmap names none, ask the project-manager with task_create and stop.'
 - name: site-improve
   agent: web-builder
   every_hours: 24
@@ -221,11 +221,12 @@
     brain only, build it, commit.'
 - name: release-hygiene
   agent: release-manager
-  every_hours: 24
+  every_hours: 12
   priority: 2
   title: 'Release: commit and push finished work'
   task: 'For each project under workspace/projects/ with finished, tested, uncommitted or unpushed work: review the diff,
-    commit cleanly, update the changelog, push to Pribin''s GitHub (private unless told otherwise).'
+    commit cleanly, update the changelog, push to Pribin''s GitHub (private unless told otherwise). git_push now tells Pribin
+    and the brain about every push; if a project has nothing new, say "nothing new" and do not claim a release.'
 - name: studio-planning
   agent: studio-lead
   every_hours: 12
@@ -235,7 +236,7 @@
     each small enough to finish in one run.'
 - name: market-deep-dive
   agent: market-researcher
-  every_hours: 6
+  every_hours: 12
   priority: 2
   title: 'Market deep dive (DEMO desk)'
   task: 'Read trading/lab-sweep.md; pick one market with an approved or candidate strategy and research it: recent moves,
@@ -387,3 +388,78 @@
     and the handbook. Write workspace/ops/security-audit-<YYYY-MM>.md: item, status (ok / gap), evidence (file:line),
     fix. For each gap task_create one task for coo with the fix. No web browsing needed; no fabricated findings:
     every gap must cite a file you read.'
+- name: robotics-roadmap
+  agent: robotics-lead
+  every_hours: 12
+  priority: 3
+  title: 'Robotics Lab: advance the roadmap'
+  task: 'Read workspace/robotics/ROADMAP.md (create it from workspace/plan-long-term.md if missing: 3 projects max, each with
+    benchmark and success metric). For each active project read its folder, give the next concrete step to the right
+    engineer with task_create, and update the roadmap. If a project has a benchmark result with seeds, hand it to the
+    research-lead. Report in 6 lines.'
+- name: perception-step
+  agent: perception-engineer
+  every_hours: 24
+  priority: 2
+  title: 'Perception: next step on the active project'
+  task: 'task_list for your open tasks from the robotics-lead; do the oldest one inside its project folder, run the tests,
+    write results.json where there are numbers, report. If none, say so in one line.'
+- name: simulation-step
+  agent: simulation-engineer
+  every_hours: 24
+  priority: 2
+  title: 'Simulation: next step on the active project'
+  task: 'task_list for your open tasks from the robotics-lead; do the oldest one (environment, baseline, training or eval run
+    with seeds), write results.json, report mean and std. If none, say so in one line.'
+- name: controls-step
+  agent: controls-engineer
+  every_hours: 48
+  priority: 2
+  title: 'Controls: next step on the active project'
+  task: 'task_list for your open tasks from the robotics-lead; do the oldest one with tests on limits and tracking error;
+    report. If none, say so in one line.'
+- name: embedded-step
+  agent: embedded-engineer
+  every_hours: 72
+  priority: 2
+  title: 'Embedded: next step on the active project'
+  task: 'task_list for your open tasks from the robotics-lead; do the oldest one (firmware, driver, protocol tests, wiring
+    diagram, BOM); leave Pribin a bench procedure. If none, say so in one line.'
+- name: strategy-review
+  agent: product-strategist
+  every_hours: 168
+  priority: 3
+  title: 'Growth: weekly horizon check'
+  task: 'Read workspace/plan-long-term.md, outcome_metrics, research_status and the project READMEs; write or update this
+    month''s workspace/ops/strategy-review-<YYYY-MM>.md with what moved per horizon, what to stop, the one bet; notify Pribin
+    with the headline only when something changed.'
+- name: funding-scan
+  agent: grants-writer
+  every_hours: 168
+  priority: 2
+  title: 'Funding: weekly opportunity scan'
+  task: 'Check the Innovation Funding Service, Find a Government Grant and two robotics/AI competition listings; update
+    workspace/funding/opportunities.md; for any closing within 45 days with fit >= 4 draft the application folder and
+    request_approval. Report deadlines within 30 days.'
+- name: partnerships-scan
+  agent: partnerships-scout
+  every_hours: 168
+  priority: 2
+  title: 'Partnerships: three warm paths'
+  task: 'Find three organisations (labs, makerspaces, open-source robotics projects, companies with pilots) that fit the
+    robotics bet; log_lead each with a real contact or page; draft one introduction note and request_approval.'
+- name: ops-health
+  agent: ops-engineer
+  every_hours: 24
+  priority: 3
+  title: 'Ops: daily error sweep'
+  task: 'Read the last 300 lines of office/logs/launchd.err.log and search task logs from the last day for ERROR and
+    Traceback; task_list failed. One task per distinct new error for the right owner; counts in a brain event tagged
+    ops-health; report in 6 lines.'
+- name: public-face
+  agent: portfolio-curator
+  every_hours: 168
+  priority: 2
+  title: 'Brand: keep the public materials true'
+  task: 'Compare released projects and lab status with the case study, the portfolio site copy and the GitHub profile README
+    draft; propose exact edits and request_approval. Facts only.'

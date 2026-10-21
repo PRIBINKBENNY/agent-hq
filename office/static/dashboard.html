@@ -5,17 +5,39 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent HQ</title>
 <style>
-  :root {
-    --bg: #080b14; --panel: #10151f; --panel-2: #171d2a; --line: #232b3a;
-    --ink: #e6eaf2; --ink-2: #9aa5b8; --ink-3: #66718a;
+  :root {   /* design tokens: dark is the default; light and minimal override below; everything reads these */
+    --bg: #080b14; --panel: #10151f; --panel-2: #171d2a; --line: #232b3a; --line-2: #2d3648;
+    --ink: #e6eaf2; --ink-2: #a3adbf; --ink-3: #8b96aa;
     --think: #5b8def; --tool: #e0a93b; --deleg: #a67cf0; --done: #3ec28f; --err: #ef5b6e; --idle: #4b5566;
-    --accent: #5b8def;
+    --accent: #5b8def; --accent-ink: #fff; --fs: 13.5px; --fs-2: 12px; --fs-3: 11px; --r: 10px; --r-s: 7px; --shadow: 0 1px 2px rgba(0,0,0,.35);
+    --stage-bg: radial-gradient(1200px 700px at 50% 40%, #0f1630 0%, #080b14 70%);
+    --chip-bg: rgba(255,255,255,.92); --chip-ink: #1b2130;
   }
+  :root[data-theme="light"] {
+    --bg: #f3f5f9; --panel: #ffffff; --panel-2: #ffffff; --line: #e3e7ee; --line-2: #cfd6e2;
+    --ink: #151a24; --ink-2: #4a5468; --ink-3: #6b7588; --idle: #c3cad6;
+    --accent: #2f6fe4; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+    --stage-bg: radial-gradient(1200px 700px at 50% 40%, #e9eef7 0%, #f3f5f9 70%);
+  }
+  :root[data-theme="minimal"] {   /* monochrome, one accent, more air, bigger type, no 3D by default */
+    --bg: #fafafa; --panel: #ffffff; --panel-2: #ffffff; --line: #e8e8e8; --line-2: #d4d4d4;
+    --ink: #111111; --ink-2: #555555; --ink-3: #777777; --idle: #d0d0d0;
+    --think: #111111; --tool: #555555; --deleg: #777777; --done: #111111; --err: #c0392b;
+    --accent: #111111; --accent-ink: #fff; --fs: 14.5px; --fs-2: 13px; --fs-3: 12px; --r: 6px; --r-s: 4px; --shadow: none;
+    --stage-bg: #fafafa; --chip-bg: #ffffff; --chip-ink: #111111;
+  }
+  :root[data-theme="minimal"] .panel h3 { text-transform: none; letter-spacing: 0; font-size: var(--fs); font-weight: 600; color: var(--ink); }
+  :root[data-theme="minimal"] .tile.extra, :root[data-theme="minimal"] .legend, :root[data-theme="minimal"] .hint, :root[data-theme="minimal"] .treasury { display: none; }
+  :root[data-theme="minimal"] .top { gap: 16px; padding: 12px 20px; } :root[data-theme="minimal"] .side { padding: 14px; gap: 14px; }
+  :root[data-theme="minimal"] .tile { border: 0; background: transparent; padding: 0 6px; } :root[data-theme="minimal"] .tile .v { font-size: 20px; }
+  :root[data-theme="minimal"] .cmd button.go { border-radius: var(--r-s); }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; width: 100%; background: var(--bg); color: var(--ink); font: 13px/1.45 -apple-system, "Inter", "Segoe UI", system-ui, sans-serif; overflow: hidden; overscroll-behavior: none; }
+  html, body { margin: 0; height: 100%; width: 100%; background: var(--bg); color: var(--ink); font: var(--fs)/1.45 -apple-system, "Inter", "Segoe UI", system-ui, sans-serif; overflow: hidden; overscroll-behavior: none; }
   .app { max-width: 100vw; overflow: hidden; }
   .app { display: grid; grid-template-rows: auto auto minmax(0, 1fr); height: 100vh; }
-  .app > .banner { grid-row: 1; } .app > .top { grid-row: 2; } .app > .main { grid-row: 3; height: 100%; }   /* explicit rows: a hidden banner must not shift the main area into an auto-sized row */
+  .app > .banner { grid-row: 1; } .app > .top { grid-row: 2; } .app > .main { grid-row: 3; height: 100%; } .app > .board { grid-row: 3; }
+  .app.board-on > .main { display: none; }   /* explicit rows: a hidden banner must not shift the main area into an auto-sized row */
   .top { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; z-index: 5; }
   .brand { font-weight: 800; font-size: 16px; letter-spacing: .4px; display: flex; align-items: center; gap: 10px; white-space: nowrap; }
   .brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--done); animation: ping 2s infinite; }
@@ -67,14 +89,16 @@
   .job .st { font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); margin-right: 6px; }
   .job .st.applied, .job .st.interview, .job .st.offer { color: var(--done); border-color: var(--done); } .job .st.tailored { color: var(--think); border-color: var(--think); } .job .st.rejected, .job .st.dismissed { color: var(--ink-3); }
   .job .acts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; } .job .acts a, .job .acts button { background: var(--panel); border: 1px solid var(--line); color: var(--ink-2); padding: 3px 8px; border-radius: 6px; font-size: 11px; cursor: pointer; text-decoration: none; } .job .acts a.open { color: var(--accent); border-color: var(--accent); }
-  .kv { display: grid; grid-template-columns: 1fr auto auto; gap: 2px 10px; padding: 8px 12px; font-size: 11.5px; }
+  .kv { display: grid; grid-template-columns: 1fr auto auto; gap: 2px 10px; padding: 8px 12px; font-size: var(--fs-2); }
+  .kv.two { grid-template-columns: minmax(0, 1fr) auto; } .kv.two > span:nth-child(odd) { overflow-wrap: anywhere; }
+  .list.auto { max-height: none; }
   .kv .k { color: var(--ink-2); } .kv .v { font-variant-numeric: tabular-nums; text-align: right; } .kv .t { color: var(--ink-3); text-align: right; }
   .kv .hit { color: var(--done); } .kv .miss { color: var(--tool); }
-  .stage { position: relative; min-height: 0; min-width: 0; overflow: hidden; background: radial-gradient(1200px 700px at 50% 40%, #0f1630 0%, #080b14 70%); }
+  .stage { position: relative; min-height: 0; min-width: 0; overflow: hidden; background: var(--stage-bg); }
   #stage3d { position: absolute; inset: 0; } #stage3d canvas { display: block; cursor: grab; }
   .treasury { position: absolute; top: 12px; left: 12px; background: rgba(255,255,255,.92); border: 1px solid rgba(0,0,0,.12); border-radius: 12px; padding: 8px 12px; font-size: 12px; color: #5a3e00; display: none; box-shadow: 0 4px 14px rgba(0,0,0,.12); }
   .treasury b { font-size: 16px; display: block; color: #1b2130; } .treasury .lvl { color: #4a5568; font-size: 11px; }
-  .stage .hint, .stage .legend { background: rgba(255,255,255,.9) !important; color: #1b2130 !important; border: 1px solid rgba(0,0,0,.12); } .stage .legend span { color: #1b2130; }
+  .stage .hint, .stage .legend { background: var(--chip-bg) !important; color: var(--chip-ink) !important; border: 1px solid rgba(0,0,0,.12); } .stage .legend span { color: var(--chip-ink); }
   canvas.drag { cursor: grabbing; }
   .overlay { position: absolute; inset: 0; pointer-events: none; }
   .card { position: absolute; transform: translate(-50%, -100%); background: rgba(16,21,31,.92); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; display: flex; align-items: center; gap: 8px; white-space: nowrap; backdrop-filter: blur(4px); box-shadow: 0 6px 24px -8px #000; }
@@ -91,7 +115,7 @@
   .legend { position: absolute; right: 12px; bottom: 10px; display: flex; gap: 8px; font-size: 11px; color: var(--ink-2); background: rgba(8,11,20,.7); padding: 4px 8px; border-radius: 6px; }
   .legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; }
   .viewbar { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 60%; z-index: 3; }
-  .viewbar button { font: 600 11px/1 -apple-system, Inter, system-ui, sans-serif; color: #1b2130; background: rgba(255,255,255,.92); border: 1px solid rgba(0,0,0,.12); border-radius: 999px; padding: 7px 11px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .viewbar button { font: 600 11px/1 -apple-system, Inter, system-ui, sans-serif; color: var(--chip-ink); background: var(--chip-bg); border: 1px solid rgba(0,0,0,.12); border-radius: 999px; padding: 7px 11px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
   .viewbar button:hover { background: #fff; border-color: rgba(0,0,0,.25); }
   .viewbar.classic #vb-over, .viewbar.classic #vb-names, .viewbar.classic #vb-light { display: none; }
   @media (max-width: 700px) { .viewbar { max-width: 96%; top: auto; bottom: 40px; right: 6px; } .viewbar button { padding: 6px 9px; font-size: 10px; } .stage .hint { display: none; } .stage .treasury { transform: scale(.78); transform-origin: top left; } }
@@ -108,8 +132,11 @@
   .pos { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12px; } .pos .pl { font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; } .pos .up { color: var(--done); } .pos .dn { color: var(--err); }
   .md { padding: 14px; overflow: auto; color: var(--ink-2); font-size: 13px; line-height: 1.5; } .md h1, .md h2, .md h3 { color: var(--ink); margin: 12px 0 6px; } .md h1 { font-size: 18px; } .md h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--line); padding-bottom: 3px; } .md ul { padding-left: 18px; } .md li { margin: 2px 0; } .md code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
   .toast { position: fixed; right: 16px; bottom: 16px; background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); padding: 10px 14px; border-radius: 10px; font-size: 12.5px; display: none; z-index: 60; max-width: 360px; box-shadow: 0 10px 30px -10px #000; }
-  .panel { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; min-height: 0; }
-  .panel h3 { margin: 0; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--ink-2); border-bottom: 1px solid var(--line); display: flex; align-items: center; }
+  .panel { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r); display: flex; flex-direction: column; min-height: 0; }
+  .panel h3 { margin: 0; padding: 8px 12px; font-size: var(--fs-3); text-transform: uppercase; letter-spacing: .6px; color: var(--ink-2); border-bottom: 1px solid var(--line); display: flex; align-items: center; cursor: pointer; user-select: none; }
+  .panel.collapsed > :not(h3) { display: none !important; } .panel.collapsed h3 { border-bottom: 0; } .panel.collapsed h3::after { content: "+"; margin-left: 8px; color: var(--ink-3); }
+  .panel.hot { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; } .panel.hot h3 { color: var(--ink); font-weight: 700; }
+  .panel { box-shadow: var(--shadow); }
   .panel h3 .sp { margin-left: auto; font-weight: 400; color: var(--ink-3); text-transform: none; letter-spacing: 0; }
   .feed { overflow: auto; max-height: 38vh; padding: 4px 0; }
   .ev { display: grid; grid-template-columns: 50px 8px 1fr; gap: 7px; padding: 4px 12px; font-size: 11.5px; align-items: start; }
@@ -131,6 +158,71 @@
 .agroup{margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;opacity:.7}
 .stages{display:flex;gap:3px;margin:6px 0}.stg{flex:1;height:6px;border-radius:3px;background:rgba(127,127,127,.25)}.stg.on{background:#3b82f6}.stg.ready{background:#16a34a}
 .trace{margin-top:6px}.trow{display:grid;grid-template-columns:150px 1fr 44px;gap:6px;align-items:center;font-size:11px;line-height:16px}.tname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85}.tbar{position:relative;height:8px;background:rgba(127,127,127,.15);border-radius:4px}.tbar i{position:absolute;top:0;height:8px;border-radius:4px;background:#3b82f6}.tbar i.run{background:#6b7280}.tbar i.bad{background:#dc2626}.tbar i.fallback{background:#f59e0b}.tdur{text-align:right;opacity:.7}
+.an-chart{margin:6px 0 10px}.an-chart svg{width:100%;height:150px;display:block}.an-axis{stroke:rgba(127,127,127,.4);stroke-width:1}.an-lbl{font-size:10px;fill:currentColor;opacity:.75}.an-legend{display:flex;gap:12px;font-size:11px;opacity:.85;margin-top:4px}.an-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+  .cmd select.adv, .cmd select#agent { display: none; } .top.adv .cmd select.adv, .top.adv .cmd select#agent { display: inline-block; } #opts.on { border-color: var(--accent); }
+  .plan { position: absolute; inset: 0; overflow: auto; padding: 56px 20px 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; align-content: start; background: var(--bg); }
+  .plan[hidden] { display: none; }
+  .plan .dept { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; box-shadow: var(--shadow); min-height: 96px; }
+  .plan .dept h4 { margin: 0 0 6px; font-size: var(--fs); font-weight: 600; display: flex; align-items: center; gap: 8px; } .plan .dept h4 .n { margin-left: auto; font-weight: 400; color: var(--ink-3); font-size: var(--fs-3); }
+  .plan .ag { display: grid; grid-template-columns: 10px 1fr; gap: 8px; align-items: baseline; padding: 3px 0; font-size: var(--fs-2); cursor: pointer; }
+  .plan .ag i { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); display: inline-block; transform: translateY(-1px); }
+  .plan .ag.think i { background: var(--think); } .plan .ag.tool i { background: var(--tool); } .plan .ag.delegate i { background: var(--deleg); } .plan .ag.done i { background: var(--done); } .plan .ag.error i { background: var(--err); }
+  .plan .ag.think i, .plan .ag.tool i, .plan .ag.delegate i { animation: planPulse 1.6s ease-in-out infinite; } @keyframes planPulse { 50% { opacity: .35; } }
+  .plan .ag .nm { color: var(--ink); } .plan .ag.idle .nm { color: var(--ink-2); } .plan .ag .sy { color: var(--ink-3); font-size: var(--fs-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .plan .brain { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px dashed var(--line-2); border-radius: var(--r); color: var(--ink-2); font-size: var(--fs-2); }
+  .plan .brain i { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 0 var(--accent); } .plan .brain i.on { animation: brainPulse .9s ease-out 1; } @keyframes brainPulse { 0% { box-shadow: 0 0 0 0 var(--accent); } 100% { box-shadow: 0 0 0 14px transparent; } }
+  .stage.plan-on .hint, .stage.plan-on .legend, .stage.plan-on .treasury { display: none !important; }
+  :root[data-theme="minimal"] .treasury { display: none !important; }
+  .eng { padding: 10px 12px; border-bottom: 1px solid var(--line); display: grid; gap: 6px; } .eng:last-child { border-bottom: 0; }
+  .eng-hd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .eng-hd b { font-size: var(--fs); } .eng-n { margin-left: auto; color: var(--ink-3); font-size: var(--fs-3); white-space: nowrap; }
+  .eng-keys { display: inline-flex; gap: 4px; } .eng-keys i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--ink-3); display: inline-block; }
+  .eng-keys i.on { background: var(--done); border-color: var(--done); } .eng-keys i.rest { background: var(--tool); border-color: var(--tool); opacity: .8; }
+  .eng-bar { display: grid; grid-template-columns: 70px 1fr 36px; gap: 8px; align-items: center; font-size: var(--fs-3); color: var(--ink-3); }
+  .eng-bar i { display: block; height: 6px; border-radius: 3px; background: rgba(127,127,127,.18); overflow: hidden; } .eng-bar b { display: block; height: 100%; background: var(--accent); border-radius: 3px; } .eng-bar span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .eng-meta { font-size: var(--fs-3); color: var(--ink-3); }
+.outg summary { padding: 7px 12px; cursor: pointer; font-size: var(--fs-2); display: flex; gap: 8px; align-items: center; } .outg summary .sp { margin-left: auto; color: var(--ink-3); font-size: var(--fs-3); } .outg { border-bottom: 1px solid var(--line); }
+  /* plan view: the quiet floor plan needs less room than the campus, so the panels get a wide two-column board instead of a 360px strip */
+  @media (min-width: 1200px) {
+    .app.plan-on .main { grid-template-columns: minmax(0, 42%) minmax(0, 1fr); }
+    .app.plan-on .side { padding: 14px 16px; gap: 14px; }
+    .app.plan-on .side .pane.on { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: min-content; grid-auto-flow: dense; gap: 14px; align-items: start; }
+    .app.plan-on .side .panel.feedp { grid-row: span 3; }
+    .app.plan-on .side .panel { min-height: 0; } .app.plan-on .side .panel.span { grid-column: 1 / -1; }
+    .app.plan-on .side .list { max-height: 44vh; } .app.plan-on .side .feed { max-height: 64vh; } .app.plan-on .side .list.tall { max-height: 70vh; }
+    .app.plan-on .side .panel h3 { font-size: var(--fs-2); padding: 10px 14px; } .app.plan-on .side .task, .app.plan-on .side .appr, .app.plan-on .side .ev { font-size: var(--fs-2); }
+    .app.plan-on .plan { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; padding: 56px 16px 20px; }
+    .app.plan-on .plan .dept { padding: 8px 10px; min-height: 0; } .app.plan-on .plan .ag { padding: 2px 0; }
+  }
+  /* one-screen board (View: plan): everything visible at once, no tabs, no page scroll */
+  .board[hidden] { display: none; }
+  .board { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-template-rows: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 10px; min-height: 0; height: 100%; background: var(--bg); position: relative; }
+  .board .slot { min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+  .board .slot > .panel, .board .slot > .plan { flex: 1; min-height: 0; } .board .slot > .panel > .list, .board .slot > .panel > .feed, .board .slot > .panel > .mem, .board .slot > .panel > .kv { max-height: none; flex: 1; overflow: auto; min-height: 0; }
+  .board .slot[data-slot="plan"] { grid-column: 1 / 6; grid-row: 1 / 3; } .board .slot[data-slot="now"] { grid-column: 6 / 9; grid-row: 1; }
+  .board .slot[data-slot="appr"] { grid-column: 9 / 13; grid-row: 1; } .board .slot[data-slot="feed"] { grid-column: 6 / 9; grid-row: 2 / 5; }
+  .board .slot[data-slot="outputs"] { grid-column: 1 / 4; grid-row: 3 / 5; } .board .slot[data-slot="projects"] { grid-column: 4 / 6; grid-row: 3 / 5; }
+  .board .slot[data-slot="money"] { grid-column: 9 / 11; grid-row: 2; } .board .slot[data-slot="trading"] { grid-column: 11 / 13; grid-row: 2; }
+  .board .slot[data-slot="tasks"] { grid-column: 9 / 11; grid-row: 3 / 5; } .board .slot[data-slot="research"] { grid-column: 11 / 13; grid-row: 3 / 5; }
+  /* when three or more approvals wait, that tile earns a second row and the money/trading tiles step down */
+  .board.appr-busy .slot[data-slot="appr"] { grid-row: 1 / 3; } .board.appr-busy .slot[data-slot="money"], .board.appr-busy .slot[data-slot="trading"] { grid-row: 3; }
+  .board.appr-busy .slot[data-slot="tasks"], .board.appr-busy .slot[data-slot="research"] { grid-row: 4; }
+  .board .panel.collapsed > :not(h3) { display: flex !important; } .board .panel h3::after { content: none !important; }
+  .board .plan { position: static; inset: auto; padding: 0; overflow: auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: min-content; gap: 8px; background: transparent; }
+  .board .plan .brain { grid-column: 1 / -1; padding: 8px 12px; } .board .plan .dept { padding: 8px 10px; min-height: 0; }
+  .board .plan .dept h4 { font-size: var(--fs-2); margin-bottom: 4px; } .board .plan .dept .ags { display: flex; flex-wrap: wrap; gap: 3px 6px; }
+  .board .plan .ag { display: inline-grid; grid-template-columns: 8px auto; gap: 5px; padding: 1px 4px; border-radius: 4px; font-size: var(--fs-3); }
+  .board .plan .ag:hover { background: rgba(127,127,127,.12); } .board .plan .ag .sy { display: none; } .board .plan .ag.think .sy, .board .plan .ag.tool .sy, .board .plan .ag.delegate .sy { display: block; grid-column: 2; max-width: 150px; }
+  .board .plan .ag.idle .nm { color: var(--ink-3); }
+  .board .ev { grid-template-columns: 44px 8px 1fr; padding: 3px 10px; font-size: var(--fs-3); } .board .ev .m { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; } .board .ev.open .m { white-space: normal; }
+  .board .now-row { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: var(--fs-2); } .board .now-row .sy { color: var(--ink-3); font-size: var(--fs-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .board .now-row .t { color: var(--ink-3); font-variant-numeric: tabular-nums; font-size: var(--fs-3); }
+  .board .viewbar { position: absolute; top: 14px; right: 16px; left: auto; max-width: none; z-index: 4; }
+  .board .slot[data-slot="plan"] { padding-top: 0; } .board .slot[data-slot="now"] .panel h3 { padding-right: 150px; }
+  @media (max-width: 1199px) { .board { display: flex; flex-direction: column; overflow: auto; } .board .slot { min-height: 220px; } .board .viewbar { position: sticky; top: 0; } }
+  .app.board-on .board .plan { padding: 0 !important; grid-template-columns: repeat(5, minmax(0, 1fr)) !important; gap: 8px !important; align-content: start; }
+  .app.board-on .board .plan .dept { padding: 7px 9px; } .app.board-on .board .plan .dept h4 { font-size: var(--fs-3); }
+  .board .panel h3 { white-space: nowrap; } .board .panel h3 .sp { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
+  .board .ev { grid-template-columns: 52px 8px 1fr; } .board .ev .t { white-space: nowrap; font-size: 10px; }
+  .top .viewbar { position: static; margin-left: 6px; max-width: none; } .top .viewbar button { padding: 6px 9px; }
 </style>
 </head>
 <body>
@@ -144,24 +236,38 @@
     <div class="cmd">
       <input type="text" id="task" placeholder='Give the office a command… e.g. "tailor my CV for the Trainline junior ML role"'>
       <select id="agent"></select>
-      <select id="engine"><option value="auto">auto</option><option value="groq">groq</option><option value="ollama">ollama</option></select>
+      <select id="engine" class="adv"><option value="auto">auto</option><option value="groq">groq</option><option value="ollama">ollama</option></select>
+      <button id="opts" title="Choose which agent and engine run the command">⚙</button>
       <button id="mic" title="Speak a command (Chrome)">🎤</button>
       <button id="pause" title="Pause or resume the whole office">⏸ Pause</button>
       <button id="floor" title="Hide the sidebar and let the office fill the screen">⛶ Floor</button>
       <button class="go" id="go">Run</button>
     </div>
     <div class="tiles">
-      <div class="tile"><div class="k">Agents</div><div class="v" id="t-agents">–</div></div>
+      <div class="tile extra"><div class="k">Agents</div><div class="v" id="t-agents">–</div></div>
       <div class="tile"><div class="k">Running</div><div class="v" id="t-active">0</div></div>
       <div class="tile"><div class="k">Runs today</div><div class="v" id="t-runs">–</div></div>
-      <div class="tile"><div class="k">Brain</div><div class="v" id="t-mem">–</div></div>
+      <div class="tile extra"><div class="k">Brain</div><div class="v" id="t-mem">–</div></div>
       <div class="tile"><div class="k">Approvals</div><div class="v" id="t-appr">–</div></div>
       <div class="tile"><div class="k">Engine</div><div class="v" id="t-engine" style="font-size:11px;padding-top:4px">–</div></div>
     </div>
   </div>
+  <div class="board" id="board" hidden>
+    <div class="slot" data-slot="plan"></div>
+    <div class="slot" data-slot="now"><div class="panel"><h3>Now <span class="sp" id="now-sp"></span></h3><div class="list" id="now"></div></div></div>
+    <div class="slot" data-slot="appr"></div>
+    <div class="slot" data-slot="feed"></div>
+    <div class="slot" data-slot="outputs"></div>
+    <div class="slot" data-slot="projects"></div>
+    <div class="slot" data-slot="money"></div>
+    <div class="slot" data-slot="trading"></div>
+    <div class="slot" data-slot="tasks"></div>
+    <div class="slot" data-slot="research"></div>
+  </div>
   <div class="main">
     <div class="stage" id="stage">
       <div id="stage3d"></div>
+      <div id="plan" class="plan" hidden></div>
       <div class="hint" id="hint">Drag to orbit · scroll to zoom · right-drag to pan · click an agent for its brief, runs and lessons · agents walk the walkways to the brain and to each other</div>
       <div class="treasury" id="treasury"></div>
       <div class="viewbar" id="viewbar">
@@ -169,6 +275,8 @@
         <button id="vb-names" title="Show every name, or only agents who are working">Names: active</button>
         <button id="vb-light" title="Golden-hour light, or the real London time of day">Light: golden</button>
         <button id="vb-design" title="Switch between the new campus and the classic ring (your backup)">Design: new</button>
+        <button id="vb-view" title="3D campus or a quiet 2D floor plan (lighter on the Mac)">View: 3D</button>
+        <button id="vb-theme" title="Dark, light or minimal">Theme: dark</button>
       </div>
       <div class="legend">
         <span><i style="background:var(--think)"></i>thinking</span><span><i style="background:var(--tool)"></i>tool</span>
@@ -182,16 +290,18 @@
       </div>
       <div class="pane on" data-pane="work">
         <div class="panel"><h3>Quick actions</h3><div class="quick" id="quick"></div></div>
-        <div class="panel"><h3>Live feed <span class="sp" id="feed-count"></span></h3><div class="feed" id="feed"></div></div>
+        <div class="panel feedp"><h3>Live feed <span class="sp" id="feed-count"></span></h3><div class="feed" id="feed"></div></div>
+        <div class="panel"><h3>Outputs · 7 days <span class="sp" id="out-sp"></span></h3><div class="list" id="outputs"></div></div>
+        <div class="panel"><h3>Projects <span class="sp" id="proj-sp"></span></h3><div class="list" id="projects"></div></div>
         <div class="panel"><h3>Task board <span class="sp" id="task-sp"></span></h3><div class="list" id="tasks"></div></div>
         <div class="panel"><h3>Coming up <span class="sp" id="sched-sp"></span></h3><div class="list" id="schedule"></div></div>
       </div>
       <div class="pane" data-pane="approvals">
-        <div class="panel"><h3>Approvals waiting for you <span class="sp" id="appr-count"></span></h3><div class="list tall" id="approvals"></div></div>
+        <div class="panel span"><h3>Approvals waiting for you <span class="sp" id="appr-count"></span></h3><div class="list tall" id="approvals"></div></div>
         <div class="panel"><h3>Today</h3><div class="mem" id="digest" style="white-space:pre-wrap"></div></div>
       </div>
       <div class="pane" data-pane="jobs">
-        <div class="panel"><h3>Job portal <span class="sp" id="jobs-sp"></span></h3>
+        <div class="panel span"><h3>Job portal <span class="sp" id="jobs-sp"></span></h3>
           <div class="memadd"><input id="jobq" placeholder="filter: company, title, status"><select id="jobmin" style="background:var(--bg);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px"><option value="1">fit 1+</option><option value="3" selected>fit 3+</option><option value="4">fit 4+</option><option value="5">fit 5</option></select></div>
           <div class="list tall" id="jobs"></div></div>
       </div>
@@ -207,7 +317,9 @@
         <div class="panel"><h3>Signals and decisions</h3><div class="list" id="trade-recent"></div></div>
       </div>
       <div class="pane" data-pane="ops">
-        <div class="panel"><h3>Research Lab · papers by stage <span class="sp" id="research-sp"></span></h3><div class="list" id="research"></div></div>
+        <div class="panel"><h3>Engine · providers and keys <span class="sp" id="eng-sp"></span></h3><div class="list auto" id="engine-panel"></div></div>
+        <div class="panel span"><h3>Analytics · 14 days <span class="sp" id="an-sp"></span></h3><div class="list auto" id="analytics"></div></div>
+        <div class="panel span"><h3>Research Lab · papers by stage <span class="sp" id="research-sp"></span></h3><div class="list auto" id="research"></div></div>
         <div class="panel"><h3>CEO dashboard · outcomes, 30 days <span class="sp" id="ceo-sp"></span></h3><div class="list" id="ceo"></div></div>
         <div class="panel"><h3>Deals · approved proposals <span class="sp">record what happened</span></h3><div class="list" id="deals"></div></div>
         <div class="panel"><h3>Scorecard · this week <span class="sp" id="score-sp"></span></h3><div class="list" id="scorecard"></div></div>
@@ -237,7 +349,7 @@ const PALETTES = [
   { name:"pink",   wall:"#b8398f", wallL:"#9a2e77", floor:"#e35fb8", floorAlt:"#da56ae", ico:"📣" },
   { name:"green",  wall:"#3f8f3a", wallL:"#33752f", floor:"#63bb5d", floorAlt:"#5bb155", ico:"🧾" },
 ];
-const OFFICE_ICON = { "front-desk":"🛎️", "job-hunt":"🎯", "studio":"🛠️", "brand-sales":"📣", "trading":"📈", "ops":"🗂️", "pm":"📋", "research":"🔎", "creative":"🎨" };
+const OFFICE_ICON = { "front-desk":"🛎️", "job-hunt":"🎯", "studio":"🛠️", "brand-sales":"📣", "trading":"📈", "ops":"🗂️", "pm":"📋", "research":"🔎", "robotics":"🤖", "growth":"🌱", "creative":"🎨" };
 const OFFICE_ORDER = ["front-desk","job-hunt","pm","studio","brand-sales","trading","ops"];
 
 let roster = [], rooms = [], agents = {}, feedCount = 0;
@@ -248,8 +360,8 @@ function buildRooms() {
   agents = {}; roster.forEach(a => { agents[a.name] = { name: a.name, office: a.office, state: "idle", since: 0 }; });
   if (H3()) H3().setRoster(roster);
 }
-function setState(a, st) { a.state = st; if (H3()) H3().setState(a.name, st); }
-function say(a, text, ms = 6000) { a.bubble = text; a.bubbleUntil = Date.now() + ms; if (H3()) H3().say(a.name, text, ms); }
+function setState(a, st) { a.state = st; if (H3()) H3().setState(a.name, st); PLAN.setState(a.name, st); }
+function say(a, text, ms = 6000) { a.bubble = text; a.bubbleUntil = Date.now() + ms; if (H3()) H3().say(a.name, text, ms); PLAN.say(a.name, text); }
 function goHome(a) { if (H3()) H3().goHome(a.name); }
 function brainPulse(a, toBrain, color) { if (H3()) H3().pulse(a.name, toBrain, color); }
 function showTreasury(tr) {
@@ -276,6 +388,7 @@ function applyEvent(e, live) {
           : tl === "write_file" ? "📝 writing…" : tl === "read_file" ? "📄 reading…" : tl === "request_approval" ? "✋ needs your OK" : tl.startsWith("capital_") ? "📈 " + tl.replace("capital_", "") : "🔧 " + tl;
         say(a, label, 8000);
         if (live && tl.startsWith("brain_") && H3()) { H3().goBrain(a.name); brainPulse(a, true, 0x9cc3ff); }
+        if (live && tl.startsWith("brain_")) PLAN.pulse();
         feed = `<b>${esc(e.agent)}</b> → <b>${esc(tl)}</b> <span class="d">${esc(e.args)}</span>`; break; }
       case "tool_result":
         if (e.tool.startsWith("brain_") && live) { brainPulse(a, false, 0xcfe3ff); goHome(a); }
@@ -387,7 +500,7 @@ async function refreshState() {
   trace("json");
   const names = s.roster.map(a => a.name).join();
   if (names !== roster.map(a => a.name).join()) {
-    roster = s.roster; buildRooms();
+    roster = s.roster; buildRooms(); PLAN.build(roster); Object.values(agents).forEach(a => PLAN.setState(a.name, a.state));
     $("#agent").innerHTML = roster.map(a => `<option value="${esc(a.name)}" ${a.name === "chief-of-staff" ? "selected" : ""}>${esc(a.name)}</option>`).join("");
   }
   trace("rooms"); $("#t-agents").textContent = roster.length; $("#t-runs").textContent = s.runs_today;
@@ -412,9 +525,13 @@ async function refreshState() {
   const dg = s.memories.find(m => m.tags.includes("digest")); $("#digest").textContent = dg ? dg.content : "No digest yet today (08:30).";
   const u = s.engine.usage || {}; const budget = s.engine.providers.map(p => { const x = u[p] || {}; const rem = x["x-ratelimit-remaining-tokens-minute"] || x["x-ratelimit-remaining-tokens"]; return rem ? `${p} ${Math.round(rem/1000)}k/min` : p; });
   const usable = s.engine.providers.filter(p => !s.budget || !s.budget[p] || s.budget[p].usable !== false), resting = s.engine.providers.filter(p => !usable.includes(p));
-  $("#t-engine").innerHTML = (usable.length ? esc(usable.join(" → ") + " → local") : "local only · " + esc(s.engine.ollama)) + `<div class="usage">${esc(resting.length ? "resting: " + resting.join(", ") : budget.join(" · "))}</div>`;
+  const localOn = s.engine.ollama && s.engine.ollama !== "off"; const oll = $("#engine option[value=ollama]"); if (oll) oll.hidden = !localOn;
+  const ks = s.engine.keys || {}; const kl = p => { const k = ks[p]; if (!k || k.keys < 2) return p; return `${p} ${k.keys - k.resting.length}/${k.keys} keys`; };
+  $("#t-engine").innerHTML = (usable.length ? esc(usable.map(kl).join(" → ") + (localOn ? " → local" : "")) : (localOn ? "local only · " + esc(s.engine.ollama) : "waiting for a cloud model")) + `<div class="usage">${esc(resting.length ? "resting: " + resting.join(", ") : budget.join(" · "))}</div>`;
+  renderEngine(s); renderNow(s);
   $("#brain-sp").textContent = `${s.brain.db_size_mb} MB`;
   const bs = $("#brain-sub"); if (bs) bs.textContent = `${s.brain.total_memories} notes · shared memory`;
+  $("#approvals").closest(".panel").classList.toggle("hot", s.approvals.length > 0); PLAN.mem(s.brain.total_memories); $("#board").classList.toggle("appr-busy", s.approvals.length >= 3);
   $("#approvals").innerHTML = s.approvals.length ? groupApprovals(s.approvals).map((a, i, arr) => { const head = (!i || arr[i - 1].why !== a.why) ? `<div class="agroup">${esc(a.why || "other")} · ${arr.filter(x => x.why === a.why).length}</div>` : ""; const paths = (a.content.match(/(?:workspace\/)?([\w./-]+\/[\w.-]+\.(?:md|txt|py|html|json|pdf))/g) || []).map(p => p.replace(/^workspace\//, ""));
       const qa = a.tags.includes("qa-pass") ? `<span class="st done" style="margin-right:6px">QA pass</span>` : a.tags.includes("qa-fail") ? `<span class="st failed" style="margin-right:6px">QA fail</span>` : a.tags.includes("qa-queued") ? `<span class="st queued" style="margin-right:6px">QA pending</span>` : "";
       const isApp = a.tags.includes("application") || /cv|cover letter|application/i.test(a.content);
@@ -441,6 +558,60 @@ function renderTasks(tasks) {
 }
 async function taskAct(id, action) { await fetch("/api/tasks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action }) }); refreshState(); }
 const STAGES = ["new", "proposal", "literature", "experiments", "drafting", "review", "ready"];
+const AN_COLORS = ["#0072B2", "#E69F00", "#009E73", "#CC79A7", "#D55E00"];   // Okabe-Ito: colour-blind safe, fixed order per series
+function barChart(rows, keys, labels, title, fmt) {   // stacked bars, one axis, 2px gaps, legend when >= 2 series, direct label on the max only
+  const W = 560, H = 150, pad = 26, bw = (W - pad) / rows.length;
+  const totals = rows.map(r => keys.reduce((a, k) => a + (r[k] || 0), 0)); const max = Math.max(1, ...totals); const iMax = totals.indexOf(Math.max(...totals));
+  const bars = rows.map((r, i) => { let y = H - 18; return keys.map((k, j) => { const v = r[k] || 0, h = Math.round((H - 36) * v / max); y -= h; const x = pad + i * bw + 2; return v ? `<rect x="${x}" y="${y}" width="${Math.max(2, bw - 4)}" height="${Math.max(0, h - 2)}" rx="2" fill="${AN_COLORS[j]}"><title>${esc(r.day)} ${esc(labels[j])}: ${fmt(v)}</title></rect>` : ""; }).join("") + (i === iMax ? `<text x="${pad + i * bw + bw / 2}" y="${y - 4}" text-anchor="middle" class="an-lbl">${fmt(totals[i])}</text>` : ""); }).join("");
+  const xs = rows.map((r, i) => (i % Math.ceil(rows.length / 7) === 0) ? `<text x="${pad + i * bw + bw / 2}" y="${H - 4}" text-anchor="middle" class="an-lbl">${esc(r.day)}</text>` : "").join("");
+  const legend = keys.length > 1 ? `<div class="an-legend">${keys.map((k, j) => `<span><i style="background:${AN_COLORS[j]}"></i>${esc(labels[j])}</span>`).join("")}</div>` : "";
+  return `<div class="an-chart"><div class="sub">${esc(title)}</div><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><line x1="${pad}" y1="${H - 18}" x2="${W}" y2="${H - 18}" class="an-axis"/>${bars}${xs}</svg>${legend}</div>`;
+}
+function renderEngine(s) {   // one card per provider: name + state, key dots (filled = free), budget bars, meta line
+  const ks = s.engine.keys || {}, bud = s.budget || {}, use = (s.engine.usage || {});
+  const bar = (label, v) => `<div class="eng-bar"><span>${label}</span><i><b style="width:${v == null ? 0 : Math.round(v * 100)}%"></b></i><span>${v == null ? "–" : Math.round(v * 100) + "%"}</span></div>`;
+  const rows = (s.engine.providers || []).map(p => { const k = ks[p] || { keys: 1, active: 1, resting: [] }, b = bud[p] || {}, u = use[p] || {};
+    const resting = new Set(k.resting.map(r => r.key));
+    const dots = Array.from({ length: k.keys }, (_, i) => `<i class="${resting.has(i + 1) ? "rest" : (k.active === i + 1 ? "on" : "")}" title="key ${i + 1}${resting.has(i + 1) ? " resting " + k.resting.find(r => r.key === i + 1).seconds + "s" : k.active === i + 1 ? " in use" : " free"}"></i>`).join("");
+    const state = b.down ? `<span class="st failed">down</span>` : b.usable === false ? `<span class="st queued">resting</span>` : `<span class="st done">ready</span>`;
+    const wait = k.resting.length ? `${k.resting.length} resting, next free in ${Math.min(...k.resting.map(r => r.seconds))}s` : "";
+    return `<div class="eng"><div class="eng-hd"><b>${esc(p)}</b>${state}<span class="eng-keys">${dots}</span><span class="eng-n">${k.keys} key${k.keys > 1 ? "s" : ""}${wait ? " · " + esc(wait) : ""}</span></div>
+      ${b.minute != null || b.day != null ? bar("minute left", b.minute) + bar("day left", b.day) : `<div class="eng-meta">no budget headers from this provider</div>`}
+      <div class="eng-meta">${u.model ? "last model " + esc(String(u.model).split("/").pop()) : "no call yet"}${u["x-ratelimit-remaining-tokens"] ? " · " + esc(u["x-ratelimit-remaining-tokens"]) + " tokens left this minute" : ""}</div></div>`; });
+  const el = $("#engine-panel"); if (!el) return; el.innerHTML = rows.join("");
+  const total = Object.values(ks).reduce((a, k) => a + k.keys, 0), resting = Object.values(ks).reduce((a, k) => a + k.resting.length, 0);
+  $("#eng-sp").textContent = total ? `${total - resting} of ${total} keys free` : "";
+}
+
+async function refreshAnalytics() {
+  let a; try { a = await (await fetch("/api/analytics?days=14")).json(); } catch (e) { return; }
+  const k = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(n);
+  const acc = Object.entries(a.acceptance || {}).filter(([, d]) => d.approved + d.rejected >= 2).slice(0, 10);
+  $("#an-sp").textContent = a.approval_latency_hours_median == null ? "" : `you decide in ~${a.approval_latency_hours_median}h (median of ${a.approvals_decided})`;
+  $("#analytics").innerHTML = barChart(a.tasks, ["done", "failed"], ["done", "failed"], "Tasks finished per day", String)
+    + barChart(a.tokens.rows, a.tokens.providers, a.tokens.providers, "Tokens per day by provider", k)
+    + (acc.length ? `<div class="sub" style="margin-top:8px">Your accept rate per agent (30 days)</div><div class="kv two">${acc.map(([ag, d]) => `<span class="k">${esc(ag)}</span><span>${d.accept_rate_pct}% · ${d.approved} approved, ${d.rejected} rejected${d.reasons.length ? ` · last: ${esc(d.reasons[d.reasons.length - 1])}` : ""}</span>`).join("")}</div>` : "");
+}
+
+async function refreshOutputs() {   // every document an agent wrote recently, grouped by folder, newest first
+  let r; try { r = await (await fetch("/api/outputs?days=7")).json(); } catch (e) { return; }
+  const os_ = r.outputs || []; const groups = {}; os_.forEach(o => (groups[o.folder] = groups[o.folder] || []).push(o));
+  $("#out-sp").textContent = os_.length ? `${os_.length} files · ${Object.keys(groups).length} folders` : "";
+  const open = o => /\.(pdf|png|mp4)$/i.test(o.name) ? `window.open('/api/file?path=${encodeURIComponent(o.path)}','_blank')` : `viewFile('${esc(o.path)}')`;
+  $("#outputs").innerHTML = os_.length ? Object.entries(groups).sort((a, b) => b[1][0].ts - a[1][0].ts).map(([g, items]) => `<details class="outg" ${items[0].ts > Date.now() / 1000 - 86400 ? "open" : ""}><summary><b>${esc(g)}</b> <span class="sp">${items.length} · ${esc(items[0].updated)}</span></summary>${items.slice(0, 12).map(o => `<div class="task"><div><div>${esc(o.name)}</div><div class="who">${esc(o.updated)}${o.agent ? " · " + esc(o.agent) : ""} · ${o.kb} KB</div></div><div><button class="view" onclick="${open(o)}">Open</button></div></div>`).join("")}${items.length > 12 ? `<div class="who" style="padding:4px 12px">+${items.length - 12} more in ${esc(g)}</div>` : ""}</details>`).join("")
+    : `<div class="empty">Nothing written in the last 7 days.</div>`;
+}
+
+async function refreshProjects() {
+  let r; try { r = await (await fetch("/api/projects")).json(); } catch (e) { return; }
+  const ps = r.projects || []; const cls = { "released": "done", "ready to push": "queued", "building": "running", "stale": "", "stub": "failed" };
+  $("#proj-sp").textContent = ps.length ? `${ps.filter(p => p.github).length} on GitHub · ${ps.filter(p => p.status === "building").length} building` : "";
+  $("#projects").innerHTML = ps.length ? ps.map(p => `<div class="task"><div><div><b>${esc(p.name)}</b> <span class="st ${cls[p.status] || ""}">${esc(p.status)}</span>${p.unpushed_commits ? ` <span class="st queued">${p.unpushed_commits} unpushed</span>` : ""}</div>
+      ${p.goal ? `<div class="sub">${esc(p.goal)}</div>` : ""}<div class="who">${p.files} files · updated ${esc(p.updated)}${p.last_agent ? " · last by " + esc(p.last_agent) : ""}${p.last_commit ? " · " + esc(p.last_commit) : ""}</div></div>
+      <div>${p.github ? `<button onclick="window.open('${esc(p.github)}','_blank')">GitHub</button>` : ""}</div></div>`).join("")
+    : `<div class="empty">No projects yet.</div>`;
+}
+
 async function refreshResearch() {
   let r; try { r = await (await fetch("/api/research")).json(); } catch (e) { return; }
   const rows = r.projects || []; const ready = rows.filter(p => p.ready);
@@ -455,7 +626,7 @@ async function refreshCEO() {
   let o; try { o = await (await fetch("/api/outcomes")).json(); } catch (e) { return; }
   const j = o.jobs || {}, f = o.freelance || {}, b = o.brand || {}, e = o.efficiency || {};
   const row = (k, v) => `<span class="k">${esc(k)}</span><span>${esc(v ?? "–")}</span>`;
-  $("#ceo").innerHTML = `<div class="kv">${[
+  $("#ceo").innerHTML = `<div class="kv two">${[
     row("Revenue (paid)", "£" + (f.revenue_gbp || 0)), row("Won, not yet paid", "£" + Math.max(0, (f.won_gbp || 0) - (f.revenue_gbp || 0))), row("Pipeline (sent + won)", "£" + (f.pipeline_gbp || 0)),
     row("Proposals drafted / sent / won", `${f.proposals_drafted} / ${f.sent} / ${f.won}`),
     row("Applications sent", j.applied), row("Responses / interviews / offers", `${j.responses} / ${j.interviews} / ${j.offers}`),
@@ -473,7 +644,7 @@ async function deal(id, stage) { const v = stage === "won" || stage === "paid" ?
   const r = await (await fetch("/api/deal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, stage, value: v ? Number(v) : null }) })).json();
   toast(r.error ? r.error : `Recorded: ${r.client} ${r.stage} £${r.value}`); refreshCEO(); }
 async function refreshStats() {
-  refreshCEO(); refreshResearch();
+  refreshCEO(); refreshResearch(); refreshAnalytics();
   const s = await (await fetch("/api/stats")).json();
   const c = s.scorecard || {}, t = c.targets_per_week || {};
   const rows = ["applications_tailored","applications_marked_applied","contacts_logged","proposals_drafted","posts_approved","mock_interviews","commits_on_github","jobs_found","leads_found","fabrications_caught"];
@@ -533,7 +704,10 @@ async function toggleApproval(id) {
     det.dataset.loaded = "1"; }
   card.classList.add("open"); btn.textContent = "Hide details";
 }
-async function decide(id, decision) { const r = await fetch("/api/approve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, decision }) }); try { const j = await r.json(); if (j.sent) toast(`Email sent to ${j.sent.to}`); else if (j.error) toast(j.error); } catch (e) {} refreshState(); }
+async function decide(id, decision) {
+  let reason = "";
+  if (decision === "rejected") { reason = prompt("Why? One line (optional). It becomes a lesson the agent recalls before its next run.", ""); if (reason === null) return; }
+  const r = await fetch("/api/approve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, decision, reason }) }); try { const j = await r.json(); if (j.sent) toast(`Email sent to ${j.sent.to}`); else if (j.error) toast(j.error); } catch (e) {} refreshState(); }
 $("#go").onclick = async () => {
   const task = $("#task").value.trim(); if (!task) return; $("#go").disabled = true;
   const r = await (await fetch("/api/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ task, agent: $("#agent").value, engine: $("#engine").value }) })).json();
@@ -578,6 +752,70 @@ function connect() {
   es.onerror = () => $("#conn").classList.add("off");
 }
 
+/* 2D floor plan: the same roster, states and speech as the campus, as quiet cards. Lighter on the Mac; the 3D loop pauses while it shows. */
+const PLAN_TITLE = { "front-desk": "Front Desk", "job-hunt": "Job Hunt", "pm": "Project Office", "studio": "Studio", "brand-sales": "Brand & Sales", "trading": "Trading Desk", "ops": "Operations", "research": "Research Lab", "robotics": "Robotics Lab", "growth": "Growth & Funding" };
+const PLAN = {
+  el: null, rows: {},
+  build(list) {
+    const el = $("#plan"); this.el = el; this.rows = {}; const by = {};
+    list.forEach(a => (by[a.office] = by[a.office] || []).push(a));
+    el.innerHTML = `<div class="brain"><i id="plan-brain"></i><span>Shared brain · <b id="plan-mem">–</b> notes · agents recall before acting and remember after</span></div>` +
+      Object.keys(by).sort((x, y) => (Object.keys(PLAN_TITLE).indexOf(x) - Object.keys(PLAN_TITLE).indexOf(y))).map(off => `<div class="dept"><h4>${OFFICE_ICON[off] || ""} ${esc(PLAN_TITLE[off] || off)}<span class="n">${by[off].length}</span></h4><div class="ags">${by[off].map(a => `<div class="ag idle" data-ag="${esc(a.name)}" onclick="openAgent('${esc(a.name)}')"><i></i><span><span class="nm">${esc(a.name)}</span><div class="sy"></div></span></div>`).join("")}</div></div>`).join("");
+    el.querySelectorAll(".ag").forEach(r => { this.rows[r.dataset.ag] = r; });
+  },
+  setState(name, st) { const r = this.rows[name]; if (!r) return; r.className = "ag " + (st || "idle"); if (st === "idle") r.querySelector(".sy").textContent = ""; },
+  say(name, text) { const r = this.rows[name]; if (r) r.querySelector(".sy").textContent = text || ""; },
+  pulse() { const b = $("#plan-brain"); if (!b) return; b.classList.remove("on"); void b.offsetWidth; b.classList.add("on"); },
+  mem(n) { const m = $("#plan-mem"); if (m) m.textContent = n; }
+};
+/* One-screen board for View: plan. The existing panels are moved into the board's slots (their ids and renderers stay
+   the same) and moved back when the campus returns. */
+const BOARD_MAP = { plan: "#plan", appr: "#approvals", feed: "#feed", outputs: "#outputs", projects: "#projects", money: "#ceo", trading: "#trading", tasks: "#tasks", research: "#research" };
+const _home = {};
+function enterBoard() {
+  const board = $("#board"); if (!board.hidden) return;
+  for (const [slot, sel] of Object.entries(BOARD_MAP)) {
+    const inner = $(sel); if (!inner) continue; const el = slot === "plan" ? inner : inner.closest(".panel"); if (!el) continue;
+    _home[slot] = { el, parent: el.parentElement, next: el.nextElementSibling }; el.classList.remove("collapsed"); board.querySelector(`.slot[data-slot="${slot}"]`).appendChild(el);
+  }
+  const vb = $("#viewbar"); _home.viewbar = { el: vb, parent: vb.parentElement, next: vb.nextElementSibling }; $(".top").appendChild(vb);   // view/theme switches sit in the top bar while the board shows
+  board.hidden = false; $(".app").classList.add("board-on"); refreshCEO(); refreshResearch(); refreshTrading(); refreshOutputs(); refreshProjects();
+}
+function leaveBoard() {
+  const board = $("#board"); if (board.hidden) return;
+  for (const h of Object.values(_home)) { if (h.next && h.next.parentElement === h.parent) h.parent.insertBefore(h.el, h.next); else h.parent.appendChild(h.el); }
+  board.hidden = true; $(".app").classList.remove("board-on");
+}
+function renderNow(s) {   // what the office is doing this minute: running tasks with elapsed time and the agent's current step
+  const el = $("#now"); if (!el) return; const now = Date.now() / 1000;
+  const running = (s.tasks || []).filter(t => t.status === "running").sort((a, b) => (a.started_at || 0) - (b.started_at || 0));
+  $("#now-sp").textContent = running.length ? `${running.length} running` : "idle";
+  el.innerHTML = running.length ? running.map(t => { const a = agents[t.owner] || {}; const m = Math.max(0, Math.round((now - (t.started_at || now)) / 60));
+    return `<div class="now-row"><div><b>${esc(t.owner)}</b> · ${esc(t.title.slice(0, 70))}<div class="sy">${esc(a.bubble || "working")}</div></div><span class="t">${m}m</span></div>`; }).join("")
+    : `<div class="empty">Nothing running. Next standing work starts on its own.</div>`;
+}
+document.addEventListener("click", e => { const m = e.target.closest(".board .ev .m"); if (m) m.closest(".ev").classList.toggle("open"); });
+
+function setView(v) {   // "3d" | "plan"
+  const plan = v === "plan"; $("#plan").hidden = !plan; $("#stage3d").style.visibility = plan ? "hidden" : "visible"; $("#stage").classList.toggle("plan-on", plan); $(".app").classList.toggle("plan-on", plan);
+  if (plan) enterBoard(); else leaveBoard();
+  HQ3D.setPaused?.(plan); $("#vb-view").textContent = "View: " + (plan ? "plan" : "3D");
+  ["#vb-over", "#vb-names", "#vb-light", "#vb-design"].forEach(id => { const b = $(id); if (b) b.style.display = plan ? "none" : ""; });
+  if (plan && roster.length) { PLAN.build(roster); Object.values(agents).forEach(a => { PLAN.setState(a.name, a.state); if (a.bubble) PLAN.say(a.name, a.bubble); }); }
+}
+function setTheme(t) { document.documentElement.dataset.theme = t === "dark" ? "" : t; $("#vb-theme").textContent = "Theme: " + t; }
+(() => {
+  const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
+  let theme = store("hq-theme") || "dark", view = store("hq-view") || (theme === "minimal" ? "plan" : "3d");
+  setTheme(theme);
+  $("#vb-theme").onclick = () => { theme = theme === "dark" ? "light" : theme === "light" ? "minimal" : "dark"; store("hq-theme", theme); setTheme(theme); if (theme === "minimal" && !store("hq-view")) { view = "plan"; setView(view); } };
+  $("#vb-view").onclick = () => { view = view === "plan" ? "3d" : "plan"; store("hq-view", view); setView(view); };
+  window.addEventListener("hq3d-ready", () => setTimeout(() => setView(view), 50), { once: true }); if (window.HQ3D) setTimeout(() => setView(view), 50);
+  $("#opts").onclick = () => { const on = $(".top").classList.toggle("adv"); $("#opts").classList.toggle("on", on); };
+  document.querySelectorAll(".panel > h3").forEach((h, i) => { const key = "hq-panel-" + i; const p = h.parentElement; if (store(key) === "1") p.classList.add("collapsed");
+    h.addEventListener("click", e => { if (e.target.closest("button, input, select, a")) return; p.classList.toggle("collapsed"); store(key, p.classList.contains("collapsed") ? "1" : "0"); }); });
+})();
+
 function viewbar() {
   const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
   const isNew = window.HQ3D_DESIGN !== "classic"; const vb = $("#viewbar"); vb.classList.toggle("classic", !isNew);
@@ -594,11 +832,11 @@ function viewbar() {
 function boot() {
   HQ3D.init($("#stage3d"), { onAgentClick: openAgent });
   viewbar();
-  if (roster.length) HQ3D.setRoster(roster);
+  if (roster.length) { HQ3D.setRoster(roster); PLAN.build(roster); }
   refreshState().then(() => { connect(); refreshSchedule(); refreshTrading(); refreshJobs(); });
 }
 if (window.HQ3D) boot(); else window.addEventListener("hq3d-ready", boot, { once: true });
-setInterval(refreshJobs, 120000);
+setInterval(refreshJobs, 120000); refreshProjects(); setInterval(refreshProjects, 120000); refreshOutputs(); setInterval(refreshOutputs, 180000);
 setInterval(refreshSchedule, 60000); setInterval(refreshTrading, 120000);
 setInterval(refreshState, 8000); refreshRuns(); setInterval(refreshRuns, 20000); refreshStats(); setInterval(refreshStats, 60000);
 </script>

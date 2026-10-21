@@ -133,7 +133,7 @@ def free_memory_gb() -> float:
 
 
 def running_ids() -> list[int]:
-    return [tid for tid, r in _running.items() if r["proc"].poll() is None]
+    return [tid for tid, r in list(_running.items()) if r["proc"].poll() is None]   # a copy: the tick thread mutates it
 
 
 def busy() -> bool:
@@ -302,6 +302,13 @@ def check_approvals(brain: BrainStore) -> int:
     new = [m for m in pending if m.id > _last_approval_id]
     for m in new:
         _notify("Approval needed", m.content.replace("PENDING APPROVAL from ", ""))
+        try:
+            import telegram
+            if telegram.configured():
+                import ceo
+                telegram.notify_approval(m, ceo.rank_approval(m)[1] if hasattr(ceo, "rank_approval") else "")
+        except Exception:
+            pass
         paths = re.findall(r"(?:workspace/)?((?:applications|posts|proposals|outbox|interviews)/[\w./-]+?\.md|(?:applications|posts|proposals|outbox)/[\w./-]+/)", m.content)
         internal = bool({"brief-proposal", "skill-update", "hire"} & set(m.tags)) or "ops/proposals/" in m.content
         if paths and not internal and "qa-queued" not in m.tags and m.agent != "fact-checker":   # QA is for text that leaves the office
@@ -466,7 +473,7 @@ def tick(brain: BrainStore, engine: str = "auto") -> dict:
     if not ok_cloud:
         info["waiting_for_cloud_until"] = soonest
         # every cloud model is cooling: with the uncapped local model allowed, keep one run going on this Mac
-        effective = 1 if os.environ.get("OFFICE_LEAD_LOCAL_FALLBACK", "0") == "1" else 0
+        effective = 1 if os.environ.get("OFFICE_LEAD_LOCAL_FALLBACK", "0") == "1" and os.environ.get("OFFICE_LOCAL_MODEL", "1") != "0" else 0
         if unlimited():
             effective = MAX_PARALLEL
     now = time.time(); skip: list[int] = []

@@ -13,12 +13,14 @@ def _isolate_side_effects(tmp_path, monkeypatch):
     import events
     monkeypatch.setattr(events, "EVENTS_FILE", tmp_path / "events.jsonl")
     monkeypatch.setenv("OFFICE_REFLECT", "0")
-    monkeypatch.delenv("OFFICE_LEAD_LOCAL_FALLBACK", raising=False)   # .env may switch it on; tests assert the strict default
+    monkeypatch.setenv("BRAIN_RERANK", "0")        # no 80 MB cross-encoder load per test; the reranker has its own tests
+    monkeypatch.delenv("OFFICE_LEAD_LOCAL_FALLBACK", raising=False); monkeypatch.delenv("OFFICE_LOCAL_MODEL", raising=False)   # .env may switch it on; tests assert the strict default
     import scheduler
     monkeypatch.setattr(scheduler, "TUNNEL_LOG", tmp_path / "tunnel.log")   # never look at (or restart) the real tunnel from a test
     import runtime
     monkeypatch.setattr(runtime, "LOG_DIR", tmp_path / "logs"); (tmp_path / "logs").mkdir(exist_ok=True)   # run logs stay out of office/logs
     # live provider cooldowns and parked keys must not leak into tests (a real Groq rate limit failed the scheduler tests)
+    monkeypatch.setattr(runtime, "KEY_COOL_FILE", tmp_path / "key_cool.json"); runtime._KEY_COOL.clear()
     monkeypatch.setattr(runtime, "COOL_FILE", tmp_path / "cool.json"); monkeypatch.setattr(runtime, "PROVIDER_DOWN_FILE", tmp_path / "down.json")
     monkeypatch.setattr(runtime, "DOWN_HIST_FILE", tmp_path / "down_hist.json"); runtime._COOLDOWN.clear()
     monkeypatch.setattr(scheduler, "TUNING_FILE", tmp_path / "tuning.json")   # tests run on default knobs, not Pribin's live settings

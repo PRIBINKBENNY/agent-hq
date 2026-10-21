@@ -11,12 +11,12 @@
 <link rel="apple-touch-icon" href="/icon.png">
 <title>Agent HQ</title>
 <style>
-  :root { --bg:#080b14; --panel:#10151f; --panel-2:#171d2a; --line:#232b3a; --ink:#e6eaf2; --ink-2:#9aa5b8; --ink-3:#66718a;
+  :root { --bg:#080b14; --panel:#10151f; --panel-2:#171d2a; --line:#232b3a; --ink:#e6eaf2; --ink-2:#a3adbf; --ink-3:#8b96aa;
           --think:#5b8def; --tool:#e0a93b; --done:#3ec28f; --err:#ef5b6e; --accent:#5b8def; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 -apple-system, system-ui, sans-serif; }
   body { padding: env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 70px); }
-  header { position: sticky; top:0; z-index:5; background: rgba(8,11,20,.92); backdrop-filter: blur(10px); border-bottom:1px solid var(--line); padding: 12px 16px; display:flex; align-items:center; gap:10px; }
+  header { position: sticky; top:0; z-index:5; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(10px); border-bottom:1px solid var(--line); padding: 12px 16px; display:flex; align-items:center; gap:10px; }
   header b { font-size:17px; letter-spacing:.4px; } header .dot { width:9px; height:9px; border-radius:50%; background:var(--done); } header .dot.off { background:var(--err); }
   header .sp { margin-left:auto; font-size:12px; color:var(--ink-3); }
   .tiles { display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; padding: 12px 16px 0; }
@@ -36,7 +36,7 @@
   .det { display:none; margin-top:10px; } .item.open .det { display:block; } .det h5 { margin:8px 0 4px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-3); }
   .det .body { white-space:pre-wrap; font-size:13px; color:var(--ink-2); background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:10px; max-height:45vh; overflow:auto; }
   .more { background:none; border:0; color:var(--accent); font-size:14px; padding:8px 0; } .who { color:var(--ink-3); font-size:12px; margin-bottom:4px; }
-  .cmd { position: fixed; left:0; right:0; bottom:0; padding: 10px 12px calc(env(safe-area-inset-bottom) + 10px); background: rgba(8,11,20,.95); backdrop-filter: blur(10px); border-top:1px solid var(--line); display:flex; gap:8px; }
+  .cmd { position: fixed; left:0; right:0; bottom:0; padding: 10px 12px calc(env(safe-area-inset-bottom) + 10px); background: color-mix(in srgb, var(--bg) 95%, transparent); backdrop-filter: blur(10px); border-top:1px solid var(--line); display:flex; gap:8px; }
   .cmd input { flex:1; background:var(--panel); border:1px solid var(--line); color:var(--ink); padding:12px; border-radius:12px; font-size:16px; }
   .cmd button { background:var(--accent); border:0; color:#fff; padding:0 16px; border-radius:12px; font-size:15px; font-weight:700; } .cmd #mic { background:var(--panel-2); border:1px solid var(--line); color:var(--ink); padding:0 12px; } .cmd #mic.on { border-color:var(--err); color:var(--err); }
   .feed .item { font-size:13px; } .feed b { color:var(--ink); }
@@ -45,6 +45,12 @@
   .row { display:flex; gap:8px; padding: 10px 14px; } .row button { flex:1; background:var(--panel-2); border:1px solid var(--line); color:var(--ink); padding:10px; border-radius:10px; font-size:13px; }
   .kv { display:grid; grid-template-columns:1fr auto auto; gap: 3px 10px; padding: 10px 14px; font-size:13px; } .kv .k { color:var(--ink-2);} .kv .v { text-align:right;} .kv .t { color:var(--ink-3); text-align:right;} .kv .hit{color:var(--done)} .kv .miss{color:var(--tool)}
 .agroup{margin:12px 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;opacity:.7}
+  :root[data-theme="light"], :root:not([data-theme]) { }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]):not([data-theme="minimal"]) { --bg:#f3f5f9; --panel:#fff; --panel-2:#fff; --line:#e3e7ee; --ink:#151a24; --ink-2:#4a5468; --ink-3:#6b7588; } }
+  :root[data-theme="light"] { --bg:#f3f5f9; --panel:#fff; --panel-2:#fff; --line:#e3e7ee; --ink:#151a24; --ink-2:#4a5468; --ink-3:#6b7588; }
+  :root[data-theme="minimal"] { --bg:#fafafa; --panel:#fff; --panel-2:#fff; --line:#e8e8e8; --ink:#111; --ink-2:#555; --ink-3:#777; --done:#111; --think:#111; --tool:#555; }
+  :root[data-theme="minimal"] section h3 { text-transform:none; letter-spacing:0; font-size:15px; font-weight:600; color:var(--ink); }
+  .btns .more-sheet { display:none; width:100%; } .item.more .btns .more-sheet { display:contents; } .btns button.morebtn { opacity:.85; }
 </style>
 </head>
 <body>
@@ -60,10 +66,12 @@
 <section><h3>Approvals waiting for you <span class="sp" id="appr-sp"></span></h3><div id="approvals"></div></section>
 <section><h3>Today <span class="sp" id="digest-sp"></span></h3><div id="digest" class="item" style="white-space:pre-wrap"></div></section>
 <section><h3>Jobs <span class="sp" id="jobs-sp"></span></h3><div id="jobs"></div></section>
+<section><h3>Projects <span class="sp" id="proj-sp"></span></h3><div id="projects"></div></section>
+<section><h3>Outputs · 7 days <span class="sp" id="out-sp"></span></h3><div id="outputs"></div></section>
 <section><h3>Task board <span class="sp" id="task-sp"></span></h3><div id="tasks"></div></section>
 <section><h3>Scorecard · this week</h3><div id="scorecard"></div></section>
 <section class="feed"><h3>Live feed <span class="sp" id="feed-sp"></span></h3><div id="feed"></div></section>
-<section><h3>Phone</h3><div class="row"><button id="pausebtn" onclick="togglePause()">⏸ Pause office</button><button id="push">Enable notifications</button></div><div class="row"><button onclick="location.href='/linkedin/connect'" id="li-btn">Connect LinkedIn</button><button onclick="location.href='/'">Office floor</button></div>
+<section><h3>Phone</h3><div class="row"><button id="pausebtn" onclick="togglePause()">⏸ Pause office</button><button id="push">Enable notifications</button></div><div class="row"><button id="theme-btn" onclick="cycleTheme()">Theme: auto</button></div><div class="row"><button onclick="location.href='/linkedin/connect'" id="li-btn">Connect LinkedIn</button><button onclick="location.href='/'">Office floor</button></div>
   <div class="empty" id="push-status">Add this page to your Home Screen (Share → Add to Home Screen) to get an app icon and push notifications.</div></section>
 
 <div class="cmd"><input id="task" placeholder="Give the office a command…"><button id="mic">🎤</button><button id="go">Run</button></div>
@@ -84,7 +92,7 @@ async function refresh() {
   $("#t-agents").textContent = s.roster.length;
   $("#t-tasks").textContent = s.tasks.filter(t => ["queued","running"].includes(t.status)).length;
   $("#t-appr").textContent = s.approvals.length; $("#appr-sp").textContent = s.approvals.length ? s.approvals.length + " pending" : "";
-  $("#engine").textContent = (s.engine.providers || []).join(" → ") + " → ollama";
+  $("#engine").textContent = (s.engine.providers || []).join(" → ") + (s.engine.ollama && s.engine.ollama !== "off" ? " → ollama" : "");
   const pz = s.paused || {}; const b = $("#banner"); b.style.display = pz.paused ? "block" : "none"; if (pz.paused) b.textContent = "OFFICE PAUSED" + (pz.reason ? " · " + pz.reason : "") + ". Nothing new starts until you resume.";
   $("#pausebtn").textContent = pz.paused ? "▶ Resume office" : "⏸ Pause office"; $("#pausebtn").dataset.paused = pz.paused ? "1" : "";
   $("#approvals").innerHTML = s.approvals.length ? groupApprovals(s.approvals).map((a, i, arr) => { const head = (!i || arr[i - 1].why !== a.why) ? `<div class="agroup">${esc(a.why || "other")} · ${arr.filter(x => x.why === a.why).length}</div>` : "";
@@ -97,19 +105,26 @@ async function refresh() {
       const postBtns = isPost ? paths.filter(p => p.includes("posts/")).map(p => `<span class="postset" data-id="${a.id}" data-path="${esc(p)}"><button class="ok" onclick="postLinkedIn(${a.id},'${esc(p)}')">Post ${esc(p.split("/").pop().replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(".md", ""))}</button></span>`).join("") : "";
     return `${head}<div class="item" id="appr-${a.id}"><div class="who">#${a.id} · ${esc(a.agent)} · ${esc(a.created)}</div>${qa}${esc(a.content.replace(/^(QA: \w+ - )?PENDING APPROVAL from [\w-]+: /, ""))}
       <div><button class="more" onclick="toggleApproval(${a.id})">Show details</button></div><div class="det"></div>
-      <div class="btns"><button class="ok" onclick="act('/api/approve',{id:${a.id},decision:'approved'},'Approved')">Approve</button>${isApp ? `<button class="ok" onclick="act('/api/applied',{id:${a.id}},'Marked applied')">I applied</button>` : ""}${postBtns}${netBtns}<button class="no" onclick="act('/api/approve',{id:${a.id},decision:'rejected'},'Rejected')">Reject</button>${paths.map(p => `<button class="view" onclick="view('${esc(p)}')">${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
+      <div class="btns"><button class="ok" onclick="act('/api/approve',{id:${a.id},decision:'approved'},'Approved')">Approve</button>${isApp ? `<button class="ok" onclick="act('/api/applied',{id:${a.id}},'Marked applied')">I applied</button>` : ""}${postBtns}${netBtns}<button class="no" onclick="rejectWithReason(${a.id})">Reject</button>${paths.map(p => `<button class="view" onclick="view('${esc(p)}')">${esc(p.split("/").pop())}</button>`).join("")}</div></div>`; }).join("")
     : `<div class="empty">Nothing waiting.</div>`;
   expandPostSets();
   const open = s.tasks.filter(t => ["queued","running","blocked"].includes(t.status)); $("#task-sp").textContent = open.length ? open.length + " open" : "";
   $("#tasks").innerHTML = s.tasks.length ? s.tasks.slice(0, 12).map(t => `<div class="item"><span class="st ${esc(t.status)}">${esc(t.status)}</span>${esc(t.title)}<div class="meta">${esc(t.owner)} · ${esc(t.created)}${t.result ? " · " + esc(String(t.result).slice(0, 120)) : ""}</div></div>`).join("") : `<div class="empty">No tasks.</div>`;
   const dg = s.memories.find(m => m.tags.includes("digest")); $("#digest").textContent = dg ? dg.content : "No digest yet today. The Chief of Staff writes one at 08:30."; $("#digest-sp").textContent = dg ? dg.created : "";
 }
+async function refreshOutputs() { const r = await api("/api/outputs?days=7"); const os_ = (r.outputs || []).slice(0, 20); $("#out-sp").textContent = os_.length ? `${(r.outputs || []).length} files` : "";
+  $("#outputs").innerHTML = os_.length ? os_.map(o => `<div class="item"><b>${esc(o.name)}</b><div class="meta">${esc(o.folder)} · ${esc(o.updated)}${o.agent ? " · " + esc(o.agent) : ""}</div><div class="btns"><button class="view" onclick="view('${esc(o.path)}')">Open</button></div></div>`).join("") : `<div class="empty">Nothing yet.</div>`; }
+
+async function refreshProjects() { const r = await api("/api/projects"); const ps = (r.projects || []).filter(p => p.status !== "stub").slice(0, 12);
+  $("#proj-sp").textContent = ps.length ? `${ps.filter(p => p.github).length} on GitHub` : "";
+  $("#projects").innerHTML = ps.length ? ps.map(p => `<div class="item"><span class="st ${esc(p.status.replace(/ /g, "-"))}">${esc(p.status)}</span><b>${esc(p.name)}</b><div class="meta">${p.files} files · ${esc(p.updated)}${p.last_agent ? " · " + esc(p.last_agent) : ""}${p.last_commit ? "<br>" + esc(p.last_commit) : ""}</div>${p.github ? `<div class="btns"><button class="ok" onclick="window.open('${esc(p.github)}','_blank')">Open on GitHub</button></div>` : ""}</div>`).join("") : `<div class="empty">No projects yet.</div>`; }
+
 async function refreshJobs() {
   const r = await api("/api/jobs"); const jobs = (r.jobs || []).filter(j => !["rejected", "dismissed"].includes(j.status)).slice(0, 15);
   $("#jobs-sp").textContent = jobs.length ? jobs.length + " open" : "";
   $("#jobs").innerHTML = jobs.length ? jobs.map(j => `<div class="item"><span class="st ${esc(j.status)}">${esc(j.status)}</span><b>${esc(j.title)}</b> · ${esc(j.company)} · fit ${j.fit}/5
       <div class="meta">${esc(j.location)}${j.posted && j.posted !== "n/a" ? " · posted " + esc(j.posted) : ""}${j.needs ? "<br>Needs: " + esc(j.needs) : ""}</div>
-      <div class="btns">${j.url ? `<button class="ok" onclick="window.open('${esc(j.url)}','_blank')">Open posting</button>` : ""}${j.application ? `${j.url ? `<button class="ok" onclick="jobAct(${j.id},'prefill')">Pre-fill form</button>` : ""}<button class="view" onclick="view('${esc(j.application.cv)}')">CV</button>${j.application.pdf ? `<button class="view" onclick="view('${esc(j.application.pdf)}')">PDF</button>` : ""}${j.application.letter ? `<button class="view" onclick="view('${esc(j.application.letter)}')">Letter</button>` : ""}` : `<button onclick="jobAct(${j.id},'tailor')">Tailor CV</button>`}${j.status !== "applied" ? `<button class="ok" onclick="jobStatus(${j.id},'applied')">I applied</button>` : ""}<button class="no" onclick="jobStatus(${j.id},'dismissed')">Dismiss</button></div></div>`).join("")
+      <div class="btns">${j.url ? `<button class="ok" onclick="window.open('${esc(j.url)}','_blank')">Open posting</button>` : ""}${j.application ? (j.url ? `<button class="ok" onclick="jobAct(${j.id},'prefill')">Pre-fill form</button>` : `<button class="view" onclick="view('${esc(j.application.cv)}')">CV</button>`) : `<button class="ok" onclick="jobAct(${j.id},'tailor')">Tailor CV</button>`}<button class="morebtn" onclick="this.closest('.item').classList.toggle('more')">More</button><span class="more-sheet">${j.application ? `<button class="view" onclick="view('${esc(j.application.cv)}')">CV</button>${j.application.pdf ? `<button class="view" onclick="view('${esc(j.application.pdf)}')">PDF</button>` : ""}${j.application.letter ? `<button class="view" onclick="view('${esc(j.application.letter)}')">Letter</button>` : ""}` : ""}${j.status !== "applied" ? `<button class="ok" onclick="jobStatus(${j.id},'applied')">I applied</button>` : ""}<button class="no" onclick="jobStatus(${j.id},'dismissed')">Dismiss</button></span></div></div>`).join("")
     : `<div class="empty">No open jobs yet.</div>`;
 }
 async function jobAct(id, action) { const r = await api("/api/jobs", { id, action }); toast(r.task ? `Queued as task #${r.task}` : (r.error || "done")); }
@@ -122,6 +137,12 @@ async function refreshStats() {
 const WHY_ORDER = ["a client or contact is waiting for a reply", "proposal", "job application", "post", "internal change"];
 function groupApprovals(list) { const rank = a => { const w = a.why || "other"; const i = WHY_ORDER.findIndex(k => w.startsWith(k)); return i < 0 ? WHY_ORDER.length : i; }; return [...list].sort((x, y) => rank(x) - rank(y) || (x.why || "").localeCompare(y.why || "") || y.id - x.id); }
 async function copyFile(p) { try { const r = await (await fetch("/api/file?path=" + encodeURIComponent(p))).json(); await navigator.clipboard.writeText(r.content || ""); toast("Copied: paste it into LinkedIn"); } catch (e) { toast("Copy failed: " + e); } }
+
+async function rejectWithReason(id) { const reason = prompt("Why? One line (optional). It becomes a lesson for the agent.", ""); if (reason === null) return; act('/api/approve', { id, decision: 'rejected', reason }, reason ? 'Rejected, lesson stored' : 'Rejected'); }
+
+function applyTheme(t) { if (t && t !== "auto") document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; const b = $("#theme-btn"); if (b) b.textContent = "Theme: " + (t || "auto"); }
+function cycleTheme() { const order = ["auto", "dark", "light", "minimal"]; let t = "auto"; try { t = localStorage.getItem("hq-m-theme") || "auto"; } catch (e) {} t = order[(order.indexOf(t) + 1) % order.length]; try { localStorage.setItem("hq-m-theme", t); } catch (e) {} applyTheme(t); }
+try { applyTheme(localStorage.getItem("hq-m-theme") || "auto"); } catch (e) {}
 
 async function postLinkedIn(id, path, variant) { if (!confirm(`Publish ${variant ? "variant " + variant : "this post"} to LinkedIn now?`)) return; const r = await api("/api/linkedin/post", { id, path, variant }); toast(r.posted ? "Posted to LinkedIn" : (r.error || "failed")); refresh(); }
 function expandPostSets() { document.querySelectorAll(".postset:not([data-done])").forEach(el => { el.dataset.done = 1; const p = el.dataset.path, id = el.dataset.id; api("/api/linkedin/variants?path=" + encodeURIComponent(p)).then(v => { if (v.variants > 1) el.innerHTML = Array.from({ length: v.variants }, (_, i) => `<button class="ok" onclick="postLinkedIn(${id},'${p}',${i + 1})">Post v${i + 1}</button>`).join(""); }).catch(() => {}); }); }
@@ -170,7 +191,7 @@ $("#push").onclick = enablePush;
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 fetch("/api/linkedin/status").then(r => r.json()).then(st => { const b = $("#li-btn"); if (!st.configured) b.textContent = "LinkedIn: add app keys"; else if (st.connected) b.textContent = `LinkedIn: ${st.name} (${st.days_left}d)`; else b.textContent = "Connect LinkedIn"; }).catch(() => {});
-refresh(); refreshStats(); connect(); refreshJobs(); setInterval(refreshJobs, 120000); setInterval(refresh, 15000); setInterval(refreshStats, 60000);
+refresh(); refreshStats(); connect(); refreshJobs(); setInterval(refreshJobs, 120000); setInterval(refresh, 15000); refreshProjects(); setInterval(refreshProjects, 120000); refreshOutputs(); setInterval(refreshOutputs, 180000); setInterval(refreshStats, 60000);
 </script>
 </body>
 </html>

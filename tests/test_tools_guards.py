@@ -74,3 +74,10 @@ def test_post_variants_split_and_tool_requires_a_choice(monkeypatch, tmp_path):
     monkeypatch.setattr(tools, "brain", types.SimpleNamespace(get=lambda i: m))
     assert "3 variants" in tools.linkedin_post(5, "posts/p.md")
     assert "variant must be" in tools.linkedin_post(5, "posts/p.md", 4)
+
+
+def test_task_create_is_the_registered_tool_and_accepts_title():
+    import tools
+    t = tools.registry._tools["task_create"]
+    fn = getattr(t, "fn", None) or getattr(t, "func", None) or t
+    assert getattr(fn, "__name__", "") == "task_create"

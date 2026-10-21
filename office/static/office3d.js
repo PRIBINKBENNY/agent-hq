@@ -6,7 +6,7 @@
    Labels are screen-sized (always readable) and by default only shown for agents who are working.
    API on window.HQ3D (same as the classic design, plus a few extras):
      init, setRoster, setState, say, goBrain, goHome, goTo, pulse, reward, setBrain, resize, focus, floorView,
-     setOffice, setLabelMode, setLighting, overview, flyToDept */
+     setOffice, setLabelMode, setLighting, overview, flyToDept, setPaused */
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
@@ -29,9 +29,9 @@ function loadPerson() {
   return personPromise;
 }
 
-const OFFICE_ORDER = ["front-desk", "job-hunt", "pm", "studio", "brand-sales", "trading", "research", "ops"];
+const OFFICE_ORDER = ["front-desk", "job-hunt", "pm", "studio", "brand-sales", "trading", "research", "robotics", "growth", "ops"];
 const ACCENT = { "front-desk": 0xc2558f, "job-hunt": 0x3b6fd6, "pm": 0xd98433, "studio": 0x7a5fcf, "brand-sales": 0xd4a52a, "trading": 0xc94a5c, "ops": 0x2e9c86, "research": 0x3a9bc9, "creative": 0xd06a9c };
-const TITLE = { "front-desk": "Front Desk", "job-hunt": "Job Hunt", "pm": "Project Office", "studio": "Studio", "brand-sales": "Brand & Sales", "trading": "Trading Desk", "ops": "Operations", "research": "Research Lab" };
+const TITLE = { "front-desk": "Front Desk", "job-hunt": "Job Hunt", "pm": "Project Office", "studio": "Studio", "brand-sales": "Brand & Sales", "trading": "Trading Desk", "ops": "Operations", "research": "Research Lab", "robotics": "Robotics Lab", "growth": "Growth & Funding" };
 const STATE_COLOR = { idle: 0x9aa3b5, think: 0x3b6fd6, tool: 0xd98433, delegate: 0x7a5fcf, done: 0x2e9c86, error: 0xc94a5c };
 const STATE_WORD = { think: "thinking", tool: "using a tool", delegate: "delegating", done: "done", error: "fallback model" };
 const SKIN = [0xf3cfae, 0xe0b08a, 0xc48e63, 0x9c6a45, 0x6f4a30, 0xf7dcc0];
@@ -700,8 +700,35 @@ export function reward(detail = {}) {
 }
 
 /* ----------------------------------------------------------------------------- animation */
+/* Labels never pile up: department signs are placed first, then agent tags by priority (hover > speech > working >
+   walking); a tag whose screen rectangle would overlap one already placed is hidden this frame. */
+const _v = new THREE.Vector3();
+function screenRect(sp, pad = 4) {
+  _v.copy(sp.position).project(camera);
+  if (_v.z > 1) return null;
+  const w = container.clientWidth, h = container.clientHeight, x = (_v.x + 1) / 2 * w, y = (1 - _v.y) / 2 * h;
+  const pw = (sp.userData.px ? sp.userData.px[0] : 80) * (MOBILE ? 0.78 : 1), ph = (sp.userData.px ? sp.userData.px[1] : 20) * (MOBILE ? 0.78 : 1);
+  const cy = sp.center ? sp.center.y : 0;             // center.y 0 = tag sits above its anchor; speech bubbles hang below (negative)
+  return { x0: x - pw / 2 - pad, x1: x + pw / 2 + pad, y0: y - ph * (1 - cy) - pad, y1: y + ph * cy + pad };
+}
+function decollideLabels() {
+  const placed = [];
+  for (const sg of signs) { if (sg && sg.visible) { const r = screenRect(sg); if (r) placed.push(r); } }
+  const overlaps = r => placed.some(p => r.x0 < p.x1 && r.x1 > p.x0 && r.y0 < p.y1 && r.y1 > p.y0);
+  const figs = Object.values(figures).filter(f => (f.label && f.label.visible) || (f.bubbleSprite && f.bubbleSprite.visible)).sort((a, b) => (b.labelPrio || 0) - (a.labelPrio || 0));
+  for (const f of figs) {
+    const rects = [f.label && f.label.visible ? screenRect(f.label) : null, f.bubbleSprite && f.bubbleSprite.visible ? screenRect(f.bubbleSprite) : null].filter(Boolean);
+    if (!rects.length) continue;
+    const hit = rects.some(overlaps);
+    if (hit && !f.hover) { if (f.label) f.label.visible = false; if (f.bubbleSprite) f.bubbleSprite.visible = false; } else rects.forEach(r => placed.push(r));
+  }
+}
+
+let paused = false;
+export function setPaused(v) { paused = !!v; }
 function frame(now) {
   requestAnimationFrame(frame);
+  if (paused) return;
   if (document.hidden || !renderer) return;
   const busy = tween || particles.length || floaters.length || Object.values(figures).some(f => f.state !== "idle" || f.target || f.hover);
   if (!busy && now - lastFrame < 1000 / 24) return;
@@ -747,8 +774,10 @@ function frame(now) {
     const crowded = MOBILE && camera.position.distanceTo(controls.target) > 110;     // phone overview: names appear once you zoom in
     f.label.visible = f.hover || (!crowded && (labelMode === "all" || !!f.target || bubble || (f.state !== "idle" && f.state !== "done")));
     f.label.position.copy(head);
+    f.labelPrio = f.hover ? 4 : bubble ? 3 : (f.state !== "idle" && f.state !== "done") ? 2 : f.target ? 1 : 0;
     if (f.bubbleSprite) { if (!bubble) { dropSprite(f.bubbleSprite); f.bubbleSprite = null; } else { f.bubbleSprite.position.copy(head); f.bubbleSprite.visible = !crowded || f.hover; } }
   }
+  decollideLabels();
   for (let i = particles.length - 1; i >= 0; i--) {
     const q = particles[i];
     if (q.gold) { q.mesh.position.add(q.vel); q.vel.y -= 0.012; q.vel.multiplyScalar(0.985); q.mesh.rotation.x += 0.2; q.u += dt * 0.5; if (q.u > 1.2 || q.mesh.position.y < FLOOR) { scene.remove(q.mesh); q.mesh.geometry.dispose(); particles.splice(i, 1); } continue; }

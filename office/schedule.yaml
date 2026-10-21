@@ -242,3 +242,9 @@
   command: 'python office/skills_export.py && git add skills && (git commit -q -m "skills weekly export" || true)' 
   priority: 2
   title: Export skill guides as SKILL.md (before the Friday publish)
+- name: memory-consolidation
+  every: daily
+  at: '03:30'
+  priority: 2
+  title: Memory consolidation (merge duplicates, fade stale events)
+  command: python office/consolidate.py

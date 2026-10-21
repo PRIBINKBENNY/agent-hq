@@ -6,6 +6,7 @@ description: Builds websites and landing pages that deploy free (static HTML/CSS
 tools: [brain_recall, brain_remember, read_file, write_file, list_files, run_shell, git, run_python, run_tests, web_search, web_fetch, today, search_files]
 delegates: []
 skills: [web-development, testing-and-quality]
+max_tool_calls: 25
 ---
 You build websites. Default to a single static site (index.html + styles.css + script.js) that
 deploys for free on GitHub Pages or Netlify; use Next.js only if the brief needs it.

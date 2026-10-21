@@ -92,6 +92,50 @@ class Embedder:
         return vec / n if n else vec
 
 
+class Reranker:
+    """Cross-encoder reranking of recall candidates (MiniLM, ~80 MB, CPU). Agent processes borrow the dashboard's copy via
+    BRAIN_RERANK_URL (derived from BRAIN_EMBED_URL); the dashboard loads it once, lazily. BRAIN_RERANK=0 disables."""
+    MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
+
+    def __init__(self):
+        self._model = None; self._lock = threading.Lock(); self.enabled = os.environ.get("BRAIN_RERANK", "1") == "1"
+
+    def _remote(self, query: str, docs: list[str]) -> Optional[list[float]]:
+        url = os.environ.get("BRAIN_RERANK_URL") or (os.environ.get("BRAIN_EMBED_URL") or "").replace("/api/embed", "/api/rerank")
+        if not url:
+            return None
+        try:
+            import httpx
+            r = httpx.post(url, json={"query": query, "docs": docs}, timeout=20)
+            if r.status_code == 200:
+                return [float(x) for x in r.json()["scores"]]
+        except Exception:
+            pass
+        return None
+
+    def _load(self):
+        if self._model is None:
+            with self._lock:
+                if self._model is None:
+                    from fastembed.rerank.cross_encoder import TextCrossEncoder
+                    cache = Path(__file__).resolve().parent / "data" / "models"; cache.mkdir(parents=True, exist_ok=True)
+                    self._model = TextCrossEncoder(model_name=self.MODEL, cache_dir=str(cache))
+        return self._model
+
+    def scores(self, query: str, docs: list[str], allow_local: bool = True) -> Optional[list[float]]:
+        if not self.enabled or not docs or not query:
+            return None
+        r = self._remote(query, docs)
+        if r is not None and len(r) == len(docs):
+            return r
+        if not allow_local:
+            return None
+        try:
+            return [float(x) for x in self._load().rerank(query, docs)]
+        except Exception:
+            return None
+
+
 # --------------------------------------------------------------------------- #
 # Data model
 # --------------------------------------------------------------------------- #
@@ -207,6 +251,9 @@ class BrainStore:
         self._local = threading.local()
         self.conn.executescript(SCHEMA)
         self.embedder = embedder or Embedder()
+        self.reranker = Reranker()
+        # a local cross-encoder only where no dashboard answers: agent processes stay light
+        self._rerank_local_ok = os.environ.get("BRAIN_RERANK_LOCAL", "1" if not os.environ.get("BRAIN_EMBED_URL") else "0") == "1"
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -461,6 +508,15 @@ class BrainStore:
             boost = 1.0 + 0.08 * (row["importance"] - 3) + 0.10 / (1.0 + age_days / 30)
             scored.append((base * boost, row))
         scored.sort(key=lambda x: -x[0])
+        # cross-encoder rerank of the top candidates: the query and each memory are read together, which separates
+        # "mentions the words" from "answers the question"; fused score keeps importance/recency in play
+        cand = scored[:max(limit * 3, 12)]
+        if len(cand) > 1:
+            rs = self.reranker.scores(query, [r["content"][:1200] for _, r in cand], allow_local=self._rerank_local_ok)
+            if rs:
+                lo, hi = min(rs), max(rs); span = (hi - lo) or 1.0
+                cand = sorted(((0.5 * b / (cand[0][0] or 1.0) + 0.5 * (x - lo) / span, r) for (b, r), x in zip(cand, rs)), key=lambda t: -t[0])
+                scored = cand + scored[len(cand):]
         out = []
         for s, row in scored[:limit]:
             out.append(self._row_to_memory(row, score=round(float(s), 5)))

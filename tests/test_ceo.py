@@ -82,7 +82,8 @@ def test_workspace_guard_blocks_placeholder_and_duplicate_projects(b, tmp_path, 
     assert "already exists" in tools.write_file("projects/Feedback-Transformer/x.py", "x", _agent="code-builder") or True
     assert tools.write_file("projects/new-lead/PLAN.md", "x", _agent="proposal-writer").startswith("refused: proposal-writer")
     assert tools.write_file("projects/feedback-transformer/x.py", "x", _agent="code-builder").startswith("wrote")
-    assert tools.write_file("projects/text-summarizer/a.py", "x", _agent="code-builder").startswith("wrote")
+    assert tools.write_file("projects/text-summarizer/a.py", "x", _agent="code-builder").startswith("refused: new project folders")   # builders continue projects, planners open them
+    assert tools.write_file("projects/text-summarizer/PLAN.md", "x", _agent="project-manager").startswith("wrote")
 
 
 def test_outcomes_ignore_internal_proposals(b):

@@ -6,6 +6,7 @@ DuckDuckGo, page reading is trafilatura, files live under workspace/.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import time
@@ -337,6 +338,10 @@ def write_file(path: str, content: str, _agent="unknown"):
         if not (root / name).exists():
             if _agent in ("proposal-writer", "lead-finder", "mail-assistant", "linkedin-writer", "content-writer", "networker"):
                 return f"refused: {_agent} does not create projects; proposals go in proposals/, drafts in your own folder"
+            if _agent not in ("project-manager", "studio-lead", "pribin", "chief-of-staff"):
+                existing = sorted(d.name for d in root.iterdir() if d.is_dir() and not d.name.startswith(".")) if root.exists() else []
+                return (f"refused: new project folders are opened by the project-manager or studio-lead (with a PLAN.md), not by {_agent}. "
+                        f"Write into an existing project: {', '.join(existing[:20])}")
             if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", name):
                 return f"refused: project folder '{name}' must be lowercase-with-hyphens (e.g. feedback-transformer)"
             norm = lambda x: re.sub(r"[^a-z0-9]", "", x.lower())
@@ -378,6 +383,10 @@ def today():
         "owner": {"type": "string", "default": "chief-of-staff", "description": "agent name that should run it"},
         "priority": {"type": "integer", "default": 3, "description": "1-5"},
     }, "required": ["title"]})
+def task_create(title: str, detail: str = "", owner: str = "chief-of-staff", priority: int = 3, _agent="unknown"):
+    return _task_create(title, detail, owner, priority, _agent)
+
+
 def _agents():
     from runtime import list_agents
     return list_agents()
@@ -387,7 +396,7 @@ TASK_JUNK = re.compile(r"unknown (recipient|company|client|contact)|<[a-z _-]+>|
 AGENT_TASKS_PER_DAY = 12
 
 
-def task_create(title: str, detail: str = "", owner: str = "chief-of-staff", priority: int = 3, _agent="unknown"):
+def _task_create(title: str, detail: str = "", owner: str = "chief-of-staff", priority: int = 3, _agent="unknown"):
     """Agents put work on the board for others. Guards (learned from a week of logs): no placeholder tasks, no
     self-assignment (do it now instead), no duplicate of a task already on the board or created by you today, and a
     daily cap per agent so an agent cannot loop on 'investigate failed task' tickets."""
@@ -532,9 +541,9 @@ def market_data(ticker: str, period: str = "3mo", points: int = 20):
 # ---------------------------------------------------------------- comms (Ops): drafts only, Pribin sends
 @registry.register("draft_email", "Write an email draft to workspace/outbox/ for Pribin to review and send himself. Never sends.", {
     "type": "object", "properties": {
-        "to": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"},
+        "to": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"}, "attach": {"type": "string", "description": "optional workspace path to attach (finance/invoices, applications, proposals, portfolio)"},
     }, "required": ["to", "subject", "body"]})
-def draft_email(to: str, subject: str, body: str, _agent="unknown"):
+def draft_email(to: str, subject: str, body: str, attach: str = "", _agent="unknown"):
     import re as _re
     blob = f"{to}\n{subject}\n{body}"
     if _re.search(r"<\s*(company|client|name|recipient|role|date|email|url)\s*>|\[(company|client|name|recipient)\]|lorem ipsum", blob, re.I):
@@ -545,7 +554,7 @@ def draft_email(to: str, subject: str, body: str, _agent="unknown"):
         return "refused: 'to' is a file path, not a recipient"
     slug = _re.sub(r"[^a-z0-9]+", "-", subject.lower())[:50].strip("-") or "email"
     path = f"outbox/{time.strftime('%Y%m%d-%H%M')}-{slug}.md"
-    write_file(path, f"To: {to}\nSubject: {subject}\nFrom-agent: {_agent}\n\n{body}\n")
+    write_file(path, f"To: {to}\nSubject: {subject}\nFrom-agent: {_agent}\n" + (f"Attach: {attach}\n" if attach else "") + f"\n{body}\n")
     m = brain.remember(f"PENDING APPROVAL from {_agent}: email draft '{subject}' to {to} at workspace/{path}",
                        agent=_agent, kind="approval", importance=5, tags=["pending", "email"])
     return f"draft saved to {path}; approval #{m.id} requested"
@@ -703,8 +712,108 @@ def git_push(cwd: str, repo_name: str | None = None, visibility: str = "private"
             return f"ERROR: origin is not under github.com/{user}; refusing to push"
         r = g("push", "-u", "origin", "HEAD")
         log.append("push: " + r.strip()[-300:])
+    out = "\n".join(log); url = f"https://github.com/{user}/{name}"
+    try:
+        head = _run(["git", "log", "-1", "--format=%h %s"], d, 20).strip()[:120]
+        nothing_new = "Everything up-to-date" in out and "create:" not in out
+        if nothing_new:
+            out += f"\nrepo: {url} (no new commits to push)"
+        else:
+            out += f"\nrepo: {url}\npushed: {head}"
+            brain.remember(f"Pushed to GitHub: {url} ({name}) · {head}", agent="release-manager", kind="event", importance=4,
+                           tags=["release", "github", f"project:{name}"], dedupe=False)
+            registry.call("notify", {"title": f"Pushed: {name}", "message": f"{head[:90]} · {url}"}, agent="release-manager")
+    except Exception:
+        pass
+    return out
     log.append(f"repo: https://github.com/{user}/{name}")
     return "\n".join(log)
+
+
+def projects_overview() -> list[dict]:
+    """Every folder under workspace/projects as Pribin should see it: what it is, how far it is, where it lives on GitHub,
+    who touched it last. Derived from disk, git and the brain; nothing an agent has to maintain."""
+    import subprocess
+    root = WORKSPACE / "projects"; out = []
+    if not root.exists():
+        return out
+    last_by: dict[str, tuple[float, str]] = {}
+    try:
+        for m in brain.recent(limit=400, kind="event", namespace="*"):
+            for t in (m.tags or []):
+                if t.startswith("project:") and (m.created_at > last_by.get(t[8:], (0, ""))[0]):
+                    last_by[t[8:]] = (m.created_at, m.agent)
+    except Exception:
+        pass
+    for d in sorted(x for x in root.iterdir() if x.is_dir() and not x.name.startswith(".")):
+        files = [f for f in d.rglob("*") if f.is_file() and ".git/" not in str(f) and "/.venv/" not in str(f) and "__pycache__" not in str(f) and "/node_modules/" not in str(f)]
+        mtime = max((f.stat().st_mtime for f in files), default=d.stat().st_mtime)
+        remote = ""; last_commit = ""; ahead = None
+        if (d / ".git").exists():
+            try:
+                remote = subprocess.run(["git", "remote", "get-url", "origin"], cwd=d, capture_output=True, text=True, timeout=10).stdout.strip()
+                last_commit = subprocess.run(["git", "log", "-1", "--format=%cs %s"], cwd=d, capture_output=True, text=True, timeout=10).stdout.strip()[:100]
+                if remote:
+                    a = subprocess.run(["git", "rev-list", "--count", "@{u}..HEAD"], cwd=d, capture_output=True, text=True, timeout=10).stdout.strip()
+                    ahead = int(a) if a.isdigit() else None
+            except Exception:
+                pass
+        url = re.sub(r"\.git$", "", remote.replace("git@github.com:", "https://github.com/")) if "github.com" in remote else ""
+        readme = (d / "README.md").exists(); tests = any(p.name.startswith("test") for p in files) or (d / "tests").exists()
+        days = (time.time() - mtime) / 86400
+        status = ("released" if url and not ahead else "ready to push" if url and ahead else "stub" if len(files) < 4 or not readme else "building" if days < 7 else "stale")
+        goal = ""
+        if readme:
+            try:
+                goal = next((ln.strip() for ln in (d / "README.md").read_text().splitlines()[1:12] if ln.strip() and not ln.startswith("#") and not ln.startswith("```")), "")[:140]
+            except Exception:
+                pass
+        out.append({"name": d.name, "files": len(files), "updated": time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime)), "days": round(days, 1), "readme": readme, "tests": tests,
+                    "github": url, "last_commit": last_commit, "unpushed_commits": ahead, "status": status, "last_agent": last_by.get(d.name, (0, ""))[1], "goal": goal})
+    order = {"ready to push": 0, "building": 1, "released": 2, "stale": 3, "stub": 4}
+    out.sort(key=lambda p: (order.get(p["status"], 5), -time.mktime(time.strptime(p["updated"], "%Y-%m-%d %H:%M"))))
+    return out
+
+
+OUTPUT_SKIP = (".git", ".venv", "__pycache__", "node_modules", ".trash", ".handoff", ".browser-profile", ".sources", "library", "data", "logs", "cv")
+
+
+def outputs_recent(days: int = 7, limit: int = 300) -> list[dict]:
+    """Every document an agent produced recently, grouped so Pribin can find it: path, folder, when, which agent wrote
+    it (from the event log), size. Code files inside projects are summarised per project by the Projects panel, so
+    only documents (md, txt, pdf, csv, json, ics, png, mp4) are listed here."""
+    import glob, json as _json
+    since = time.time() - days * 86400; who: dict[str, tuple[float, str]] = {}
+    ev = ROOT / "office" / "logs" / "events.jsonl"
+    if ev.exists():
+        with ev.open() as f:
+            for ln in f:
+                if '"write_file"' not in ln and '"export_pdf"' not in ln:
+                    continue
+                try:
+                    e = _json.loads(ln)
+                except Exception:
+                    continue
+                if e.get("type") != "tool" or float(e.get("ts", 0)) < since:
+                    continue
+                m = re.search(r"path[\"']?: ?[\"']?(?:workspace/)?([\w./ -]+?)[\"',}]", str(e.get("args", "")))
+                if m:
+                    who[m.group(1).strip()] = (float(e["ts"]), e.get("agent", ""))
+    out = []
+    for p in WORKSPACE.rglob("*"):
+        if not p.is_file() or p.suffix.lower() not in (".md", ".txt", ".pdf", ".csv", ".json", ".ics", ".png", ".mp4", ".html"):
+            continue
+        rel = str(p.relative_to(WORKSPACE)); parts = rel.split("/")
+        if any(x in OUTPUT_SKIP for x in parts[:-1]) or parts[0] == "projects" and p.suffix.lower() not in (".md", ".pdf"):
+            continue
+        st = p.stat()
+        if st.st_mtime < since or st.st_size == 0:
+            continue
+        agent = who.get(rel, (0, ""))[1]
+        out.append({"path": rel, "folder": parts[0] if len(parts) == 1 else "/".join(parts[:2]) if parts[0] in ("projects", "research", "applications", "networking") else parts[0],
+                    "name": p.name, "updated": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)), "ts": st.st_mtime, "agent": agent, "kb": round(st.st_size / 1024, 1)})
+    out.sort(key=lambda x: -x["ts"])
+    return out[:limit]
 
 
 @registry.register("github_status", "List Pribin's GitHub repos with last push time, and commits he made today (for the daily report).", {
@@ -1014,6 +1123,67 @@ def browser_prefill(url: str, company: str, fields: dict, _agent="unknown"):
     except Exception:
         pass
     return json.dumps(r, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------- invoices (UK sole trader; drafts until Pribin approves; never sent by code)
+INVOICE_DIR = WORKSPACE / "finance" / "invoices"
+LEDGER = WORKSPACE / "finance" / "ledger.csv"
+
+
+def _next_invoice_number() -> str:
+    INVOICE_DIR.mkdir(parents=True, exist_ok=True); year = time.strftime("%Y")
+    nums = [int(m.group(1)) for f in INVOICE_DIR.glob(f"INV-{year}-*.md") for m in [re.match(rf"INV-{year}-(\d+)", f.name)] if m]
+    return f"INV-{year}-{(max(nums) + 1 if nums else 1):03d}"
+
+
+@registry.register("invoice_create", "Draft a UK sole-trader invoice for a WON deal: sequential number, Pribin's trading details, client, line items, "
+                   "due date, payment details. Writes finance/invoices/<number>-<client>.md (+PDF), appends a draft row to the ledger, and asks "
+                   "Pribin's approval. Never sends.", {
+    "type": "object", "properties": {"deal_id": {"type": "integer", "description": "the deal memory id (kind deal) or its approval id"},
+                                     "client": {"type": "string"}, "client_email": {"type": "string"}, "client_address": {"type": "string"},
+                                     "items": {"type": "array", "items": {"type": "object", "properties": {"description": {"type": "string"}, "amount_gbp": {"type": "number"}}, "required": ["description", "amount_gbp"]}},
+                                     "due_days": {"type": "integer", "default": 14}, "notes": {"type": "string"}},
+    "required": ["deal_id", "client", "items"]})
+def invoice_create(deal_id: int, client: str, items: list, client_email: str = "", client_address: str = "", due_days: int = 14, notes: str = "", _agent="unknown"):
+    if _agent not in ("bookkeeper", "pribin", "chief-of-staff"):
+        return "refused: only the bookkeeper drafts invoices"
+    if not items or any(not str(i.get("description", "")).strip() or float(i.get("amount_gbp", 0)) <= 0 for i in items):
+        return "REFUSED: every line needs a description and an amount above zero"
+    if re.search(r"<[^>]+>|\bTBD\b|unknown|example\.com", f"{client} {client_email} {client_address}", re.I):
+        return "REFUSED: placeholder client details; take them from the deal, the proposal or the client's email"
+    try:
+        deal = brain.get(int(deal_id))
+    except KeyError:
+        return "REFUSED: deal not found"
+    total = round(sum(float(i["amount_gbp"]) for i in items), 2)
+    number = _next_invoice_number(); slug = re.sub(r"[^a-z0-9]+", "-", client.lower()).strip("-")[:40]
+    issued = time.strftime("%Y-%m-%d"); due = time.strftime("%Y-%m-%d", time.localtime(time.time() + int(due_days) * 86400))
+    me_name = os.environ.get("INVOICE_TRADING_NAME") or "Pribin K Benny"
+    me_addr = os.environ.get("INVOICE_ADDRESS") or "[address: set INVOICE_ADDRESS in .env]"
+    pay = os.environ.get("INVOICE_PAYMENT_DETAILS") or "[bank details: set INVOICE_PAYMENT_DETAILS in .env]"
+    link = os.environ.get("STRIPE_PAYMENT_LINK") or ""
+    lines = [f"# Invoice {number}", "", f"**From:** {me_name}  ", f"{me_addr}  ", f"Email: {os.environ.get('GMAIL_ADDRESS') or ''}", "",
+             f"**To:** {client}  ", *( [f"{client_address}  "] if client_address else []), *( [f"Email: {client_email}"] if client_email else []), "",
+             f"**Invoice date:** {issued}  ", f"**Due date:** {due} ({int(due_days)} days)  ", f"**Reference:** deal #{deal.id}", "",
+             "| Description | Amount (GBP) |", "|---|---:|", *(f"| {str(i['description']).strip()} | {float(i['amount_gbp']):,.2f} |" for i in items),
+             f"| **Total due** | **{total:,.2f}** |", "", "Not VAT registered; no VAT is charged.", "", "## Payment", pay,
+             *( [f"Pay online: {link}"] if link else []), "", f"Please quote {number} with your payment. Payment terms: {int(due_days)} days from the invoice date.",
+             *( ["", notes.strip()] if notes.strip() else []), ""]
+    rel = f"finance/invoices/{number}-{slug}.md"; write_file(rel, "\n".join(lines))
+    pdf = ""
+    try:
+        pdf = export_pdf(rel)
+    except Exception as e:
+        pdf = f"(PDF not built: {str(e)[:80]})"
+    LEDGER.parent.mkdir(parents=True, exist_ok=True)
+    if not LEDGER.exists():
+        LEDGER.write_text("date,type,counterparty,description,amount_gbp,vat,status,deal_id,invoice\n")
+    with LEDGER.open("a") as f:
+        f.write(f"{issued},income,{client.replace(',', ' ')},{'; '.join(str(i['description']).replace(',', ' ') for i in items)[:80]},{total:.2f},0,draft,{deal.id},{number}\n")
+    m = brain.remember(f"PENDING APPROVAL from {_agent}: Invoice {number} for {client}, GBP {total:,.2f}, due {due} (deal #{deal.id}). File: workspace/{rel}" + (f"; PDF {pdf}" if pdf and not pdf.startswith('(') else ""),
+                       agent=_agent, kind="approval", importance=5, tags=["pending", "invoice", f"invoice:{number}", f"company:{slug}"],
+                       meta={"invoice": number, "client": client, "client_email": client_email, "total": total, "deal_id": deal.id, "path": rel})
+    return f"invoice {number} drafted: workspace/{rel} ({pdf}); approval #{m.id} requested. Pribin approves, then it is emailed with the PDF attached."
 
 
 # ---------------------------------------------------------------- LinkedIn (publishes ONLY what Pribin approved)
@@ -1741,7 +1911,8 @@ def send_approved_email(approval_id: int, path: str | None = None, agent: str = 
     if not path or not p.exists() or "/outbox/" not in str(p):
         raise mail.MailError(f"{path} is not an outbox draft")
     d = mail.parse_draft(p.read_text())
-    r = mail.send(d["to"], d["subject"], d["body"], in_reply_to=d["in_reply_to"], references=d["references"], agent=agent, mode="approved")
+    r = mail.send(d["to"], d["subject"], d["body"], in_reply_to=d["in_reply_to"], references=d["references"], agent=agent, mode="approved",
+                  attachments=d.get("attachments") or [])
     brain.update(m.id, agent=agent, content=re.sub(r"^(PENDING APPROVAL|APPROVED)", "SENT", m.content, count=1), add_tags=["sent"])
     brain.remember(f"Sent email to {r['to']}: '{d['subject']}' ({path}); approval #{m.id}", agent=agent, kind="event", importance=4,
                    tags=["email", "sent", f"contact:{re.sub(r'[^a-z0-9]+', '-', r['to'].split('@')[0].lower())}"])

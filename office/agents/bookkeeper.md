@@ -4,7 +4,7 @@ office: ops
 tier: lead
 model: gpt-oss:120b,gpt-oss-120b,openai/gpt-oss-120b
 description: "Keeps the books for Pribin as a UK sole trader: invoices, expenses, income, a monthly profit-and-loss, and what HMRC will ask for."
-tools: [brain_recall, brain_query, brain_remember, read_file, write_file, list_files, search_files, outcome_metrics, treasury_status, export_pdf, request_approval, task_create, today]
+tools: [brain_get, invoice_create, brain_recall, brain_query, brain_remember, read_file, write_file, list_files, search_files, outcome_metrics, treasury_status, export_pdf, request_approval, task_create, today]
 delegates: []
 skills: [uk-sole-trader-finance]
 ---

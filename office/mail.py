@@ -115,7 +115,8 @@ def parse_draft(text: str) -> dict:
             k, v = ln.split(":", 1); hdr[k.strip().lower()] = v.strip()
     return {"to": hdr.get("to", ""), "subject": hdr.get("subject", ""), "agent": hdr.get("from-agent", ""),
             "in_reply_to": hdr.get("in-reply-to") or None, "references": hdr.get("references") or None,
-            "reply_uid": hdr.get("reply-uid") or None, "body": body.strip()}
+            "reply_uid": hdr.get("reply-uid") or None, "body": body.strip(),
+            "attachments": [a.strip() for a in hdr.get("attach", "").split(",") if a.strip()]}
 
 
 def _decode(v) -> str:
@@ -250,8 +251,13 @@ def check_sendable(to: str, subject: str, body: str, allow_self: bool = False) -
     return addr
 
 
+ATTACH_MAX_MB = 8
+ATTACH_ROOTS = ("finance/invoices/", "applications/", "proposals/", "portfolio/")     # only the office's own documents go out
+
+
 def send(to: str, subject: str, body: str, in_reply_to: Optional[str] = None, references: Optional[str] = None,
-         agent: str = "mail-assistant", mode: str = "approved", factory: Optional[Callable] = None) -> dict:
+         agent: str = "mail-assistant", mode: str = "approved", factory: Optional[Callable] = None,
+         attachments: Optional[list[str]] = None) -> dict:
     addr = check_sendable(to, subject, body, allow_self=(mode == "approved"))
     msg = EmailMessage()
     msg["From"] = address(); msg["To"] = addr; msg["Subject"] = subject.strip()
@@ -259,6 +265,17 @@ def send(to: str, subject: str, body: str, in_reply_to: Optional[str] = None, re
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to; msg["References"] = (references or in_reply_to)
     msg.set_content(body.strip() + "\n")
+    names = []
+    for a in attachments or []:
+        rel = str(a).replace("workspace/", "", 1).lstrip("/")
+        p = (Path(__file__).resolve().parent.parent / "workspace" / rel).resolve()
+        if not rel.startswith(ATTACH_ROOTS) or not p.exists() or not p.is_file():
+            raise MailError(f"attachment not allowed or missing: {a}")
+        if p.stat().st_size > ATTACH_MAX_MB * 1e6:
+            raise MailError(f"attachment too large: {a}")
+        import mimetypes
+        ctype, _ = mimetypes.guess_type(p.name); main, sub = (ctype or "application/octet-stream").split("/", 1)
+        msg.add_attachment(p.read_bytes(), maintype=main, subtype=sub, filename=p.name); names.append(p.name)
     smtp = (factory or smtplib.SMTP_SSL)(SMTP_HOST, SMTP_PORT, timeout=30)
     try:
         smtp.login(address(), _password())
@@ -269,7 +286,7 @@ def send(to: str, subject: str, body: str, in_reply_to: Optional[str] = None, re
         except Exception:
             pass
     row = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "to": addr, "subject": subject.strip()[:120], "agent": agent, "mode": mode,
-           "message_id": msg["Message-ID"], "in_reply_to": in_reply_to, "chars": len(body)}
+           "message_id": msg["Message-ID"], "in_reply_to": in_reply_to, "chars": len(body), "attachments": names}
     SENT_LOG.parent.mkdir(parents=True, exist_ok=True)
     with open(SENT_LOG, "a") as f:
         f.write(json.dumps(row) + "\n")

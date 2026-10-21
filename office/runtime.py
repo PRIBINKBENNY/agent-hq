@@ -42,6 +42,12 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")  # 
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")   # small, tool-capable, no thinking phase
 
 
+def local_model_enabled() -> bool:
+    """OFFICE_LOCAL_MODEL=0 removes the local Ollama floor entirely (Pribin, 2026-10-21: too slow on 8 GB). With it off,
+    the office waits for a cloud model instead of ever running locally; no chain contains an ollama entry."""
+    return os.environ.get("OFFICE_LOCAL_MODEL", "1") != "0"
+
+
 def _env_list(name: str, default: str) -> list[str]:
     return [m.strip() for m in os.environ.get(name, default).split(",") if m.strip()]
 
@@ -148,18 +154,83 @@ def _store():
 ANONYMOUS = "anonymous"      # sentinel key for providers that answer without one (opted in via their keyless_env flag)
 
 
+_KEY_COOL: dict[tuple[str, str], float] = {}      # (provider, key) -> until: a rate-limited key rests while the others work
+KEY_COOL_FILE = LOG_DIR / "key_cool.json"          # shared across agent processes and the dashboard (keys stored by index, never by value)
+
+
+def _key_cool() -> dict[tuple[str, str], float]:
+    """In-memory rests merged with the persisted ones (other processes' rate limits count too)."""
+    now = time.time(); out = {k: v for k, v in _KEY_COOL.items() if v > now}
+    try:
+        for pk, until in json.loads(KEY_COOL_FILE.read_text()).items():
+            if until > now:
+                prov, idx = pk.rsplit(":", 1); keys = provider_keys(prov)
+                if idx.isdigit() and int(idx) < len(keys):
+                    out[(prov, keys[int(idx)])] = max(out.get((prov, keys[int(idx)]), 0), until)
+    except Exception:
+        pass
+    return out
+
+
+def key_state() -> dict:
+    """For the dashboard: per provider, how many keys, which are resting and for how long. No key values."""
+    cool = _key_cool(); now = time.time(); out = {}
+    for name in PROVIDERS:
+        keys = provider_keys(name)
+        if not keys:
+            continue
+        resting = [{"key": i + 1, "seconds": int(cool[(name, k)] - now)} for i, k in enumerate(keys) if cool.get((name, k), 0) > now]
+        active = next((i + 1 for i, k in enumerate(keys) if cool.get((name, k), 0) <= now), None)
+        out[name] = {"keys": len(keys), "active": active, "resting": resting}
+    return out
+
+
+def provider_keys(name: str) -> list[str]:
+    """Every key for a provider: KEY_ENV, KEY_ENV_2 .. KEY_ENV_5, each possibly comma-separated. Backup keys are free
+    accounts of the same provider; the office rotates to the next one when a key is rate-limited."""
+    p = PROVIDERS.get(name)
+    if not p:
+        return []
+    keys = []
+    for env in [p["key_env"]] + [f"{p['key_env']}_{i}" for i in range(2, 6)]:
+        raw = (os.environ.get(env) or "").split(" #", 1)[0]          # an inline comment on the .env line is not part of the key
+        for k in raw.split(","):
+            if k.strip() and k.strip() not in keys:
+                keys.append(k.strip())
+    return keys
+
+
 def provider_key(name: str) -> str:
+    """The first key that is not resting (or the first key at all); ANONYMOUS for keyless opt-ins."""
     p = PROVIDERS.get(name)
     if not p:
         return ""
-    key = (os.environ.get(p["key_env"]) or "").strip()
-    if not key and p.get("keyless_env") and (os.environ.get(p["keyless_env"]) or "").strip().lower() in ("1", "true", "yes", "on"):
-        return ANONYMOUS
-    return key
+    keys = provider_keys(name)
+    if not keys:
+        if p.get("keyless_env") and (os.environ.get(p["keyless_env"]) or "").strip().lower() in ("1", "true", "yes", "on"):
+            return ANONYMOUS
+        return ""
+    now = time.time(); cool = _key_cool()
+    return next((k for k in keys if cool.get((name, k), 0) <= now), keys[0])
 
 
-def auth_headers(name: str) -> dict:
-    key = provider_key(name)
+def rest_key(name: str, key: str, seconds: float):
+    until = time.time() + max(5.0, float(seconds)); _KEY_COOL[(name, key)] = until
+    try:                                                  # persist by index so every process (and the dashboard) sees it
+        idx = provider_keys(name).index(key)
+        KEY_COOL_FILE.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            data = json.loads(KEY_COOL_FILE.read_text())
+        except Exception:
+            data = {}
+        data = {k: v for k, v in data.items() if v > time.time()}; data[f"{name}:{idx}"] = until
+        KEY_COOL_FILE.write_text(json.dumps(data))
+    except Exception:
+        pass
+
+
+def auth_headers(name: str, key: str | None = None) -> dict:
+    key = provider_key(name) if key is None else key
     return {} if key in ("", ANONYMOUS) else {"Authorization": f"Bearer {key}"}
 
 
@@ -214,6 +285,7 @@ def tuning() -> dict:
 
 
 MAX_TURNS = int(os.environ.get("OFFICE_MAX_TURNS") or tuning().get("max_turns", 20))
+MEMORY_CAP_PER_RUN = int(os.environ.get("OFFICE_MEMORY_CAP_PER_RUN") or 10)   # the trading-learner once wrote 265 memories in a week
 FREE_RUN_REQUEST_CAP = int(os.environ.get("OFFICE_FREE_RUN_REQUEST_CAP") or 10)   # per run, on providers marked free_only
 READ_TOOLS = {"read_file", "list_files", "brain_recall", "brain_recent", "brain_query", "job_details", "web_fetch", "fact_check",
               "cv_truth_check", "market_data", "task_list", "github_status", "job_search", "web_search", "mail_inbox", "mail_read"}
@@ -236,6 +308,7 @@ class Brief:
     description: str = ""
     model: Optional[str] = None     # pin a specific model (optional)
     local_ok: bool = False          # may run on the local 3B model when every cloud provider is cooling down
+    max_tool_calls: int = 0         # brief-level tool budget: after this many calls the run wraps up (0 = no cap)
     cloud_only: bool = False        # never runs on the local model, even when OFFICE_LEAD_LOCAL_FALLBACK=1 (trading decisions)
     skills: list = field(default_factory=list)   # office/skills/<name>.md guides added to the system prompt
 
@@ -256,6 +329,7 @@ def load_brief(name: str) -> Brief:
         tools=list(meta.get("tools", [])),
         delegates=list(meta.get("delegates", [])),
         local_ok=bool(meta.get("local_ok", False)),
+        max_tool_calls=int(meta.get("max_tool_calls", 0) or 0),
         cloud_only=bool(meta.get("cloud_only", False)),
         skills=list(meta.get("skills", []) or []),
         system=m.group(2).strip(),
@@ -515,6 +589,8 @@ def _call_model(messages: list[dict], tools: list[dict], model: str, engine: str
         payload["tools"] = tools
         payload["tool_choice"] = tool_choice
     if engine == "ollama":
+        if not local_model_enabled():
+            raise EngineError("the local model is switched off (OFFICE_LOCAL_MODEL=0)")
         return _ollama_native(messages, [] if tool_choice == "none" else tools, model)
     p = PROVIDERS.get(engine)
     if not p:
@@ -525,13 +601,30 @@ def _call_model(messages: list[dict], tools: list[dict], model: str, engine: str
     extras = {}
     if "gpt-oss" in model and engine in ("groq", "cerebras"):
         extras["reasoning_effort"] = "medium" if tier == "lead" else "low"
-    headers = auth_headers(engine)
-    try:
-        return _chat(p["url"], headers, {**payload, **extras}, provider=engine, model=model)
-    except EngineError as e:
-        if extras and str(e).startswith("400"):   # provider rejected an optional param: retry plain
-            return _chat(p["url"], headers, payload, provider=engine, model=model)
-        raise
+    keys = provider_keys(engine) or [key]; now = time.time(); cool = _key_cool()
+    order = [k for k in keys if cool.get((engine, k), 0) <= now] or [key]
+    for i, k in enumerate(order):                     # key rotation: a rate-limited key rests, the next backup answers
+        headers = auth_headers(engine, k)
+        try:
+            try:
+                return _chat(p["url"], headers, {**payload, **extras}, provider=engine, model=model)
+            except EngineError as e:
+                if extras and str(e).startswith("400"):   # provider rejected an optional param: retry plain
+                    return _chat(p["url"], headers, payload, provider=engine, model=model)
+                raise
+        except RateLimited as rl:
+            if i + 1 >= len(order):
+                raise
+            try:
+                wait = float(str(rl))
+            except ValueError:
+                wait = 60.0
+            rest_key(engine, k, wait)
+            try:
+                emit("fallback", "runtime", "runtime", model=f"{engine}:{model}", reason=f"key {i + 1} of {len(order)} rate-limited for {int(wait)}s; trying backup key")
+            except Exception:
+                pass
+    raise RateLimited("30")
 
 
 def _ollama_native(messages: list[dict], tools: list[dict], model: str) -> dict:
@@ -637,6 +730,8 @@ def model_chain(brief: Brief, engine_pref: str) -> list[tuple[str, str]]:
     """[(engine, model), ...] in the order to try: each active provider's models for this tier, then local."""
     chain: list[tuple[str, str]] = []
     if engine_pref == "ollama":
+        if not local_model_enabled():
+            raise EngineError("the local model is switched off (OFFICE_LOCAL_MODEL=0)")
         return [("ollama", brief.model or OLLAMA_MODEL)]
     providers = active_providers() if engine_pref == "auto" else ([engine_pref] if provider_key(engine_pref) else [])
     pins = [m.strip() for m in (brief.model or "").split(",") if m.strip()]
@@ -652,7 +747,8 @@ def model_chain(brief: Brief, engine_pref: str) -> list[tuple[str, str]]:
                 chain.append((name, pin))           # pinned model, where this provider serves it
         for m in provider_models(name, brief.tier):
             chain.append((name, m))
-    chain.append(("ollama", OLLAMA_MODEL))
+    if local_model_enabled():
+        chain.append(("ollama", OLLAMA_MODEL))
     seen, out = set(), []
     for c in chain:
         if c not in seen:
@@ -757,6 +853,8 @@ class Agent:
                 return soonest
         if remote_all and (self.brief.cloud_only or (self.brief.tier == "lead" and not self.brief.local_ok and os.environ.get("OFFICE_LEAD_LOCAL_FALLBACK", "0") != "1")):
             raise EngineError("no capable model available: every cloud provider is cooling down and lead agents do not run on the local 3B model. Retry later.")
+        if not local_model_enabled():
+            raise EngineError("no capable model available: every cloud model is cooling down and the local model is switched off. Retry later.")
         return usable[-1] if usable else chain[-1]
 
     def _say(self, msg: str):
@@ -936,6 +1034,9 @@ class Agent:
                         result = self._delegate(args.get("agent", ""), args.get("task", "")) if self.brief.delegates else "ERROR: you have no one to delegate to"
                     elif fn not in self.brief.tools:      # an agent may only use the tools in its own brief
                         result = f"ERROR: '{fn}' is not one of your tools. Your tools: {', '.join(self.brief.tools)}"
+                    elif fn == "brain_remember" and sum(1 for c in calls if c["tool"] == "brain_remember") >= MEMORY_CAP_PER_RUN:
+                        result = (f"REFUSED: you have stored {MEMORY_CAP_PER_RUN} memories in this run, the cap. The brain is for facts other "
+                                  "agents need, one idea each; put the rest in a file in your own folder with write_file (or skip it).")
                     else:
                         result = self.registry.call(fn, args, agent=self.brief.name)
                 except Exception as e:  # tool errors go back to the model, not up the stack
@@ -957,6 +1058,8 @@ class Agent:
                 wrap_reason = "looping on repeated reads"; break
             if free_calls >= FREE_RUN_REQUEST_CAP:      # a 50-requests-a-day provider must not be drained by one run
                 wrap_reason = f"{free_calls} requests on a free-only provider"; break
+            if self.brief.max_tool_calls and len(calls) >= self.brief.max_tool_calls:   # builders: budget, then report
+                wrap_reason = f"tool budget of {self.brief.max_tool_calls} calls used"; break
 
         self._say(f"{wrap_reason}, asking for a final answer")
         messages.append({"role": "user", "content": "Stop using tools. Report in this exact shape: DONE: <what is finished and verified>. "
@@ -982,6 +1085,14 @@ class Agent:
             except EngineError:
                 _COOLDOWN[(engine, model)] = time.time() + 120
                 engine, model = self._pick(chain, prefer=None)
+        if not content:
+            try:                                           # one plain-text retry on another model: an empty report is a wasted run
+                engine2, model2 = self._pick(chain, prefer=None)
+                resp = _call_model(trim_context(messages[-12:]) if len(messages) > 12 else messages, [], model2, engine2, self.brief.tier)
+                content = (resp["choices"][0]["message"].get("content") or "").strip()
+                u = resp.get("usage") or {}; tok_in += int(u.get("prompt_tokens") or 0); tok_out += int(u.get("completion_tokens") or 0)
+            except Exception:
+                content = ""
         if not content:
             content = "Run ended at the turn limit before a final summary could be produced. Tool calls made: " + \
                       ", ".join(c["tool"] for c in calls)

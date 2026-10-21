@@ -94,7 +94,7 @@ def main():
     tasks = json.loads((ROOT / "office" / "eval" / "tasks.json").read_text())
     if a.tasks:
         want = set(a.tasks.split(",")); tasks = [t for t in tasks if t["id"] in want]
-    providers = [a.provider] if a.provider else active_providers() + ["ollama"]
+    providers = [a.provider] if a.provider else active_providers() + (["ollama"] if os.environ.get("OFFICE_LOCAL_MODEL", "1") != "0" else [])
     if a.quick:
         tasks = tasks[:5]; providers = providers[:1]
     rows = []
